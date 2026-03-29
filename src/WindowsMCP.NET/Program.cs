@@ -147,7 +147,10 @@ try
             {
                 o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
             })
-            .WithHttpTransport()
+            .WithHttpTransport(options =>
+            {
+                options.Stateless = true;
+            })
             .WithToolsFromAssembly();
 #pragma warning restore IL2026
 
