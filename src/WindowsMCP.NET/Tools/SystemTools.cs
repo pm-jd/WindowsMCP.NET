@@ -65,7 +65,7 @@ public static class SystemTools
     [McpServerTool(Name = "Process", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("List running processes (mode=list) or kill a process by PID (mode=kill).")]
     public static string ProcessTool(
-        [Description("Mode: list or kill")] string mode = "list",
+        [Description("Mode: list or kill")] string mode,
         [Description("Process ID to kill (required for mode=kill)")] int? pid = null,
         [Description("Filter by name substring (for mode=list)")] string? name = null,
         [Description("Sort list by: memory (default), cpu, name, pid")] string sort_by = "memory",

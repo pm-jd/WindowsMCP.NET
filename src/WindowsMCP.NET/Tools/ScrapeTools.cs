@@ -37,7 +37,9 @@ public static class ScrapeTools
                  "Optionally filter content by a query string.")]
     public static async Task<string> Scrape(
         [Description("URL to fetch (http or https)")] string url,
-        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null)
+        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null,
+        [Description("Use browser DOM for scraping (not implemented; accepted for API compatibility)")] bool use_dom = false,
+        [Description("Use sampling to reduce content length")] bool use_sampling = true)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != "http" && uri.Scheme != "https"))

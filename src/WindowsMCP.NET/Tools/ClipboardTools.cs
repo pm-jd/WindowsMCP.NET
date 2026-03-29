@@ -11,7 +11,7 @@ public static class ClipboardTools
     [McpServerTool(Name = "Clipboard", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Get or set the Windows clipboard text content. mode: get or set.")]
     public static string Clipboard(
-        [Description("Mode: get or set")] string mode = "get",
+        [Description("Mode: get or set")] string mode,
         [Description("Text to place on clipboard (required for mode=set)")] string? text = null)
     {
         return mode.ToLowerInvariant() switch

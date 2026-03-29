@@ -1,0 +1,915 @@
+[
+  {
+    "Name": "App",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "launch",
+          "enum": [
+            "launch",
+            "resize",
+            "switch"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_loc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "window_size": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "PowerShell",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "timeout": {
+          "default": 30,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "FileSystem",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "read",
+            "write",
+            "copy",
+            "move",
+            "delete",
+            "list",
+            "search",
+            "info"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recursive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "append": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "overwrite": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "encoding": {
+          "default": "utf-8",
+          "type": "string"
+        },
+        "show_hidden": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        }
+      },
+      "required": [
+        "mode",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Snapshot",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "use_vision": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "use_dom": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "use_annotation": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": true
+        },
+        "use_ui_tree": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": true
+        },
+        "width_reference_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "height_reference_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "display": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Screenshot",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "use_annotation": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "width_reference_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "height_reference_line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "display": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Click",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "button": {
+          "default": "left",
+          "enum": [
+            "left",
+            "right",
+            "middle"
+          ],
+          "type": "string"
+        },
+        "clicks": {
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Type",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "loc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "clear": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "caret_position": {
+          "default": "idle",
+          "enum": [
+            "start",
+            "idle",
+            "end"
+          ],
+          "type": "string"
+        },
+        "press_enter": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Scroll",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "default": "vertical",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ],
+          "type": "string"
+        },
+        "direction": {
+          "default": "down",
+          "enum": [
+            "up",
+            "down",
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "wheel_times": {
+          "default": 1,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Move",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "loc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "drag": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Shortcut",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "shortcut": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "shortcut"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Wait",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "duration"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Scrape",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "use_dom": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
+        "use_sampling": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": true
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "MultiSelect",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "locs": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "labels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "press_ctrl": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": true
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "MultiEdit",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "locs": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {},
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "labels": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {},
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Clipboard",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "get",
+            "set"
+          ],
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Process",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "list",
+            "kill"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sort_by": {
+          "default": "memory",
+          "enum": [
+            "memory",
+            "cpu",
+            "name"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "type": "integer"
+        },
+        "force": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Notification",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "Name": "Registry",
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "get",
+            "set",
+            "delete",
+            "list"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "default": "String",
+          "enum": [
+            "String",
+            "DWord",
+            "QWord",
+            "Binary",
+            "MultiString",
+            "ExpandString"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "path"
+      ],
+      "type": "object"
+    }
+  }
+]

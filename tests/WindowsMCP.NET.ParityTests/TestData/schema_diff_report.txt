@@ -1,0 +1,6 @@
+=== Schema Diff Report ===
+Tools only in baseline  : 0
+Tools only in actual    : 0
+Tools with differences  : 0
+Total differences       : 0
+

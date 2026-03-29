@@ -101,7 +101,8 @@ public static class InputTools
         [Description("Optional: click this label before typing")] string? label = null,
         [Description("Coordinate to click before typing as [x, y]")] JsonElement? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
-        [Description("Press Enter after typing")] bool press_enter = false)
+        [Description("Press Enter after typing")] bool press_enter = false,
+        [Description("Caret position after typing: start, idle, or end (not yet implemented)")] string? caret_position = null)
     {
         if (label is not null)
         {
@@ -301,9 +302,9 @@ public static class InputTools
     [McpServerTool(Name = "Wait", ReadOnly = true, Idempotent = true)]
     [Description("Wait for a specified duration in seconds.")]
     public static async Task<string> Wait(
-        [Description("Duration in seconds to wait (max 10)")] double duration = 1.0)
+        [Description("Duration in seconds to wait (max 10)")] int duration)
     {
-        duration = Math.Clamp(duration, 0, 10.0);
+        duration = Math.Clamp(duration, 0, 10);
         await Task.Delay(TimeSpan.FromSeconds(duration));
         return $"Waited {duration}s";
     }
