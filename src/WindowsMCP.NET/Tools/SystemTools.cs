@@ -16,10 +16,11 @@ public static class SystemTools
     {
         timeoutSeconds = Math.Clamp(timeoutSeconds, 1, 120);
 
+        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -Command \"{command.Replace("\"", "\\\"")}\"",
+            Arguments = $"-NoProfile -NonInteractive -EncodedCommand {encoded}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

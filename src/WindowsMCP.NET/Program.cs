@@ -109,17 +109,26 @@ else
 
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
-            kestrel.ListenAnyIP(config.Port, listenOptions =>
-            {
-                listenOptions.UseHttps(certPath, config.Https.CertPassword);
-            });
+            if (config.Host == "0.0.0.0")
+                kestrel.ListenAnyIP(config.Port, listenOptions =>
+                {
+                    listenOptions.UseHttps(certPath, config.Https.CertPassword);
+                });
+            else
+                kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port, listenOptions =>
+                {
+                    listenOptions.UseHttps(certPath, config.Https.CertPassword);
+                });
         });
     }
     else
     {
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
-            kestrel.ListenAnyIP(config.Port);
+            if (config.Host == "0.0.0.0")
+                kestrel.ListenAnyIP(config.Port);
+            else
+                kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port);
         });
     }
 

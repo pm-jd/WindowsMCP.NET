@@ -15,15 +15,8 @@ public sealed class ScreenCaptureService
 
     public byte[] CaptureScreen(int? displayIndex = null)
     {
-        try
-        {
-            return CaptureWithDxgi(displayIndex);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "DXGI capture failed, falling back to GDI+");
-            return CaptureWithGdi(displayIndex);
-        }
+        // DXGI not yet implemented, using GDI+
+        return CaptureWithGdi(displayIndex);
     }
 
     private byte[] CaptureWithGdi(int? displayIndex)
@@ -86,9 +79,9 @@ public sealed class ScreenCaptureService
         using var bitmap = new Bitmap(ms);
         using var graphics = Graphics.FromImage(bitmap);
 
-        var font = new Font("Arial", 10, FontStyle.Bold);
-        var bgBrush = new SolidBrush(Color.FromArgb(200, Color.Red));
-        var textBrush = new SolidBrush(Color.White);
+        using var font = new Font("Arial", 10, FontStyle.Bold);
+        using var bgBrush = new SolidBrush(Color.FromArgb(200, Color.Red));
+        using var textBrush = new SolidBrush(Color.White);
 
         foreach (var (x, y, label) in annotations)
         {

@@ -9,6 +9,7 @@ public sealed class UiTreeService
 
     private AnnotatedTree? _cache;
     private readonly TimeSpan _cacheTtl = TimeSpan.FromSeconds(2);
+    private readonly object _lock = new();
 
     public UiTreeService(UiAutomationService uiAutomation, ILogger<UiTreeService> logger)
     {
@@ -18,28 +19,31 @@ public sealed class UiTreeService
 
     public AnnotatedTree BuildAnnotatedTree()
     {
-        if (_cache is not null && DateTimeOffset.UtcNow - _cache.Timestamp < _cacheTtl)
+        lock (_lock)
         {
-            _logger.LogDebug("Returning cached UI tree");
+            if (_cache is not null && DateTimeOffset.UtcNow - _cache.Timestamp < _cacheTtl)
+            {
+                _logger.LogDebug("Returning cached UI tree");
+                return _cache;
+            }
+
+            _logger.LogDebug("Building fresh UI tree");
+            var roots = _uiAutomation.GetDesktopTree();
+            var labelMap = new Dictionary<string, UiElementNode>();
+            var counter = 1;
+
+            AssignLabels(roots, labelMap, ref counter);
+
+            _cache = new AnnotatedTree
+            {
+                Roots = roots,
+                LabelMap = labelMap,
+                Timestamp = DateTimeOffset.UtcNow,
+            };
+
+            _logger.LogInformation("UI tree built with {Count} interactive elements", labelMap.Count);
             return _cache;
         }
-
-        _logger.LogDebug("Building fresh UI tree");
-        var roots = _uiAutomation.GetDesktopTree();
-        var labelMap = new Dictionary<string, UiElementNode>();
-        var counter = 1;
-
-        AssignLabels(roots, labelMap, ref counter);
-
-        _cache = new AnnotatedTree
-        {
-            Roots = roots,
-            LabelMap = labelMap,
-            Timestamp = DateTimeOffset.UtcNow,
-        };
-
-        _logger.LogInformation("UI tree built with {Count} interactive elements", labelMap.Count);
-        return _cache;
     }
 
     public (int X, int Y)? ResolveLabel(string label)
