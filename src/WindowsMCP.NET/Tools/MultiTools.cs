@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Native;
 using WindowsMcpNet.Services;
@@ -13,8 +14,8 @@ public static class MultiTools
                  "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
-        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] List<int>? labels = null,
-        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] List<List<int>>? locs = null,
+        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] JsonElement? labels = null,
+        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] JsonElement? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool pressCtrl = true)
     {
         var targets = ResolveTargets(uiTreeService, labels, locs);
@@ -55,8 +56,8 @@ public static class MultiTools
                  "or label-text pairs via labels ([[label,text],[label,text],...]).")]
     public static string MultiEdit(
         UiTreeService uiTreeService,
-        [Description("Array of [x, y, text] or [[x,y], text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']] — pass as [[x,y,text],...]")] List<List<string>>? locs = null,
-        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] List<List<string>>? labels = null)
+        [Description("Array of [x, y, text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']]")] JsonElement? locs = null,
+        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] JsonElement? labels = null)
     {
         var pairs = BuildEditPairs(uiTreeService, locs, labels);
         if (pairs.Count == 0)
@@ -89,28 +90,35 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Desc)> ResolveTargets(
         UiTreeService uiTreeService,
-        List<int>? labels,
-        List<List<int>>? locs)
+        JsonElement? labels,
+        JsonElement? locs)
     {
         var targets = new List<(int, int, string)>();
 
-        if (labels is not null)
+        // labels: array of integer label IDs, e.g. [3, 7, 12]
+        if (labels.HasValue && labels.Value.ValueKind == JsonValueKind.Array)
         {
-            foreach (var labelId in labels)
+            foreach (var item in labels.Value.EnumerateArray())
             {
-                var labelStr = labelId.ToString();
+                var labelStr = item.ValueKind == JsonValueKind.Number
+                    ? item.GetInt32().ToString()
+                    : item.GetString() ?? string.Empty;
+                if (string.IsNullOrEmpty(labelStr)) continue;
                 var pos = uiTreeService.ResolveLabel(labelStr)
                           ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
                 targets.Add((pos.X, pos.Y, $"[{labelStr}]"));
             }
         }
 
-        if (locs is not null)
+        // locs: array of [x, y] arrays, e.g. [[100,200],[300,400]]
+        if (locs.HasValue && locs.Value.ValueKind == JsonValueKind.Array)
         {
-            foreach (var loc in locs)
+            foreach (var item in locs.Value.EnumerateArray())
             {
-                if (loc is not null && loc.Count >= 2)
-                    targets.Add((loc[0], loc[1], $"({loc[0]},{loc[1]})"));
+                if (item.ValueKind != JsonValueKind.Array || item.GetArrayLength() < 2) continue;
+                int x = item[0].GetInt32();
+                int y = item[1].GetInt32();
+                targets.Add((x, y, $"({x},{y})"));
             }
         }
 
@@ -119,31 +127,39 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Text, string Desc)> BuildEditPairs(
         UiTreeService uiTreeService,
-        List<List<string>>? locs,
-        List<List<string>>? labels)
+        JsonElement? locs,
+        JsonElement? labels)
     {
         var pairs = new List<(int, int, string, string)>();
 
-        if (locs is not null)
+        // locs: array of [x, y, text] triplets, e.g. [[100,200,"hello"],[300,400,"world"]]
+        if (locs.HasValue && locs.Value.ValueKind == JsonValueKind.Array)
         {
-            foreach (var entry in locs)
+            foreach (var entry in locs.Value.EnumerateArray())
             {
-                // entry is [x, y, text] as strings
-                if (entry is null || entry.Count < 3) continue;
-                if (!int.TryParse(entry[0], out int x) || !int.TryParse(entry[1], out int y)) continue;
-                var text = entry[2];
+                if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 3) continue;
+                int x, y;
+                // x and y may be numbers or numeric strings
+                if (entry[0].ValueKind == JsonValueKind.Number)
+                    x = entry[0].GetInt32();
+                else if (!int.TryParse(entry[0].GetString(), out x)) continue;
+                if (entry[1].ValueKind == JsonValueKind.Number)
+                    y = entry[1].GetInt32();
+                else if (!int.TryParse(entry[1].GetString(), out y)) continue;
+                var text = entry[2].GetString() ?? string.Empty;
                 pairs.Add((x, y, text, $"({x},{y})"));
             }
         }
 
-        if (labels is not null)
+        // labels: array of [label, text] pairs, e.g. [["5","John"],["6","Doe"]]
+        if (labels.HasValue && labels.Value.ValueKind == JsonValueKind.Array)
         {
-            foreach (var entry in labels)
+            foreach (var entry in labels.Value.EnumerateArray())
             {
-                // entry is [label, text]
-                if (entry is null || entry.Count < 2) continue;
-                var labelStr = entry[0];
-                var text = entry[1];
+                if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 2) continue;
+                var labelStr = entry[0].GetString() ?? string.Empty;
+                var text = entry[1].GetString() ?? string.Empty;
+                if (string.IsNullOrEmpty(labelStr)) continue;
                 var pos = uiTreeService.ResolveLabel(labelStr)
                           ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
                 pairs.Add((pos.X, pos.Y, text, $"[{labelStr}]"));

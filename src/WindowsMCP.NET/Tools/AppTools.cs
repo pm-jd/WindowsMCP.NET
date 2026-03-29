@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Services;
 
@@ -14,8 +15,8 @@ public static class AppTools
         DesktopService desktopService,
         [Description("Mode: launch, switch, or resize")] string mode,
         [Description("App name/executable for launch; window title substring for switch/resize")] string name,
-        [Description("Window position as [x, y] (for resize)")] List<int>? windowLoc = null,
-        [Description("Window size as [width, height] (for resize)")] List<int>? windowSize = null)
+        [Description("Window position as [x, y] (for resize)")] JsonElement? windowLoc = null,
+        [Description("Window size as [width, height] (for resize)")] JsonElement? windowSize = null)
     {
         return mode.ToLowerInvariant() switch
         {
@@ -43,7 +44,7 @@ public static class AppTools
     }
 
     private static string ResizeApp(DesktopService desktopService, string name,
-        List<int>? windowLoc, List<int>? windowSize)
+        JsonElement? windowLoc, JsonElement? windowSize)
     {
         var windows = desktopService.ListWindows();
         var match = windows.FirstOrDefault(w =>
@@ -52,14 +53,29 @@ public static class AppTools
         if (match is null)
             return $"No window matching '{name}' found.";
 
-        int rx = (windowLoc is not null && windowLoc.Count >= 2) ? windowLoc[0] : match.X;
-        int ry = (windowLoc is not null && windowLoc.Count >= 2) ? windowLoc[1] : match.Y;
-        int rw = (windowSize is not null && windowSize.Count >= 2) ? windowSize[0] : match.Width;
-        int rh = (windowSize is not null && windowSize.Count >= 2) ? windowSize[1] : match.Height;
+        var loc = ParseCoord(windowLoc);
+        var size = ParseCoord(windowSize);
+
+        int rx = loc.HasValue ? loc.Value.X : match.X;
+        int ry = loc.HasValue ? loc.Value.Y : match.Y;
+        int rw = size.HasValue ? size.Value.X : match.Width;
+        int rh = size.HasValue ? size.Value.Y : match.Height;
 
         var ok = desktopService.ResizeWindow(match.Handle, rx, ry, rw, rh);
         return ok
             ? $"Resized \"{match.Title}\" to ({rx},{ry}) {rw}x{rh}"
             : $"Failed to resize \"{match.Title}\"";
+    }
+
+    /// <summary>
+    /// Parses a JsonElement that is expected to be a [x, y] integer array.
+    /// Returns null if the element is null/undefined or not a valid 2-element array.
+    /// </summary>
+    private static (int X, int Y)? ParseCoord(JsonElement? elem)
+    {
+        if (!elem.HasValue || elem.Value.ValueKind != JsonValueKind.Array) return null;
+        var arr = elem.Value;
+        if (arr.GetArrayLength() < 2) return null;
+        return (arr[0].GetInt32(), arr[1].GetInt32());
     }
 }
