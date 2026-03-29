@@ -53,7 +53,7 @@ public static class InputTools
                  "button: left (default), right, middle. clicks: 1 for single (default), 2 for double.")]
     public static string Click(
         UiTreeService uiTreeService,
-        [Description("Coordinate as [x, y] (ignored when label is given)")] int[]? loc = null,
+        [Description("Coordinate as [x, y] (ignored when label is given)")] List<int>? loc = null,
         [Description("UI element label from last Snapshot (e.g. '3')")] string? label = null,
         [Description("Mouse button: left, right, middle")] string button = "left",
         [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1)
@@ -65,7 +65,7 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = pos;
         }
-        else if (loc is not null && loc.Length >= 2)
+        else if (loc is not null && loc.Count >= 2)
         {
             (cx, cy) = (loc[0], loc[1]);
         }
@@ -98,7 +98,7 @@ public static class InputTools
         UiTreeService uiTreeService,
         [Description("Text to type")] string text,
         [Description("Optional: click this label before typing")] string? label = null,
-        [Description("Coordinate to click before typing as [x, y]")] int[]? loc = null,
+        [Description("Coordinate to click before typing as [x, y]")] List<int>? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
         [Description("Press Enter after typing")] bool pressEnter = false)
     {
@@ -109,7 +109,7 @@ public static class InputTools
             User32.SetCursorPos(pos.X, pos.Y);
             SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
         }
-        else if (loc is not null && loc.Length >= 2)
+        else if (loc is not null && loc.Count >= 2)
         {
             User32.SetCursorPos(loc[0], loc[1]);
             SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
@@ -159,7 +159,7 @@ public static class InputTools
         UiTreeService uiTreeService,
         [Description("Scroll direction: up or down (vertical), left or right (horizontal)")] string direction = "down",
         [Description("Number of scroll notches")] int wheelTimes = 3,
-        [Description("Coordinate as [x, y]")] int[]? loc = null,
+        [Description("Coordinate as [x, y]")] List<int>? loc = null,
         [Description("UI element label")] string? label = null,
         [Description("Scroll axis: vertical (default) or horizontal")] string type = "vertical")
     {
@@ -170,7 +170,7 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = (pos.X, pos.Y);
         }
-        else if (loc is not null && loc.Length >= 2)
+        else if (loc is not null && loc.Count >= 2)
         {
             (cx, cy) = (loc[0], loc[1]);
         }
@@ -215,7 +215,7 @@ public static class InputTools
     [Description("Move the mouse cursor to a coordinate or UI element label. Optionally drag (mousedown before move, mouseup after).")]
     public static string Move(
         UiTreeService uiTreeService,
-        [Description("Coordinate as [x, y]")] int[]? loc = null,
+        [Description("Coordinate as [x, y]")] List<int>? loc = null,
         [Description("UI element label")] string? label = null,
         [Description("Drag: hold mouse button down while moving, release after")] bool drag = false)
     {
@@ -226,7 +226,7 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = (pos.X, pos.Y);
         }
-        else if (loc is not null && loc.Length >= 2)
+        else if (loc is not null && loc.Count >= 2)
         {
             (cx, cy) = (loc[0], loc[1]);
         }

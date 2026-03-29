@@ -14,8 +14,8 @@ public static class AppTools
         DesktopService desktopService,
         [Description("Mode: launch, switch, or resize")] string mode,
         [Description("App name/executable for launch; window title substring for switch/resize")] string name,
-        [Description("Window position as [x, y] (for resize)")] int[]? windowLoc = null,
-        [Description("Window size as [width, height] (for resize)")] int[]? windowSize = null)
+        [Description("Window position as [x, y] (for resize)")] List<int>? windowLoc = null,
+        [Description("Window size as [width, height] (for resize)")] List<int>? windowSize = null)
     {
         return mode.ToLowerInvariant() switch
         {
@@ -43,7 +43,7 @@ public static class AppTools
     }
 
     private static string ResizeApp(DesktopService desktopService, string name,
-        int[]? windowLoc, int[]? windowSize)
+        List<int>? windowLoc, List<int>? windowSize)
     {
         var windows = desktopService.ListWindows();
         var match = windows.FirstOrDefault(w =>
@@ -52,10 +52,10 @@ public static class AppTools
         if (match is null)
             return $"No window matching '{name}' found.";
 
-        int rx = (windowLoc is not null && windowLoc.Length >= 2) ? windowLoc[0] : match.X;
-        int ry = (windowLoc is not null && windowLoc.Length >= 2) ? windowLoc[1] : match.Y;
-        int rw = (windowSize is not null && windowSize.Length >= 2) ? windowSize[0] : match.Width;
-        int rh = (windowSize is not null && windowSize.Length >= 2) ? windowSize[1] : match.Height;
+        int rx = (windowLoc is not null && windowLoc.Count >= 2) ? windowLoc[0] : match.X;
+        int ry = (windowLoc is not null && windowLoc.Count >= 2) ? windowLoc[1] : match.Y;
+        int rw = (windowSize is not null && windowSize.Count >= 2) ? windowSize[0] : match.Width;
+        int rh = (windowSize is not null && windowSize.Count >= 2) ? windowSize[1] : match.Height;
 
         var ok = desktopService.ResizeWindow(match.Handle, rx, ry, rw, rh);
         return ok

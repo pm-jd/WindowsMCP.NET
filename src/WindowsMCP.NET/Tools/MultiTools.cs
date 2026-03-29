@@ -13,8 +13,8 @@ public static class MultiTools
                  "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
-        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
-        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
+        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] List<int>? labels = null,
+        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] List<List<int>>? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool pressCtrl = true)
     {
         var targets = ResolveTargets(uiTreeService, labels, locs);
@@ -55,8 +55,8 @@ public static class MultiTools
                  "or label-text pairs via labels ([[label,text],[label,text],...]).")]
     public static string MultiEdit(
         UiTreeService uiTreeService,
-        [Description("Array of [x, y, text] or [[x,y], text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']] — pass as [[x,y,text],...]")] string[][]? locs = null,
-        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] string[][]? labels = null)
+        [Description("Array of [x, y, text] or [[x,y], text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']] — pass as [[x,y,text],...]")] List<List<string>>? locs = null,
+        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] List<List<string>>? labels = null)
     {
         var pairs = BuildEditPairs(uiTreeService, locs, labels);
         if (pairs.Count == 0)
@@ -89,8 +89,8 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Desc)> ResolveTargets(
         UiTreeService uiTreeService,
-        int[]? labels,
-        int[][]? locs)
+        List<int>? labels,
+        List<List<int>>? locs)
     {
         var targets = new List<(int, int, string)>();
 
@@ -109,7 +109,7 @@ public static class MultiTools
         {
             foreach (var loc in locs)
             {
-                if (loc is not null && loc.Length >= 2)
+                if (loc is not null && loc.Count >= 2)
                     targets.Add((loc[0], loc[1], $"({loc[0]},{loc[1]})"));
             }
         }
@@ -119,8 +119,8 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Text, string Desc)> BuildEditPairs(
         UiTreeService uiTreeService,
-        string[][]? locs,
-        string[][]? labels)
+        List<List<string>>? locs,
+        List<List<string>>? labels)
     {
         var pairs = new List<(int, int, string, string)>();
 
@@ -129,7 +129,7 @@ public static class MultiTools
             foreach (var entry in locs)
             {
                 // entry is [x, y, text] as strings
-                if (entry is null || entry.Length < 3) continue;
+                if (entry is null || entry.Count < 3) continue;
                 if (!int.TryParse(entry[0], out int x) || !int.TryParse(entry[1], out int y)) continue;
                 var text = entry[2];
                 pairs.Add((x, y, text, $"({x},{y})"));
@@ -141,7 +141,7 @@ public static class MultiTools
             foreach (var entry in labels)
             {
                 // entry is [label, text]
-                if (entry is null || entry.Length < 2) continue;
+                if (entry is null || entry.Count < 2) continue;
                 var labelStr = entry[0];
                 var text = entry[1];
                 var pos = uiTreeService.ResolveLabel(labelStr)
