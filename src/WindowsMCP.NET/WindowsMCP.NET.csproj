@@ -16,6 +16,11 @@
     <GitHubPat Condition="'$(GitHubPat)' == ''">%%GITHUB_PAT%%</GitHubPat>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="version.txt" />
+  </ItemGroup>
+
+
   <!-- Inject GitHub PAT into UpdateChecker.cs at compile time -->
   <Target Name="InjectGitHubPat" BeforeTargets="CoreCompile">
     <ItemGroup>

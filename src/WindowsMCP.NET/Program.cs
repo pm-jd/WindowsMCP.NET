@@ -9,7 +9,31 @@ var isInteractive = args.Length == 0 && !Console.IsInputRedirected;
 
 try
 {
-    var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0";
+    // Read version: prefer -p:Version from CI, fallback to embedded version.txt
+    var asmVersion = Assembly.GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+    // Strip +commitHash suffix
+    if (asmVersion.Contains('+')) asmVersion = asmVersion[..asmVersion.IndexOf('+')];
+
+    string version;
+    if (asmVersion is not "" and not "1.0.0")
+    {
+        version = asmVersion;
+    }
+    else
+    {
+        // Fallback: read embedded version.txt
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("WindowsMcpNet.version.txt");
+        if (stream is not null)
+        {
+            using var reader = new StreamReader(stream);
+            version = reader.ReadToEnd().Trim();
+        }
+        else
+        {
+            version = "dev";
+        }
+    }
     var baseDirectory = AppContext.BaseDirectory;
     var configManager = new ConfigManager(baseDirectory);
     var cliOptions = CliParser.Parse(args);

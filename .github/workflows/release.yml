@@ -47,6 +47,10 @@ jobs:
           exit 1
         fi
 
+    - name: Write version.txt
+      shell: bash
+      run: echo "${{ steps.version.outputs.version }}" > src/WindowsMCP.NET/version.txt
+
     - name: Restore
       run: dotnet restore WindowsMCP.NET.slnx
 
