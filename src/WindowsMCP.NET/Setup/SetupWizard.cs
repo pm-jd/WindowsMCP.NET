@@ -94,7 +94,7 @@ public sealed class SetupWizard
     {
         var scheme = config.Https.Enabled ? "https" : "http";
         var host = GetPrimaryLocalIp() ?? Dns.GetHostName();
-        var url = $"{scheme}://{host}:{config.Port}/mcp";
+        var url = $"{scheme}://{host}:{config.Port}";
 
         Console.WriteLine();
         Console.WriteLine("  Run this command on the client machine to connect:");
