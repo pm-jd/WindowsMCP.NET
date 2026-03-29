@@ -66,6 +66,9 @@ public sealed class SetupWizard
             config.Port = port;
         }
 
+        // Firewall rule
+        OpenFirewallPort(config.Port);
+
         // Autostart
         Console.Write("  Start automatically with Windows? [Y/n] ");
         var autoAnswer = Console.ReadLine()?.Trim().ToLowerInvariant();
@@ -114,6 +117,32 @@ public sealed class SetupWizard
     {
         var bytes = RandomNumberGenerator.GetBytes(20);
         return "wmcp_" + Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static void OpenFirewallPort(int port)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = $"advfirewall firewall add rule name=\"WindowsMCP.NET\" dir=in action=allow protocol=TCP localport={port}",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            using var process = System.Diagnostics.Process.Start(psi);
+            process?.WaitForExit(5000);
+            if (process?.ExitCode == 0)
+                Console.WriteLine($"  Firewall rule created (TCP port {port}).");
+            else
+                Console.Error.WriteLine($"  Warning: Could not create firewall rule for port {port}.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"  Warning: Firewall configuration failed: {ex.Message}");
+        }
     }
 
     private static string? GetPrimaryLocalIp()
