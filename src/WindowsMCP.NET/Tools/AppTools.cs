@@ -13,16 +13,16 @@ public static class AppTools
                  "mode: launch (start app by executable/URI), switch (focus by window title), resize (move/size window).")]
     public static string App(
         DesktopService desktopService,
-        [Description("Mode: launch, switch, or resize")] string mode,
-        [Description("App name/executable for launch; window title substring for switch/resize")] string name,
-        [Description("Window position as [x, y] (for resize)")] JsonElement? windowLoc = null,
-        [Description("Window size as [width, height] (for resize)")] JsonElement? windowSize = null)
+        [Description("Mode: launch, switch, or resize")] string mode = "launch",
+        [Description("App name/executable for launch; window title substring for switch/resize")] string name = "",
+        [Description("Window position as [x, y] (for resize)")] JsonElement? window_loc = null,
+        [Description("Window size as [width, height] (for resize)")] JsonElement? window_size = null)
     {
         return mode.ToLowerInvariant() switch
         {
             "launch" => LaunchApp(desktopService, name),
             "switch" => SwitchToApp(desktopService, name),
-            "resize" => ResizeApp(desktopService, name, windowLoc, windowSize),
+            "resize" => ResizeApp(desktopService, name, window_loc, window_size),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: launch, switch, or resize.")
         };
     }
@@ -44,7 +44,7 @@ public static class AppTools
     }
 
     private static string ResizeApp(DesktopService desktopService, string name,
-        JsonElement? windowLoc, JsonElement? windowSize)
+        JsonElement? window_loc, JsonElement? window_size)
     {
         var windows = desktopService.ListWindows();
         var match = windows.FirstOrDefault(w =>
@@ -53,8 +53,8 @@ public static class AppTools
         if (match is null)
             return $"No window matching '{name}' found.";
 
-        var loc = ParseCoord(windowLoc);
-        var size = ParseCoord(windowSize);
+        var loc = ParseCoord(window_loc);
+        var size = ParseCoord(window_size);
 
         int rx = loc.HasValue ? loc.Value.X : match.X;
         int ry = loc.HasValue ? loc.Value.Y : match.Y;

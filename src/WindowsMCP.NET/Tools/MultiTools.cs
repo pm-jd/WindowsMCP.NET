@@ -16,13 +16,13 @@ public static class MultiTools
         UiTreeService uiTreeService,
         [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] JsonElement? labels = null,
         [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] JsonElement? locs = null,
-        [Description("Hold Ctrl key while clicking (for multi-selection)")] bool pressCtrl = true)
+        [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true)
     {
         var targets = ResolveTargets(uiTreeService, labels, locs);
         if (targets.Count == 0)
             throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
 
-        if (pressCtrl)
+        if (press_ctrl)
         {
             var ctrlDown = MakeVkKey(0x11, keyUp: false);
             User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
@@ -40,7 +40,7 @@ public static class MultiTools
         }
         finally
         {
-            if (pressCtrl)
+            if (press_ctrl)
             {
                 var ctrlUp = MakeVkKey(0x11, keyUp: true);
                 User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());

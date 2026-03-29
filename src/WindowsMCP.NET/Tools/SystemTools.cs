@@ -68,13 +68,13 @@ public static class SystemTools
         [Description("Mode: list or kill")] string mode = "list",
         [Description("Process ID to kill (required for mode=kill)")] int? pid = null,
         [Description("Filter by name substring (for mode=list)")] string? name = null,
-        [Description("Sort list by: memory (default), cpu, name, pid")] string sortBy = "memory",
+        [Description("Sort list by: memory (default), cpu, name, pid")] string sort_by = "memory",
         [Description("Maximum number of processes to return in list mode")] int limit = 20,
         [Description("Force kill (SIGKILL / TerminateProcess) instead of graceful close")] bool force = false)
     {
         return mode.ToLowerInvariant() switch
         {
-            "list" => ListProcesses(name, sortBy, limit),
+            "list" => ListProcesses(name, sort_by, limit),
             "kill" => KillProcess(pid, force),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: list or kill.")
         };

@@ -101,7 +101,7 @@ public static class InputTools
         [Description("Optional: click this label before typing")] string? label = null,
         [Description("Coordinate to click before typing as [x, y]")] JsonElement? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
-        [Description("Press Enter after typing")] bool pressEnter = false)
+        [Description("Press Enter after typing")] bool press_enter = false)
     {
         if (label is not null)
         {
@@ -141,7 +141,7 @@ public static class InputTools
 
         User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
 
-        if (pressEnter)
+        if (press_enter)
         {
             var enterInputs = new INPUT[]
             {
@@ -151,7 +151,7 @@ public static class InputTools
             User32.SendInput((uint)enterInputs.Length, enterInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
         }
 
-        return $"Typed {text.Length} character(s){(pressEnter ? " + Enter" : "")}";
+        return $"Typed {text.Length} character(s){(press_enter ? " + Enter" : "")}";
     }
 
     [McpServerTool(Name = "Scroll", Destructive = false, OpenWorld = false, ReadOnly = false)]
@@ -159,7 +159,7 @@ public static class InputTools
     public static string Scroll(
         UiTreeService uiTreeService,
         [Description("Scroll direction: up or down (vertical), left or right (horizontal)")] string direction = "down",
-        [Description("Number of scroll notches")] int wheelTimes = 3,
+        [Description("Number of scroll notches")] int wheel_times = 3,
         [Description("Coordinate as [x, y]")] JsonElement? loc = null,
         [Description("UI element label")] string? label = null,
         [Description("Scroll axis: vertical (default) or horizontal")] string type = "vertical")
@@ -192,7 +192,7 @@ public static class InputTools
         {
             delta = direction.Equals("up", StringComparison.OrdinalIgnoreCase) ? 120 : -120;
         }
-        delta *= wheelTimes;
+        delta *= wheel_times;
 
         uint scrollFlag = isHorizontal ? User32.MOUSEEVENTF_HWHEEL : User32.MOUSEEVENTF_WHEEL;
 
@@ -209,7 +209,7 @@ public static class InputTools
             }
         };
         User32.SendInput(1, new[] { input }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-        return $"Scrolled {direction} {wheelTimes} notch(es) at ({cx},{cy})";
+        return $"Scrolled {direction} {wheel_times} notch(es) at ({cx},{cy})";
     }
 
     [McpServerTool(Name = "Move", Destructive = true, OpenWorld = true, ReadOnly = false)]

@@ -11,30 +11,30 @@ public static class SnapshotTools
     [McpServerTool(Name = "Snapshot", ReadOnly = true, Idempotent = true)]
     [Description("Capture the screen and build the UI element tree. " +
                  "Returns an annotated screenshot (PNG) and/or the text tree. " +
-                 "useAnnotation=true overlays numbered labels on interactive elements. " +
-                 "useVision=false skips screenshot capture. useDom=false skips UI tree building.")]
+                 "use_annotation=true overlays numbered labels on interactive elements. " +
+                 "use_vision=false skips screenshot capture. use_dom=false skips UI tree building.")]
     public static IList<ContentBlock> Snapshot(
         UiTreeService uiTreeService,
         ScreenCaptureService captureService,
-        [Description("Overlay element labels on the screenshot")] bool useAnnotation = true,
-        [Description("Capture screenshot (set false to skip image)")] bool useVision = true,
-        [Description("Build UI element tree (set false to skip DOM)")] bool useDom = true,
+        [Description("Overlay element labels on the screenshot")] bool use_annotation = true,
+        [Description("Capture screenshot (set false to skip image)")] bool use_vision = true,
+        [Description("Build UI element tree (set false to skip DOM)")] bool use_dom = true,
         [Description("Display index (null = primary)")] int? display = null)
     {
         var result = new List<ContentBlock>();
 
-        if (useDom)
+        if (use_dom)
         {
             uiTreeService.InvalidateCache();
             var tree = uiTreeService.BuildAnnotatedTree();
             result.Add(new TextContentBlock { Text = tree.ToText() });
         }
 
-        if (useVision)
+        if (use_vision)
         {
             var pngBytes = captureService.CaptureScreen(display);
 
-            if (useAnnotation)
+            if (use_annotation)
             {
                 var points = uiTreeService.GetAnnotationPoints()
                     .Select(p => (p.X, p.Y, p.Label))
@@ -53,12 +53,12 @@ public static class SnapshotTools
     public static IList<ContentBlock> Screenshot(
         UiTreeService uiTreeService,
         ScreenCaptureService captureService,
-        [Description("Overlay cached element labels on the screenshot")] bool useAnnotation = true,
+        [Description("Overlay cached element labels on the screenshot")] bool use_annotation = true,
         [Description("Display index (null = primary)")] int? display = null)
     {
         var pngBytes = captureService.CaptureScreen(display);
 
-        if (useAnnotation)
+        if (use_annotation)
         {
             var points = uiTreeService.GetAnnotationPoints()
                 .Select(p => (p.X, p.Y, p.Label))
