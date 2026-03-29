@@ -90,10 +90,14 @@ try
         services.AddSingleton<UiTreeService>();
     }
 
+    var logPath = Path.Combine(baseDirectory, "WindowsMCP.NET.log");
+    var fileLoggerProvider = new FileLoggerProvider(logPath);
+
     if (transport == "stdio")
     {
         var builder = Host.CreateApplicationBuilder(args);
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+        builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
 #pragma warning disable IL2026
         builder.Services
@@ -111,6 +115,7 @@ try
     {
         var builder = WebApplication.CreateBuilder(args);
         builder.Logging.AddConsole();
+        builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
 
         if (config.Https.Enabled)

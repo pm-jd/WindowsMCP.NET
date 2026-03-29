@@ -8,3 +8,4 @@ publish/
 TestResults/
 config.json
 *.pfx
+*.log
