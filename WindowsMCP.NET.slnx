@@ -3,6 +3,7 @@
     <Project Path="src/WindowsMCP.NET/WindowsMCP.NET.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WindowsMCP.NET.ParityTests/WindowsMCP.NET.ParityTests.csproj" />
     <Project Path="tests/WindowsMCP.NET.Tests/WindowsMCP.NET.Tests.csproj" />
   </Folder>
 </Solution>
