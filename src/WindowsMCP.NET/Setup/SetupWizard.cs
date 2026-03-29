@@ -36,26 +36,25 @@ public sealed class SetupWizard
             Console.WriteLine($"  API-Key: {config.ApiKey} (existing)");
         }
 
-        // Certificate
-        var certFullPath = Path.Combine(_baseDirectory, config.Https.CertPath);
-        if (!File.Exists(certFullPath) || newCert)
+        // HTTPS (optional)
+        Console.Write("  Enable HTTPS? (requires cert import on each client) [y/N] ");
+        var certAnswer = Console.ReadLine()?.Trim().ToLowerInvariant();
+        if (certAnswer is "y" or "j")
         {
-            Console.WriteLine();
-            Console.Write("  Generate self-signed HTTPS certificate? [Y/n] ");
-            var certAnswer = Console.ReadLine()?.Trim().ToLowerInvariant();
-            if (certAnswer is "" or "y" or "j")
+            var certFullPath = Path.Combine(_baseDirectory, config.Https.CertPath);
+            if (!File.Exists(certFullPath) || newCert)
             {
                 var (certPath, certPassword) = CertificateGenerator.Generate(_baseDirectory);
-                config.Https.Enabled = true;
                 config.Https.CertPath = Path.GetFileName(certPath);
                 config.Https.CertPassword = certPassword;
                 Console.WriteLine("  Certificate created.");
             }
-            else
-            {
-                config.Https.Enabled = false;
-                Console.WriteLine("  HTTPS disabled.");
-            }
+            config.Https.Enabled = true;
+        }
+        else
+        {
+            config.Https.Enabled = false;
+            Console.WriteLine("  Using HTTP (recommended for internal networks).");
         }
 
         // Port
