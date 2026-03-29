@@ -99,17 +99,38 @@ public sealed class UiAutomationService : IDisposable
 
     private static UiElementNode BuildNode(AutomationElement element, int depth, int maxDepth)
     {
-        var rect = element.BoundingRectangle;
+        // Property access can throw PropertyNotSupportedException for some system elements.
+        // Wrap each access individually so one bad property doesn't skip the whole node.
+        string name = "";
+        string controlType = "Unknown";
+        string? automationId = null;
+        int x = 0, y = 0, width = 0, height = 0;
+        bool isInteractive = false;
+
+        try { name = element.Name ?? ""; } catch { }
+        try { controlType = element.ControlType.ToString(); } catch { }
+        try { automationId = element.AutomationId; } catch { }
+        try
+        {
+            var rect = element.BoundingRectangle;
+            x = (int)rect.X;
+            y = (int)rect.Y;
+            width = (int)rect.Width;
+            height = (int)rect.Height;
+        }
+        catch { }
+        try { isInteractive = IsInteractiveType(element.ControlType); } catch { }
+
         var node = new UiElementNode
         {
-            Name = element.Name ?? "",
-            ControlType = element.ControlType.ToString(),
-            AutomationId = element.AutomationId,
-            X = (int)rect.X,
-            Y = (int)rect.Y,
-            Width = (int)rect.Width,
-            Height = (int)rect.Height,
-            IsInteractive = IsInteractiveType(element.ControlType),
+            Name = name,
+            ControlType = controlType,
+            AutomationId = automationId,
+            X = x,
+            Y = y,
+            Width = width,
+            Height = height,
+            IsInteractive = isInteractive,
         };
 
         if (depth < maxDepth)

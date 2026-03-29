@@ -8,6 +8,30 @@ namespace WindowsMcpNet.ParityTests.Phase2_FunctionalTests;
 [Collection("McpServer")]
 public class ScreenToolsParityTests : IAsyncLifetime
 {
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Screenshot_DiagnoseContentTypes()
+    {
+        var client = new McpTestClient(_fixture.Client);
+        var result = await client.CallToolAsync("Screenshot");
+        _output.WriteLine($"IsError: {result.IsError}");
+        _output.WriteLine($"Content.Count: {result.Content.Count}");
+        foreach (var block in result.Content)
+        {
+            _output.WriteLine($"  Block: RuntimeType={block.GetType().FullName}, Type={block.Type}");
+            if (block is ImageContentBlock img)
+                _output.WriteLine($"    -> ImageContentBlock, Data.Length={img.Data.Length}");
+            else if (block is TextContentBlock txt)
+                _output.WriteLine($"    -> TextContentBlock, Text={txt.Text}");
+            else
+                _output.WriteLine($"    -> OTHER CONTENT BLOCK TYPE");
+        }
+        var hasImage2 = result.Content.OfType<ImageContentBlock>().Any();
+        _output.WriteLine($"Has image: {hasImage2}, IsError: {result.IsError}");
+        Assert.True(hasImage2, "Should have image block");
+        Assert.True(result.Content.Count > 0, "Screenshot should return at least one content block");
+    }
     private readonly McpServerFixture _fixture;
     private readonly ITestOutputHelper _output;
     private McpTestClient _client = null!;
