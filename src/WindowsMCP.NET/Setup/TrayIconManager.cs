@@ -26,7 +26,7 @@ public sealed partial class TrayIconManager : IDisposable
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add("Show Console", null, (_, _) => ShowConsole());
             contextMenu.Items.Add("Copy Config Snippet", null, (_, _) => CopyConfig());
-            contextMenu.Items.Add("Check for Updates", null, (_, _) => _ = CheckForUpdatesAsync());
+            contextMenu.Items.Add("Check for Updates", null, (_, _) => CheckForUpdatesHandler());
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add("Stop Server", null, (_, _) =>
             {
@@ -80,20 +80,41 @@ public sealed partial class TrayIconManager : IDisposable
         thread.Join();
     }
 
-    private static async Task CheckForUpdatesAsync()
+    private void CheckForUpdatesHandler()
     {
-        var result = await UpdateChecker.GetLatestAsync();
-        if (result is (string ver, string url))
+        _ = CheckForUpdatesAsync();
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        var result = await UpdateChecker.GetLatestReleaseAsync();
+        if (result is (string ver, string pageUrl, string exeUrl))
         {
             var thread = new Thread(() =>
             {
-                var answer = MessageBox.Show(
-                    $"Update available: v{ver}\n\nOpen download page?",
-                    "WindowsMCP.NET Update",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information);
+                var message = exeUrl is not null
+                    ? $"Update available: v{ver}\n\nDownload and install automatically?"
+                    : $"Update available: v{ver}\n\nOpen download page?";
+
+                var answer = MessageBox.Show(message, "WindowsMCP.NET Update",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+
                 if (answer == DialogResult.Yes)
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                {
+                    if (exeUrl is not null)
+                    {
+                        _ = UpdateChecker.DownloadAndApplyUpdateAsync(exeUrl, () =>
+                        {
+                            _onExit();
+                            Application.ExitThread();
+                        });
+                    }
+                    else if (pageUrl is not null)
+                    {
+                        System.Diagnostics.Process.Start(
+                            new System.Diagnostics.ProcessStartInfo(pageUrl) { UseShellExecute = true });
+                    }
+                }
             });
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
@@ -102,7 +123,8 @@ public sealed partial class TrayIconManager : IDisposable
         {
             var thread = new Thread(() =>
             {
-                MessageBox.Show("You are running the latest version.", "WindowsMCP.NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("You are running the latest version.", "WindowsMCP.NET",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             });
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
