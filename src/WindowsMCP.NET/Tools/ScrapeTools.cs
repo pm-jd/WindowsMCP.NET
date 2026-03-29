@@ -10,8 +10,9 @@ public static class ScrapeTools
 {
     private const int MaxChars = 50_000;
 
-    private static readonly HttpClient _httpClient = new(new HttpClientHandler
+    private static readonly HttpClient _httpClient = new(new SocketsHttpHandler
     {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         AllowAutoRedirect = true,
         MaxAutomaticRedirections = 5,
     })
@@ -19,7 +20,7 @@ public static class ScrapeTools
         Timeout = TimeSpan.FromSeconds(30),
         DefaultRequestHeaders =
         {
-            { "User-Agent", "WindowsMCP.NET/0.1 (web scraper)" },
+            { "User-Agent", "WindowsMCP.NET/0.1" },
             { "Accept", "text/html,application/xhtml+xml,*/*" },
         }
     };

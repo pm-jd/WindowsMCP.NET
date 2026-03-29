@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace WindowsMcpNet.Security;
 
 public sealed class ApiKeyMiddleware
@@ -22,7 +24,9 @@ public sealed class ApiKeyMiddleware
         }
 
         var providedKey = authHeader["Bearer ".Length..].Trim();
-        if (!string.Equals(providedKey, _apiKey, StringComparison.Ordinal))
+        if (!CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(providedKey),
+            System.Text.Encoding.UTF8.GetBytes(_apiKey)))
         {
             context.Response.StatusCode = 403;
             await context.Response.WriteAsync("Invalid API key.");

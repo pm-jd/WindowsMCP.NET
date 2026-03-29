@@ -100,8 +100,27 @@ public static class FileSystemTools
         return $"Moved {source} → {dest}";
     }
 
+    private static void ValidateNotProtected(string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd('\\');
+        var protectedRoots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Path.GetPathRoot(Environment.SystemDirectory),
+        };
+        foreach (var root in protectedRoots)
+        {
+            if (!string.IsNullOrEmpty(root) && full.Equals(root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Refusing to delete protected system path: {path}");
+        }
+    }
+
     private static string DeleteFile(string path)
     {
+        ValidateNotProtected(path);
         if (File.Exists(path))
         {
             File.Delete(path);
@@ -192,8 +211,8 @@ public static class FileSystemTools
         if (Directory.Exists(path))
         {
             var di = new DirectoryInfo(path);
-            var fileCount = di.GetFiles("*", SearchOption.AllDirectories).Length;
-            var dirCount  = di.GetDirectories("*", SearchOption.AllDirectories).Length;
+            var fileCount = di.EnumerateFiles("*", SearchOption.TopDirectoryOnly).Count();
+            var dirCount  = di.EnumerateDirectories("*", SearchOption.TopDirectoryOnly).Count();
             return $"Type:         Directory\n" +
                    $"Path:         {di.FullName}\n" +
                    $"Files:        {fileCount:N0}\n" +

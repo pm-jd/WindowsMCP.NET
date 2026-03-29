@@ -23,7 +23,7 @@ public sealed class IpAllowlistMiddleware
         if (remoteIp is null || !_allowedIps.Contains(remoteIp))
         {
             context.Response.StatusCode = 403;
-            await context.Response.WriteAsync($"IP {remoteIp} is not in the allowlist.");
+            await context.Response.WriteAsync("Forbidden.");
             return;
         }
 

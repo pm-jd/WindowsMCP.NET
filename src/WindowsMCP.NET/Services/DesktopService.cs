@@ -80,7 +80,7 @@ public sealed class DesktopService
         return User32.MoveWindow(hWnd, x, y, width, height, true);
     }
 
-    public WindowInfo? LaunchApp(string name)
+    public async Task<WindowInfo?> LaunchApp(string name)
     {
         _logger.LogInformation("Launching app: {Name}", name);
         var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -92,7 +92,7 @@ public sealed class DesktopService
         if (process is null) return null;
 
         process.WaitForInputIdle(3000);
-        Thread.Sleep(500);
+        await Task.Delay(500);
 
         var windows = ListWindows();
         return windows.FirstOrDefault(w => w.ProcessId == (uint)process.Id);

@@ -11,7 +11,7 @@ public static class AppTools
     [McpServerTool(Name = "App", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Launch, switch to, or resize a window. " +
                  "mode: launch (start app by executable/URI), switch (focus by window title), resize (move/size window).")]
-    public static string App(
+    public static async Task<string> App(
         DesktopService desktopService,
         [Description("Mode: launch, switch, or resize")] string mode = "launch",
         [Description("App name/executable for launch; window title substring for switch/resize")] string name = "",
@@ -20,16 +20,16 @@ public static class AppTools
     {
         return mode.ToLowerInvariant() switch
         {
-            "launch" => LaunchApp(desktopService, name),
+            "launch" => await LaunchApp(desktopService, name),
             "switch" => SwitchToApp(desktopService, name),
             "resize" => ResizeApp(desktopService, name, window_loc, window_size),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: launch, switch, or resize.")
         };
     }
 
-    private static string LaunchApp(DesktopService desktopService, string name)
+    private static async Task<string> LaunchApp(DesktopService desktopService, string name)
     {
-        var window = desktopService.LaunchApp(name);
+        var window = await desktopService.LaunchApp(name);
         if (window is null)
             return $"Launched '{name}' (window not yet visible)";
         return $"Launched '{name}' — window: \"{window.Title}\" PID={window.ProcessId}";

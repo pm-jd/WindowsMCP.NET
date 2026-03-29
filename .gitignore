@@ -6,3 +6,5 @@ obj/
 *.DotSettings.user
 publish/
 TestResults/
+config.json
+*.pfx

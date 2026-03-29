@@ -9,7 +9,7 @@ namespace WindowsMcpNet.Tools;
 public static class SystemTools
 {
     [McpServerTool(Name = "PowerShell", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Run a PowerShell command and return combined stdout + stderr output.")]
+    [Description("Execute a PowerShell command. WARNING: This tool has full system access. Commands run with the server's privileges and can modify files, registry, processes, and network settings.")]
     public static async Task<string> PowerShell(
         [Description("PowerShell command or script to execute")] string command,
         [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30)
@@ -104,40 +104,48 @@ public static class SystemTools
 
     private static string ListProcesses(string? nameFilter, string sortBy, int limit)
     {
-        var query = System.Diagnostics.Process.GetProcesses()
-            .Where(p =>
-            {
-                try { return nameFilter is null || p.ProcessName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase); }
-                catch { return false; }
-            });
-
-        IOrderedEnumerable<System.Diagnostics.Process> sorted = sortBy.ToLowerInvariant() switch
+        var processes = System.Diagnostics.Process.GetProcesses();
+        try
         {
-            "name"   => query.OrderBy(p => p.ProcessName),
-            "pid"    => query.OrderBy(p => p.Id),
-            "cpu"    => query.OrderByDescending(p => { try { return p.TotalProcessorTime.TotalSeconds; } catch { return 0; } }),
-            _        => query.OrderByDescending(p => { try { return p.WorkingSet64; } catch { return 0L; } }), // memory
-        };
+            var query = processes
+                .Where(p =>
+                {
+                    try { return nameFilter is null || p.ProcessName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase); }
+                    catch { return false; }
+                });
 
-        var procs = sorted.Take(limit).ToList();
+            IOrderedEnumerable<System.Diagnostics.Process> sorted = sortBy.ToLowerInvariant() switch
+            {
+                "name"   => query.OrderBy(p => p.ProcessName),
+                "pid"    => query.OrderBy(p => p.Id),
+                "cpu"    => query.OrderByDescending(p => { try { return p.TotalProcessorTime.TotalSeconds; } catch { return 0; } }),
+                _        => query.OrderByDescending(p => { try { return p.WorkingSet64; } catch { return 0L; } }), // memory
+            };
 
-        var sb = new StringBuilder();
-        sb.AppendLine($"{"PID",-8} {"Name",-30} {"Memory (MB)",12}");
-        sb.AppendLine(new string('-', 55));
-        foreach (var p in procs)
-        {
-            try
+            var procs = sorted.Take(limit).ToList();
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"{"PID",-8} {"Name",-30} {"Memory (MB)",12}");
+            sb.AppendLine(new string('-', 55));
+            foreach (var p in procs)
             {
-                long memMb = p.WorkingSet64 / (1024 * 1024);
-                sb.AppendLine($"{p.Id,-8} {p.ProcessName,-30} {memMb,12}");
+                try
+                {
+                    long memMb = p.WorkingSet64 / (1024 * 1024);
+                    sb.AppendLine($"{p.Id,-8} {p.ProcessName,-30} {memMb,12}");
+                }
+                catch
+                {
+                    sb.AppendLine($"{p.Id,-8} {p.ProcessName,-30} {"(access denied)",12}");
+                }
             }
-            catch
-            {
-                sb.AppendLine($"{p.Id,-8} {p.ProcessName,-30} {"(access denied)",12}");
-            }
+            sb.AppendLine($"\nShowing: {procs.Count} process(es)");
+            return sb.ToString().TrimEnd();
         }
-        sb.AppendLine($"\nShowing: {procs.Count} process(es)");
-        return sb.ToString().TrimEnd();
+        finally
+        {
+            foreach (var p in processes) p.Dispose();
+        }
     }
 
     private static string KillProcess(int? pid, bool force)
@@ -153,7 +161,9 @@ public static class SystemTools
         }
         else
         {
-            proc.Kill(entireProcessTree: true);
+            proc.CloseMainWindow();
+            if (!proc.WaitForExit(3000))
+                proc.Kill();
         }
         return $"Killed process '{procName}' (PID={pid.Value})";
     }

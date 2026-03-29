@@ -50,7 +50,10 @@ public static class CliParser
                     host = args[++i];
                     break;
                 case "--port" when i + 1 < args.Length:
-                    port = int.Parse(args[++i]);
+                    if (int.TryParse(args[++i], out var parsedPort))
+                        port = parsedPort;
+                    else
+                        Console.Error.WriteLine($"Warning: Invalid port value '{args[i]}', ignoring.");
                     break;
                 case "--api-key" when i + 1 < args.Length:
                     apiKey = args[++i];
