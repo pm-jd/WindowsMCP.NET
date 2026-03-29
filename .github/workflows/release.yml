@@ -25,12 +25,19 @@ jobs:
       shell: bash
       run: |
         YEAR_MONTH=$(date +%Y.%m)
-        # Find the latest tag for this month
-        LATEST_PATCH=$(git tag -l "${YEAR_MONTH}.*" --sort=-v:refname | head -n1 | grep -oP '\d+$' || echo "0")
+        # Find the latest tag for this month, extract patch number
+        LATEST_TAG=$(git tag -l "${YEAR_MONTH}.*" --sort=-v:refname | head -n1)
+        if [ -n "$LATEST_TAG" ]; then
+          # Extract the last number after the last dot: 2026.03.1 -> 1
+          LATEST_PATCH="${LATEST_TAG##*.}"
+        else
+          LATEST_PATCH=0
+        fi
         NEXT_PATCH=$((LATEST_PATCH + 1))
         VERSION="${YEAR_MONTH}.${NEXT_PATCH}"
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        echo "Version: ${VERSION}"
+        echo "Latest tag: ${LATEST_TAG:-none}"
+        echo "Next version: ${VERSION}"
 
     - name: Check if tag already exists
       shell: bash
