@@ -7,11 +7,13 @@ public sealed partial class TrayIconManager : IDisposable
 {
     private NotifyIcon? _notifyIcon;
     private readonly string _url;
+    private readonly string? _apiKey;
     private readonly Action _onExit;
 
-    public TrayIconManager(string url, Action onExit)
+    public TrayIconManager(string url, string? apiKey, Action onExit)
     {
         _url = url;
+        _apiKey = apiKey;
         _onExit = onExit;
     }
 
@@ -67,10 +69,13 @@ public sealed partial class TrayIconManager : IDisposable
 
     private void CopyConfig()
     {
-        // Run on STA thread
+        var snippet = _apiKey is not null
+            ? $"claude mcp add windows-mcp-dotnet \"{_url}\" --transport http --scope user --header \"Authorization: Bearer {_apiKey}\""
+            : _url;
+
         var thread = new Thread(() =>
         {
-            Clipboard.SetText(_url);
+            Clipboard.SetText(snippet);
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
