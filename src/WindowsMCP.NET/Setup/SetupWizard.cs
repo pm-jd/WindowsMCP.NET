@@ -66,6 +66,18 @@ public sealed class SetupWizard
             config.Port = port;
         }
 
+        // Autostart
+        Console.Write("  Start automatically with Windows? [Y/n] ");
+        var autoAnswer = Console.ReadLine()?.Trim().ToLowerInvariant();
+        if (autoAnswer is "" or "y" or "j")
+        {
+            AutoStartManager.Enable();
+        }
+        else if (AutoStartManager.IsEnabled())
+        {
+            AutoStartManager.Disable();
+        }
+
         _configManager.Save(config);
         Console.WriteLine();
         Console.WriteLine($"  Config saved to: {Path.Combine(_baseDirectory, "config.json")}");

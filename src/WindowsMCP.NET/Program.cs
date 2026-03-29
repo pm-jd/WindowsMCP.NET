@@ -163,6 +163,16 @@ try
         Console.Error.WriteLine($"Listening on {(config.Https.Enabled ? "https" : "http")}://{config.Host}:{config.Port}");
         Console.Error.WriteLine("Press Ctrl+C to stop.");
 
+        if (isInteractive)
+            TrayIconManager.HideConsole();
+
+        var url = $"{(config.Https.Enabled ? "https" : "http")}://{config.Host}:{config.Port}/mcp";
+        using var trayIcon = new TrayIconManager(url, () =>
+        {
+            app.Lifetime.StopApplication();
+        });
+        trayIcon.Show();
+
         await app.RunAsync();
     }
 }

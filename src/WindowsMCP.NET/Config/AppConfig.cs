@@ -11,6 +11,7 @@ public sealed class AppConfig
     public HttpsConfig Https { get; set; } = new();
     public List<string> AllowedIps { get; set; } = [];
     public string LogLevel { get; set; } = "Information";
+    public bool Autostart { get; set; } = false;
 }
 
 public sealed class HttpsConfig
