@@ -95,11 +95,8 @@ public sealed class SetupWizard
 
     private static string GenerateApiKey()
     {
-        var bytes = RandomNumberGenerator.GetBytes(24);
-        return "wmcp_" + Convert.ToBase64String(bytes)
-            .Replace("+", "")
-            .Replace("/", "")
-            .Replace("=", "")[..32];
+        var bytes = RandomNumberGenerator.GetBytes(20);
+        return "wmcp_" + Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private static string? GetPrimaryLocalIp()
