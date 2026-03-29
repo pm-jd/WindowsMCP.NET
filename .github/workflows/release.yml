@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for tag detection
+
+    - name: Setup .NET 9
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Determine version
+      id: version
+      shell: bash
+      run: |
+        YEAR_MONTH=$(date +%Y.%m)
+        # Find the latest tag for this month
+        LATEST_PATCH=$(git tag -l "${YEAR_MONTH}.*" --sort=-v:refname | head -n1 | grep -oP '\d+$' || echo "0")
+        NEXT_PATCH=$((LATEST_PATCH + 1))
+        VERSION="${YEAR_MONTH}.${NEXT_PATCH}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Version: ${VERSION}"
+
+    - name: Check if tag already exists
+      shell: bash
+      run: |
+        if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+          echo "Tag ${{ steps.version.outputs.version }} already exists, skipping release"
+          exit 1
+        fi
+
+    - name: Restore
+      run: dotnet restore WindowsMCP.NET.slnx
+
+    - name: Build
+      run: dotnet build WindowsMCP.NET.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+    - name: Test (Unit)
+      run: dotnet test tests/WindowsMCP.NET.Tests/ --configuration Release --no-build
+
+    - name: Publish
+      run: dotnet publish src/WindowsMCP.NET/WindowsMCP.NET.csproj -c Release -r win-x64 -p:Version=${{ steps.version.outputs.version }} -o publish/
+
+    - name: Generate SHA256 checksum
+      shell: bash
+      run: |
+        cd publish
+        sha256sum WindowsMCP.NET.exe > WindowsMCP.NET.exe.sha256
+        cat WindowsMCP.NET.exe.sha256
+
+    - name: Generate changelog
+      id: changelog
+      shell: bash
+      run: |
+        PREV_TAG=$(git tag --sort=-v:refname | head -n1 || echo "")
+        if [ -z "$PREV_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s" HEAD)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD)
+        fi
+        # Categorize
+        FEATURES=$(echo "$CHANGELOG" | grep -i "^- feat" || true)
+        FIXES=$(echo "$CHANGELOG" | grep -i "^- fix" || true)
+        DOCS=$(echo "$CHANGELOG" | grep -i "^- docs\|^- doc\|^- ci" || true)
+        OTHER=$(echo "$CHANGELOG" | grep -iv "^- feat\|^- fix\|^- docs\|^- doc\|^- ci" || true)
+
+        BODY=""
+        if [ -n "$FEATURES" ]; then BODY="${BODY}## Features\n${FEATURES}\n\n"; fi
+        if [ -n "$FIXES" ]; then BODY="${BODY}## Fixes\n${FIXES}\n\n"; fi
+        if [ -n "$DOCS" ]; then BODY="${BODY}## Other\n${DOCS}\n\n"; fi
+        if [ -n "$OTHER" ]; then BODY="${BODY}## Other\n${OTHER}\n\n"; fi
+
+        # Write to file for gh release
+        echo -e "$BODY" > changelog.md
+        cat changelog.md
+
+    - name: Create Git Tag
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag ${{ steps.version.outputs.version }}
+        git push origin ${{ steps.version.outputs.version }}
+
+    - name: Create GitHub Release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release create ${{ steps.version.outputs.version }} `
+          publish/WindowsMCP.NET.exe `
+          publish/WindowsMCP.NET.exe.sha256 `
+          --title "WindowsMCP.NET ${{ steps.version.outputs.version }}" `
+          --notes-file changelog.md

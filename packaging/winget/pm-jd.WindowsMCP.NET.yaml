@@ -1,0 +1,14 @@
+PackageIdentifier: pm-jd.WindowsMCP.NET
+PackageVersion: 2026.03.1
+PackageName: WindowsMCP.NET
+Publisher: pm-jd
+License: MIT
+ShortDescription: A .NET MCP server for Windows desktop automation
+PackageUrl: https://github.com/pm-jd/WindowsMCP.NET
+Installers:
+  - Architecture: x64
+    InstallerType: portable
+    InstallerUrl: https://github.com/pm-jd/WindowsMCP.NET/releases/download/2026.03.1/WindowsMCP.NET.exe
+    InstallerSha256: ""
+ManifestType: singleton
+ManifestVersion: 1.6.0

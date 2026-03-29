@@ -1,0 +1,21 @@
+{
+    "version": "2026.03.1",
+    "description": "A .NET MCP server for Windows desktop automation",
+    "homepage": "https://github.com/pm-jd/WindowsMCP.NET",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/pm-jd/WindowsMCP.NET/releases/download/${version}/WindowsMCP.NET.exe",
+            "hash": ""
+        }
+    },
+    "bin": "WindowsMCP.NET.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/pm-jd/WindowsMCP.NET/releases/download/$version/WindowsMCP.NET.exe"
+            }
+        }
+    }
+}
