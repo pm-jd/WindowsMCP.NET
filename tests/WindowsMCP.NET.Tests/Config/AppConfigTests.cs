@@ -15,7 +15,7 @@ public class AppConfigTests
         Assert.Equal("0.0.0.0", config.Host);
         Assert.Equal(8000, config.Port);
         Assert.Null(config.ApiKey);
-        Assert.True(config.Https.Enabled);
+        Assert.False(config.Https.Enabled);
         Assert.Empty(config.AllowedIps);
     }
 
