@@ -27,6 +27,11 @@ jobs:
     - name: Test
       run: dotnet test WindowsMCP.NET.slnx --configuration Release --no-build --filter "Category!=Integration"
 
+    - name: Test (Parity - dotnet only)
+      run: dotnet test tests/WindowsMCP.NET.ParityTests/ --configuration Release --filter "Category!=Schema&Category!=Desktop"
+      env:
+        PARITY_SERVER: dotnet
+
     - name: Publish (AOT)
       run: dotnet publish src/WindowsMCP.NET/WindowsMCP.NET.csproj -c Release -r win-x64
 
