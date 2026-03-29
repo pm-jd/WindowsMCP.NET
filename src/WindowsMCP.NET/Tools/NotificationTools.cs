@@ -11,11 +11,8 @@ public static class NotificationTools
     [Description("Show a Windows toast notification via PowerShell.")]
     public static async Task<string> Notification(
         [Description("Notification title")] string title,
-        [Description("Notification message body")] string message,
-        [Description("Duration in seconds before auto-dismiss (default 5, max 30)")] int duration = 5)
+        [Description("Notification message body")] string message)
     {
-        duration = Math.Clamp(duration, 1, 30);
-
         // Escape single quotes for embedding in PowerShell here-string
         var safeTitle   = title.Replace("'", "''");
         var safeMessage = message.Replace("'", "''");

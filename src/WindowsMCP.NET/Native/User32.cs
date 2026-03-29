@@ -107,6 +107,7 @@ internal static partial class User32
     internal const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
     internal const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
     internal const uint MOUSEEVENTF_WHEEL = 0x0800;
+    internal const uint MOUSEEVENTF_HWHEEL = 0x01000;
     internal const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
 
     internal const uint KEYEVENTF_KEYUP = 0x0002;

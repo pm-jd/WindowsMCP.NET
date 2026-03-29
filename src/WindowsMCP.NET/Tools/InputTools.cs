@@ -50,14 +50,13 @@ public static class InputTools
 
     [McpServerTool(Name = "Click", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Click at a screen coordinate or on a UI element identified by label. " +
-                 "button: left (default), right, middle. double: double-click if true.")]
+                 "button: left (default), right, middle. clicks: 1 for single (default), 2 for double.")]
     public static string Click(
         UiTreeService uiTreeService,
-        [Description("X coordinate (ignored when label is given)")] int? x = null,
-        [Description("Y coordinate (ignored when label is given)")] int? y = null,
+        [Description("Coordinate as [x, y] (ignored when label is given)")] int[]? loc = null,
         [Description("UI element label from last Snapshot (e.g. '3')")] string? label = null,
         [Description("Mouse button: left, right, middle")] string button = "left",
-        [Description("Double-click")] bool @double = false)
+        [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1)
     {
         int cx, cy;
         if (label is not null)
@@ -66,13 +65,13 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = pos;
         }
-        else if (x.HasValue && y.HasValue)
+        else if (loc is not null && loc.Length >= 2)
         {
-            (cx, cy) = (x.Value, y.Value);
+            (cx, cy) = (loc[0], loc[1]);
         }
         else
         {
-            throw new ArgumentException("Either 'label' or both 'x' and 'y' must be provided.");
+            throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
         }
 
         User32.SetCursorPos(cx, cy);
@@ -84,21 +83,24 @@ public static class InputTools
             _        => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
         };
 
-        int clicks = @double ? 2 : 1;
-        for (int i = 0; i < clicks; i++)
+        int actualClicks = Math.Max(1, clicks);
+        for (int i = 0; i < actualClicks; i++)
         {
             SendMouseClick(downFlag, upFlag);
         }
 
-        return $"Clicked {button} at ({cx},{cy}){(@double ? " (double)" : "")}";
+        return $"Clicked {button} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
     }
 
     [McpServerTool(Name = "Type", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Type text using Unicode key events. Optionally click a label first.")]
+    [Description("Type text using Unicode key events. Optionally move to a coordinate or click a label first.")]
     public static string Type(
         UiTreeService uiTreeService,
         [Description("Text to type")] string text,
-        [Description("Optional: click this label before typing")] string? label = null)
+        [Description("Optional: click this label before typing")] string? label = null,
+        [Description("Coordinate to click before typing as [x, y]")] int[]? loc = null,
+        [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
+        [Description("Press Enter after typing")] bool pressEnter = false)
     {
         if (label is not null)
         {
@@ -106,6 +108,26 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             User32.SetCursorPos(pos.X, pos.Y);
             SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+        }
+        else if (loc is not null && loc.Length >= 2)
+        {
+            User32.SetCursorPos(loc[0], loc[1]);
+            SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+        }
+
+        if (clear)
+        {
+            // Ctrl+A then Delete
+            var clearInputs = new INPUT[]
+            {
+                MakeVkKey(0x11, keyUp: false),  // Ctrl down
+                MakeVkKey(0x41, keyUp: false),  // A down
+                MakeVkKey(0x41, keyUp: true),   // A up
+                MakeVkKey(0x11, keyUp: true),   // Ctrl up
+                MakeVkKey(0x2E, keyUp: false),  // Delete down
+                MakeVkKey(0x2E, keyUp: true),   // Delete up
+            };
+            User32.SendInput((uint)clearInputs.Length, clearInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
         }
 
         var inputs = new INPUT[text.Length * 2];
@@ -117,36 +139,61 @@ public static class InputTools
         }
 
         User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-        return $"Typed {text.Length} character(s)";
+
+        if (pressEnter)
+        {
+            var enterInputs = new INPUT[]
+            {
+                MakeVkKey(0x0D, keyUp: false),  // Enter down
+                MakeVkKey(0x0D, keyUp: true),   // Enter up
+            };
+            User32.SendInput((uint)enterInputs.Length, enterInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+        }
+
+        return $"Typed {text.Length} character(s){(pressEnter ? " + Enter" : "")}";
     }
 
     [McpServerTool(Name = "Scroll", Destructive = false, OpenWorld = false, ReadOnly = false)]
-    [Description("Scroll the mouse wheel at given coordinates or label. direction: up or down, amount: notches.")]
+    [Description("Scroll the mouse wheel at given coordinates or label. direction: up or down (or left/right for horizontal). type: vertical (default) or horizontal.")]
     public static string Scroll(
         UiTreeService uiTreeService,
-        [Description("Scroll direction: up or down")] string direction = "down",
-        [Description("Number of scroll notches")] int amount = 3,
-        [Description("X coordinate")] int? x = null,
-        [Description("Y coordinate")] int? y = null,
-        [Description("UI element label")] string? label = null)
+        [Description("Scroll direction: up or down (vertical), left or right (horizontal)")] string direction = "down",
+        [Description("Number of scroll notches")] int wheelTimes = 3,
+        [Description("Coordinate as [x, y]")] int[]? loc = null,
+        [Description("UI element label")] string? label = null,
+        [Description("Scroll axis: vertical (default) or horizontal")] string type = "vertical")
     {
-        int cx = x ?? 0, cy = y ?? 0;
+        int cx = 0, cy = 0;
         if (label is not null)
         {
             var pos = uiTreeService.ResolveLabel(label)
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = (pos.X, pos.Y);
         }
-        else if (x.HasValue && y.HasValue)
+        else if (loc is not null && loc.Length >= 2)
         {
-            (cx, cy) = (x.Value, y.Value);
+            (cx, cy) = (loc[0], loc[1]);
         }
 
         if (cx != 0 || cy != 0)
             User32.SetCursorPos(cx, cy);
 
-        int delta = direction.Equals("up", StringComparison.OrdinalIgnoreCase) ? 120 : -120;
-        delta *= amount;
+        bool isHorizontal = type.Equals("horizontal", StringComparison.OrdinalIgnoreCase)
+            || direction.Equals("left", StringComparison.OrdinalIgnoreCase)
+            || direction.Equals("right", StringComparison.OrdinalIgnoreCase);
+
+        int delta;
+        if (isHorizontal)
+        {
+            delta = direction.Equals("left", StringComparison.OrdinalIgnoreCase) ? -120 : 120;
+        }
+        else
+        {
+            delta = direction.Equals("up", StringComparison.OrdinalIgnoreCase) ? 120 : -120;
+        }
+        delta *= wheelTimes;
+
+        uint scrollFlag = isHorizontal ? User32.MOUSEEVENTF_HWHEEL : User32.MOUSEEVENTF_WHEEL;
 
         var input = new INPUT
         {
@@ -155,22 +202,22 @@ public static class InputTools
             {
                 mi = new MOUSEINPUT
                 {
-                    dwFlags = User32.MOUSEEVENTF_WHEEL,
+                    dwFlags = scrollFlag,
                     mouseData = (uint)delta,
                 }
             }
         };
         User32.SendInput(1, new[] { input }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-        return $"Scrolled {direction} {amount} notch(es) at ({cx},{cy})";
+        return $"Scrolled {direction} {wheelTimes} notch(es) at ({cx},{cy})";
     }
 
     [McpServerTool(Name = "Move", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Move the mouse cursor to a coordinate or UI element label.")]
+    [Description("Move the mouse cursor to a coordinate or UI element label. Optionally drag (mousedown before move, mouseup after).")]
     public static string Move(
         UiTreeService uiTreeService,
-        [Description("X coordinate")] int? x = null,
-        [Description("Y coordinate")] int? y = null,
-        [Description("UI element label")] string? label = null)
+        [Description("Coordinate as [x, y]")] int[]? loc = null,
+        [Description("UI element label")] string? label = null,
+        [Description("Drag: hold mouse button down while moving, release after")] bool drag = false)
     {
         int cx, cy;
         if (label is not null)
@@ -179,25 +226,46 @@ public static class InputTools
                       ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
             (cx, cy) = (pos.X, pos.Y);
         }
-        else if (x.HasValue && y.HasValue)
+        else if (loc is not null && loc.Length >= 2)
         {
-            (cx, cy) = (x.Value, y.Value);
+            (cx, cy) = (loc[0], loc[1]);
         }
         else
         {
-            throw new ArgumentException("Either 'label' or both 'x' and 'y' must be provided.");
+            throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
+        }
+
+        if (drag)
+        {
+            var mouseDown = new INPUT
+            {
+                Type = User32.INPUT_MOUSE,
+                U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = User32.MOUSEEVENTF_LEFTDOWN } }
+            };
+            User32.SendInput(1, new[] { mouseDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
         }
 
         User32.SetCursorPos(cx, cy);
-        return $"Moved cursor to ({cx},{cy})";
+
+        if (drag)
+        {
+            var mouseUp = new INPUT
+            {
+                Type = User32.INPUT_MOUSE,
+                U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = User32.MOUSEEVENTF_LEFTUP } }
+            };
+            User32.SendInput(1, new[] { mouseUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+        }
+
+        return $"{(drag ? "Dragged" : "Moved")} cursor to ({cx},{cy})";
     }
 
     [McpServerTool(Name = "Shortcut", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Send a keyboard shortcut. Format: 'ctrl+c', 'alt+f4', 'ctrl+shift+s', etc.")]
     public static string Shortcut(
-        [Description("Key combination, e.g. 'ctrl+c', 'alt+tab', 'win+d'")] string keys)
+        [Description("Key combination, e.g. 'ctrl+c', 'alt+tab', 'win+d'")] string shortcut)
     {
-        var parts = keys.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = shortcut.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var vkCodes = new ushort[parts.Length];
 
         for (int i = 0; i < parts.Length; i++)
@@ -226,17 +294,17 @@ public static class InputTools
             inputs[idx++] = MakeVkKey(vkCodes[i], keyUp: true);
 
         User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-        return $"Sent shortcut: {keys}";
+        return $"Sent shortcut: {shortcut}";
     }
 
     [McpServerTool(Name = "Wait", ReadOnly = true, Idempotent = true)]
-    [Description("Wait for a specified number of milliseconds.")]
+    [Description("Wait for a specified duration in seconds.")]
     public static async Task<string> Wait(
-        [Description("Milliseconds to wait (max 10000)")] int ms = 500)
+        [Description("Duration in seconds to wait (max 10)")] double duration = 1.0)
     {
-        ms = Math.Clamp(ms, 0, 10_000);
-        await Task.Delay(ms);
-        return $"Waited {ms}ms";
+        duration = Math.Clamp(duration, 0, 10.0);
+        await Task.Delay(TimeSpan.FromSeconds(duration));
+        return $"Waited {duration}s";
     }
 
     // --- Helpers ---

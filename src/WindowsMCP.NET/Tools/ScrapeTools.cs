@@ -33,10 +33,11 @@ public static class ScrapeTools
     });
 
     [McpServerTool(Name = "Scrape", ReadOnly = true, Idempotent = true)]
-    [Description("Fetch a URL and return its content as Markdown. Truncates at 50,000 characters.")]
+    [Description("Fetch a URL and return its content as Markdown. Truncates at 50,000 characters. " +
+                 "Optionally filter content by a query string.")]
     public static async Task<string> Scrape(
         [Description("URL to fetch (http or https)")] string url,
-        [Description("Return raw HTML instead of Markdown")] bool rawHtml = false)
+        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != "http" && uri.Scheme != "https"))
@@ -48,15 +49,15 @@ public static class ScrapeTools
         response.EnsureSuccessStatusCode();
 
         var html = await response.Content.ReadAsStringAsync();
-
-        if (rawHtml)
-        {
-            return html.Length > MaxChars
-                ? html[..MaxChars] + $"\n\n[Truncated at {MaxChars:N0} characters]"
-                : html;
-        }
-
         var markdown = _markdownConverter.Convert(html);
+
+        if (query is not null)
+        {
+            var filteredLines = markdown
+                .Split('\n')
+                .Where(line => line.Contains(query, StringComparison.OrdinalIgnoreCase));
+            markdown = string.Join('\n', filteredLines);
+        }
 
         if (markdown.Length > MaxChars)
             markdown = markdown[..MaxChars] + $"\n\n[Truncated at {MaxChars:N0} characters]";

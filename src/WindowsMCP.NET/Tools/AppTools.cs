@@ -14,16 +14,14 @@ public static class AppTools
         DesktopService desktopService,
         [Description("Mode: launch, switch, or resize")] string mode,
         [Description("App name/executable for launch; window title substring for switch/resize")] string name,
-        [Description("X position for resize")] int? x = null,
-        [Description("Y position for resize")] int? y = null,
-        [Description("Width for resize")] int? width = null,
-        [Description("Height for resize")] int? height = null)
+        [Description("Window position as [x, y] (for resize)")] int[]? windowLoc = null,
+        [Description("Window size as [width, height] (for resize)")] int[]? windowSize = null)
     {
         return mode.ToLowerInvariant() switch
         {
             "launch" => LaunchApp(desktopService, name),
             "switch" => SwitchToApp(desktopService, name),
-            "resize" => ResizeApp(desktopService, name, x, y, width, height),
+            "resize" => ResizeApp(desktopService, name, windowLoc, windowSize),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: launch, switch, or resize.")
         };
     }
@@ -45,7 +43,7 @@ public static class AppTools
     }
 
     private static string ResizeApp(DesktopService desktopService, string name,
-        int? x, int? y, int? width, int? height)
+        int[]? windowLoc, int[]? windowSize)
     {
         var windows = desktopService.ListWindows();
         var match = windows.FirstOrDefault(w =>
@@ -54,10 +52,10 @@ public static class AppTools
         if (match is null)
             return $"No window matching '{name}' found.";
 
-        int rx = x ?? match.X;
-        int ry = y ?? match.Y;
-        int rw = width ?? match.Width;
-        int rh = height ?? match.Height;
+        int rx = (windowLoc is not null && windowLoc.Length >= 2) ? windowLoc[0] : match.X;
+        int ry = (windowLoc is not null && windowLoc.Length >= 2) ? windowLoc[1] : match.Y;
+        int rw = (windowSize is not null && windowSize.Length >= 2) ? windowSize[0] : match.Width;
+        int rh = (windowSize is not null && windowSize.Length >= 2) ? windowSize[1] : match.Height;
 
         var ok = desktopService.ResizeWindow(match.Handle, rx, ry, rw, rh);
         return ok

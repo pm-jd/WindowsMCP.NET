@@ -9,20 +9,23 @@ namespace WindowsMcpNet.Tools;
 public static class MultiTools
 {
     [McpServerTool(Name = "MultiSelect", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Click multiple UI elements while holding Ctrl, useful for multi-selection in lists/trees. " +
-                 "Provide comma-separated labels or coordinate pairs like '100,200;300,400'.")]
+    [Description("Click multiple UI elements while optionally holding Ctrl, useful for multi-selection in lists/trees. " +
+                 "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
-        [Description("Comma-separated element labels from last Snapshot, e.g. '3,7,12'")] string? labels = null,
-        [Description("Semicolon-separated x,y coordinates, e.g. '100,200;300,400'")] string? coordinates = null)
+        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
+        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
+        [Description("Hold Ctrl key while clicking (for multi-selection)")] bool pressCtrl = true)
     {
-        var targets = ResolveTargets(uiTreeService, labels, coordinates);
+        var targets = ResolveTargets(uiTreeService, labels, locs);
         if (targets.Count == 0)
-            throw new ArgumentException("No targets specified. Provide 'labels' or 'coordinates'.");
+            throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
 
-        // Press Ctrl down
-        var ctrlDown = MakeVkKey(0x11, keyUp: false);
-        User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+        if (pressCtrl)
+        {
+            var ctrlDown = MakeVkKey(0x11, keyUp: false);
+            User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+        }
 
         var clicked = new List<string>();
         try
@@ -36,9 +39,11 @@ public static class MultiTools
         }
         finally
         {
-            // Always release Ctrl
-            var ctrlUp = MakeVkKey(0x11, keyUp: true);
-            User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            if (pressCtrl)
+            {
+                var ctrlUp = MakeVkKey(0x11, keyUp: true);
+                User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            }
         }
 
         return $"Multi-selected {clicked.Count} element(s): {string.Join(", ", clicked)}";
@@ -46,48 +51,23 @@ public static class MultiTools
 
     [McpServerTool(Name = "MultiEdit", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Click and type into multiple fields sequentially. " +
-                 "Provide label:text pairs separated by semicolons, e.g. '5:John;6:Doe;7:john@example.com'.")]
+                 "Provide fields as coordinate-text pairs via locs ([[x,y],[x,y],...] paired with texts) " +
+                 "or label-text pairs via labels ([[label,text],[label,text],...]).")]
     public static string MultiEdit(
         UiTreeService uiTreeService,
-        [Description("Semicolon-separated label:text pairs, e.g. '5:hello;8:world'")] string fields,
-        [Description("Select all (Ctrl+A) before typing into each field")] bool selectAll = true)
+        [Description("Array of [x, y, text] or [[x,y], text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']] — pass as [[x,y,text],...]")] string[][]? locs = null,
+        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] string[][]? labels = null)
     {
-        var pairs = ParseLabelTextPairs(fields);
+        var pairs = BuildEditPairs(uiTreeService, locs, labels);
         if (pairs.Count == 0)
-            throw new ArgumentException("No label:text pairs found in 'fields'.");
+            throw new ArgumentException("No fields specified. Provide 'locs' or 'labels'.");
 
         var results = new List<string>();
-        foreach (var (labelOrCoord, text) in pairs)
+        foreach (var (cx, cy, text, desc) in pairs)
         {
-            // Resolve position
-            int cx, cy;
-            if (TryParseCoord(labelOrCoord, out cx, out cy))
-            {
-                // direct coordinate
-            }
-            else
-            {
-                var pos = uiTreeService.ResolveLabel(labelOrCoord)
-                          ?? throw new InvalidOperationException($"Label '{labelOrCoord}' not found in UI tree.");
-                (cx, cy) = (pos.X, pos.Y);
-            }
-
             // Click the field
             User32.SetCursorPos(cx, cy);
             SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
-
-            // Optionally select all
-            if (selectAll)
-            {
-                var inputs = new INPUT[]
-                {
-                    MakeVkKey(0x11, keyUp: false),  // Ctrl down
-                    MakeVkKey(0x41, keyUp: false),  // A down
-                    MakeVkKey(0x41, keyUp: true),   // A up
-                    MakeVkKey(0x11, keyUp: true),   // Ctrl up
-                };
-                User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            }
 
             // Type the text
             var typeInputs = new INPUT[text.Length * 2];
@@ -99,7 +79,7 @@ public static class MultiTools
             }
             User32.SendInput((uint)typeInputs.Length, typeInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
 
-            results.Add($"{labelOrCoord}=\"{text}\"");
+            results.Add($"{desc}=\"{text}\"");
         }
 
         return $"Edited {results.Count} field(s): {string.Join(", ", results)}";
@@ -109,54 +89,68 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Desc)> ResolveTargets(
         UiTreeService uiTreeService,
-        string? labels,
-        string? coordinates)
+        int[]? labels,
+        int[][]? locs)
     {
         var targets = new List<(int, int, string)>();
 
         if (labels is not null)
         {
-            foreach (var label in labels.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            foreach (var labelId in labels)
             {
-                var pos = uiTreeService.ResolveLabel(label)
-                          ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
-                targets.Add((pos.X, pos.Y, $"[{label}]"));
+                var labelStr = labelId.ToString();
+                var pos = uiTreeService.ResolveLabel(labelStr)
+                          ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
+                targets.Add((pos.X, pos.Y, $"[{labelStr}]"));
             }
         }
 
-        if (coordinates is not null)
+        if (locs is not null)
         {
-            foreach (var pair in coordinates.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            foreach (var loc in locs)
             {
-                if (TryParseCoord(pair, out int x, out int y))
-                    targets.Add((x, y, $"({x},{y})"));
+                if (loc is not null && loc.Length >= 2)
+                    targets.Add((loc[0], loc[1], $"({loc[0]},{loc[1]})"));
             }
         }
 
         return targets;
     }
 
-    private static List<(string Label, string Text)> ParseLabelTextPairs(string input)
+    private static List<(int X, int Y, string Text, string Desc)> BuildEditPairs(
+        UiTreeService uiTreeService,
+        string[][]? locs,
+        string[][]? labels)
     {
-        var pairs = new List<(string, string)>();
-        foreach (var part in input.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-        {
-            var colonIdx = part.IndexOf(':');
-            if (colonIdx < 1) continue;
-            var label = part[..colonIdx].Trim();
-            var text  = part[(colonIdx + 1)..];
-            pairs.Add((label, text));
-        }
-        return pairs;
-    }
+        var pairs = new List<(int, int, string, string)>();
 
-    private static bool TryParseCoord(string s, out int x, out int y)
-    {
-        x = y = 0;
-        var parts = s.Split(',');
-        if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out x) && int.TryParse(parts[1].Trim(), out y))
-            return true;
-        return false;
+        if (locs is not null)
+        {
+            foreach (var entry in locs)
+            {
+                // entry is [x, y, text] as strings
+                if (entry is null || entry.Length < 3) continue;
+                if (!int.TryParse(entry[0], out int x) || !int.TryParse(entry[1], out int y)) continue;
+                var text = entry[2];
+                pairs.Add((x, y, text, $"({x},{y})"));
+            }
+        }
+
+        if (labels is not null)
+        {
+            foreach (var entry in labels)
+            {
+                // entry is [label, text]
+                if (entry is null || entry.Length < 2) continue;
+                var labelStr = entry[0];
+                var text = entry[1];
+                var pos = uiTreeService.ResolveLabel(labelStr)
+                          ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
+                pairs.Add((pos.X, pos.Y, text, $"[{labelStr}]"));
+            }
+        }
+
+        return pairs;
     }
 
     private static void SendClick(uint downFlag, uint upFlag)

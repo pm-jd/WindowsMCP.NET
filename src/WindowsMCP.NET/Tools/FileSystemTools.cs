@@ -19,23 +19,27 @@ public static class FileSystemTools
         [Description("Search pattern (for mode=list/search, e.g. '*.txt')")] string? pattern = null,
         [Description("Recursive search (for mode=list/search)")] bool recursive = false,
         [Description("Encoding for read/write (utf8 default)")] string encoding = "utf8",
-        [Description("Append instead of overwrite (for mode=write)")] bool append = false)
+        [Description("Append instead of overwrite (for mode=write)")] bool append = false,
+        [Description("Line offset for read (0-based, for paging)")] int offset = 0,
+        [Description("Maximum lines to return for read (0 = all)")] int limit = 0,
+        [Description("Overwrite destination if it exists (for copy/move)")] bool overwrite = true,
+        [Description("Include hidden files and directories in list/search results")] bool show_hidden = false)
     {
         return mode.ToLowerInvariant() switch
         {
-            "read"   => ReadFile(path, encoding),
+            "read"   => ReadFile(path, encoding, offset, limit),
             "write"  => WriteFile(path, content, encoding, append),
-            "copy"   => CopyFile(path, destination),
-            "move"   => MoveFile(path, destination),
+            "copy"   => CopyFile(path, destination, overwrite),
+            "move"   => MoveFile(path, destination, overwrite),
             "delete" => DeleteFile(path),
-            "list"   => ListDirectory(path, pattern, recursive),
-            "search" => SearchFiles(path, pattern, recursive),
+            "list"   => ListDirectory(path, pattern, recursive, show_hidden),
+            "search" => SearchFiles(path, pattern, recursive, show_hidden),
             "info"   => GetInfo(path),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: read, write, copy, move, delete, list, search, info.")
         };
     }
 
-    private static string ReadFile(string path, string enc)
+    private static string ReadFile(string path, string enc, int offset, int limit)
     {
         var fileInfo = new FileInfo(path);
         if (!fileInfo.Exists)
@@ -43,7 +47,14 @@ public static class FileSystemTools
         if (fileInfo.Length > MaxReadBytes)
             throw new InvalidOperationException($"File too large ({fileInfo.Length:N0} bytes). Max is {MaxReadBytes:N0} bytes.");
 
-        return File.ReadAllText(path, GetEncoding(enc));
+        if (offset == 0 && limit == 0)
+            return File.ReadAllText(path, GetEncoding(enc));
+
+        var lines = File.ReadAllLines(path, GetEncoding(enc));
+        var slice = (offset > 0 ? lines.Skip(offset) : lines);
+        if (limit > 0)
+            slice = slice.Take(limit);
+        return string.Join(Environment.NewLine, slice);
     }
 
     private static string WriteFile(string path, string? content, string enc, bool append)
@@ -63,7 +74,7 @@ public static class FileSystemTools
         return $"{(append ? "Appended" : "Written")} {content.Length} character(s) to {path}";
     }
 
-    private static string CopyFile(string source, string? dest)
+    private static string CopyFile(string source, string? dest, bool overwrite)
     {
         if (dest is null)
             throw new ArgumentException("'destination' is required for mode=copy.");
@@ -72,11 +83,11 @@ public static class FileSystemTools
         if (!string.IsNullOrEmpty(destDir))
             Directory.CreateDirectory(destDir);
 
-        File.Copy(source, dest, overwrite: true);
+        File.Copy(source, dest, overwrite: overwrite);
         return $"Copied {source} → {dest}";
     }
 
-    private static string MoveFile(string source, string? dest)
+    private static string MoveFile(string source, string? dest, bool overwrite)
     {
         if (dest is null)
             throw new ArgumentException("'destination' is required for mode=move.");
@@ -85,7 +96,7 @@ public static class FileSystemTools
         if (!string.IsNullOrEmpty(destDir))
             Directory.CreateDirectory(destDir);
 
-        File.Move(source, dest, overwrite: true);
+        File.Move(source, dest, overwrite: overwrite);
         return $"Moved {source} → {dest}";
     }
 
@@ -104,7 +115,7 @@ public static class FileSystemTools
         return $"Path not found: {path}";
     }
 
-    private static string ListDirectory(string path, string? pattern, bool recursive)
+    private static string ListDirectory(string path, string? pattern, bool recursive, bool showHidden)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -113,6 +124,7 @@ public static class FileSystemTools
         var pat = pattern ?? "*";
 
         var entries = Directory.GetFileSystemEntries(path, pat, searchOption)
+            .Where(e => showHidden || !IsHidden(e))
             .OrderBy(e => e)
             .ToList();
 
@@ -136,7 +148,7 @@ public static class FileSystemTools
         return sb.ToString().TrimEnd();
     }
 
-    private static string SearchFiles(string path, string? pattern, bool recursive)
+    private static string SearchFiles(string path, string? pattern, bool recursive, bool showHidden)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -145,6 +157,7 @@ public static class FileSystemTools
         var pat = pattern ?? "*";
 
         var files = Directory.GetFiles(path, pat, searchOption)
+            .Where(f => showHidden || !IsHidden(f))
             .OrderBy(f => f)
             .ToList();
 
@@ -190,6 +203,19 @@ public static class FileSystemTools
                    $"Attributes:   {di.Attributes}";
         }
         return $"Path not found: {path}";
+    }
+
+    private static bool IsHidden(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.Hidden) != 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static Encoding GetEncoding(string enc) =>

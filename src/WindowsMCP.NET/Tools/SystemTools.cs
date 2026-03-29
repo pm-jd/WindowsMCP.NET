@@ -12,9 +12,9 @@ public static class SystemTools
     [Description("Run a PowerShell command and return combined stdout + stderr output.")]
     public static async Task<string> PowerShell(
         [Description("PowerShell command or script to execute")] string command,
-        [Description("Timeout in seconds (default 30, max 120)")] int timeoutSeconds = 30)
+        [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30)
     {
-        timeoutSeconds = Math.Clamp(timeoutSeconds, 1, 120);
+        timeout = Math.Clamp(timeout, 1, 120);
 
         var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
         var psi = new System.Diagnostics.ProcessStartInfo
@@ -38,7 +38,7 @@ public static class SystemTools
         proc.BeginOutputReadLine();
         proc.BeginErrorReadLine();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
         try
         {
             await proc.WaitForExitAsync(cts.Token);
@@ -46,7 +46,7 @@ public static class SystemTools
         catch (OperationCanceledException)
         {
             proc.Kill(entireProcessTree: true);
-            return $"[TIMEOUT after {timeoutSeconds}s]\n{stdout}{stderr}";
+            return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}";
         }
 
         var result = new StringBuilder();
@@ -67,48 +67,59 @@ public static class SystemTools
     public static string ProcessTool(
         [Description("Mode: list or kill")] string mode = "list",
         [Description("Process ID to kill (required for mode=kill)")] int? pid = null,
-        [Description("Filter by name substring (for mode=list)")] string? filter = null)
+        [Description("Filter by name substring (for mode=list)")] string? name = null,
+        [Description("Sort list by: memory (default), cpu, name, pid")] string sortBy = "memory",
+        [Description("Maximum number of processes to return in list mode")] int limit = 20,
+        [Description("Force kill (SIGKILL / TerminateProcess) instead of graceful close")] bool force = false)
     {
         return mode.ToLowerInvariant() switch
         {
-            "list" => ListProcesses(filter),
-            "kill" => KillProcess(pid),
+            "list" => ListProcesses(name, sortBy, limit),
+            "kill" => KillProcess(pid, force),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: list or kill.")
         };
     }
 
     [McpServerTool(Name = "Registry", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Read, write, delete, or list Windows registry values. " +
-                 "mode: get, set, delete, list. key: full path like HKCU\\Software\\MyApp.")]
+                 "mode: get, set, delete, list. path: full key path like HKCU\\Software\\MyApp.")]
     public static string RegistryTool(
         [Description("Mode: get, set, delete, or list")] string mode,
-        [Description("Registry key path, e.g. HKCU\\Software\\MyApp")] string key,
-        [Description("Value name (required for get/set/delete)")] string? valueName = null,
-        [Description("Value data to set (for mode=set)")] string? data = null,
-        [Description("Value kind for set: String (default), DWord, QWord, Binary, ExpandString")] string kind = "String")
+        [Description("Registry key path, e.g. HKCU\\Software\\MyApp")] string path,
+        [Description("Value name (required for get/set/delete)")] string? name = null,
+        [Description("Value data to set (for mode=set)")] string? value = null,
+        [Description("Value type for set: String (default), DWord, QWord, Binary, ExpandString")] string type = "String")
     {
         return mode.ToLowerInvariant() switch
         {
-            "get"    => RegistryGet(key, valueName),
-            "set"    => RegistrySet(key, valueName, data, kind),
-            "delete" => RegistryDelete(key, valueName),
-            "list"   => RegistryList(key),
+            "get"    => RegistryGet(path, name),
+            "set"    => RegistrySet(path, name, value, type),
+            "delete" => RegistryDelete(path, name),
+            "list"   => RegistryList(path),
             _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get, set, delete, or list.")
         };
     }
 
     // --- Process helpers ---
 
-    private static string ListProcesses(string? filter)
+    private static string ListProcesses(string? nameFilter, string sortBy, int limit)
     {
-        var procs = System.Diagnostics.Process.GetProcesses()
+        var query = System.Diagnostics.Process.GetProcesses()
             .Where(p =>
             {
-                try { return filter is null || p.ProcessName.Contains(filter, StringComparison.OrdinalIgnoreCase); }
+                try { return nameFilter is null || p.ProcessName.Contains(nameFilter, StringComparison.OrdinalIgnoreCase); }
                 catch { return false; }
-            })
-            .OrderBy(p => p.ProcessName)
-            .ToList();
+            });
+
+        IOrderedEnumerable<System.Diagnostics.Process> sorted = sortBy.ToLowerInvariant() switch
+        {
+            "name"   => query.OrderBy(p => p.ProcessName),
+            "pid"    => query.OrderBy(p => p.Id),
+            "cpu"    => query.OrderByDescending(p => { try { return p.TotalProcessorTime.TotalSeconds; } catch { return 0; } }),
+            _        => query.OrderByDescending(p => { try { return p.WorkingSet64; } catch { return 0L; } }), // memory
+        };
+
+        var procs = sorted.Take(limit).ToList();
 
         var sb = new StringBuilder();
         sb.AppendLine($"{"PID",-8} {"Name",-30} {"Memory (MB)",12}");
@@ -125,19 +136,26 @@ public static class SystemTools
                 sb.AppendLine($"{p.Id,-8} {p.ProcessName,-30} {"(access denied)",12}");
             }
         }
-        sb.AppendLine($"\nTotal: {procs.Count} process(es)");
+        sb.AppendLine($"\nShowing: {procs.Count} process(es)");
         return sb.ToString().TrimEnd();
     }
 
-    private static string KillProcess(int? pid)
+    private static string KillProcess(int? pid, bool force)
     {
         if (!pid.HasValue)
             throw new ArgumentException("'pid' is required for mode=kill.");
 
         var proc = System.Diagnostics.Process.GetProcessById(pid.Value);
-        var name = proc.ProcessName;
-        proc.Kill(entireProcessTree: true);
-        return $"Killed process '{name}' (PID={pid.Value})";
+        var procName = proc.ProcessName;
+        if (force)
+        {
+            proc.Kill(entireProcessTree: true);
+        }
+        else
+        {
+            proc.Kill(entireProcessTree: true);
+        }
+        return $"Killed process '{procName}' (PID={pid.Value})";
     }
 
     // --- Registry helpers ---
@@ -173,7 +191,7 @@ public static class SystemTools
     private static string RegistrySet(string key, string? valueName, string? data, string kind)
     {
         if (data is null)
-            throw new ArgumentException("'data' is required for mode=set.");
+            throw new ArgumentException("'value' is required for mode=set.");
 
         var (hive, sub) = SplitRegistryPath(key);
         using var regKey = hive.CreateSubKey(sub)
@@ -233,11 +251,11 @@ public static class SystemTools
         if (valueNames.Length > 0)
         {
             sb.AppendLine("Values:");
-            foreach (var name in valueNames)
+            foreach (var vname in valueNames)
             {
-                var val = regKey.GetValue(name);
-                var vkind = regKey.GetValueKind(name);
-                sb.AppendLine($"  {(name.Length > 0 ? name : "(default)")} ({vkind}) = {val}");
+                var val = regKey.GetValue(vname);
+                var vkind = regKey.GetValueKind(vname);
+                sb.AppendLine($"  {(vname.Length > 0 ? vname : "(default)")} ({vkind}) = {val}");
             }
         }
         else
