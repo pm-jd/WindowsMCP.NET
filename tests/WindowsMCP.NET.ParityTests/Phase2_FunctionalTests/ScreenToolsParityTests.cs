@@ -51,7 +51,7 @@ public class ScreenToolsParityTests : IAsyncLifetime
     {
         var result = await _client.CallToolAsync("Snapshot", new Dictionary<string, object?>
         {
-            ["annotate"] = true
+            ["use_annotation"] = true
         });
 
         _output.WriteLine($"Content blocks: {result.Content.Count}");
@@ -74,11 +74,11 @@ public class ScreenToolsParityTests : IAsyncLifetime
     [Trait("Category", "Desktop")]
     public async Task Snapshot_NoAnnotation_ReturnsImageAndTree()
     {
-        // The C# Snapshot tool has annotate (bool) and display (int?) parameters.
-        // annotate=false means no overlay labels, but both image and text tree are always returned.
+        // The C# Snapshot tool has use_annotation (bool) and display (int?) parameters.
+        // use_annotation=false means no overlay labels, but both image and text tree are always returned.
         var result = await _client.CallToolAsync("Snapshot", new Dictionary<string, object?>
         {
-            ["annotate"] = false
+            ["use_annotation"] = false
         });
 
         _output.WriteLine($"Content blocks: {result.Content.Count}");

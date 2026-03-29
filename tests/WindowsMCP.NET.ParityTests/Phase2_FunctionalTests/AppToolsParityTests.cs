@@ -74,12 +74,10 @@ public class AppToolsParityTests : IAsyncLifetime
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
-            ["mode"]   = "resize",
-            ["name"]   = "Notepad",
-            ["x"]      = 100,
-            ["y"]      = 100,
-            ["width"]  = 800,
-            ["height"] = 600
+            ["mode"]        = "resize",
+            ["name"]        = "Notepad",
+            ["window_loc"]  = new int[] { 100, 100 },
+            ["window_size"] = new int[] { 800, 600 }
         });
 
         _output.WriteLine($"Resize result: {result}");

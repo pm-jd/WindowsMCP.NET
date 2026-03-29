@@ -68,7 +68,9 @@ public class SystemToolsParityTests : IAsyncLifetime
     {
         var result = await _client.CallToolTextAsync("Process", new Dictionary<string, object?>
         {
-            ["mode"] = "list"
+            ["mode"]    = "list",
+            ["sort_by"] = "name",
+            ["limit"]   = 500
         });
 
         _output.WriteLine($"Output (first 500 chars): {result[..Math.Min(500, result.Length)]}");
@@ -85,9 +87,9 @@ public class SystemToolsParityTests : IAsyncLifetime
     {
         var result = await _client.CallToolTextAsync("Registry", new Dictionary<string, object?>
         {
-            ["mode"]      = "get",
-            ["key"]       = @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
-            ["valueName"] = "ProductName"
+            ["mode"] = "get",
+            ["path"] = @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            ["name"] = "ProductName"
         });
 
         _output.WriteLine($"Output: {result}");

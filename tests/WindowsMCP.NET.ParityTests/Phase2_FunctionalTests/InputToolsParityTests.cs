@@ -57,8 +57,7 @@ public class InputToolsParityTests : IAsyncLifetime
 
         var result = await _client.CallToolTextAsync("Move", new Dictionary<string, object?>
         {
-            ["x"] = targetX,
-            ["y"] = targetY
+            ["loc"] = new int[] { targetX, targetY }
         });
 
         _output.WriteLine($"Move result: {result}");
@@ -77,21 +76,21 @@ public class InputToolsParityTests : IAsyncLifetime
     [Trait("Category", "Desktop")]
     public async Task Wait_TakesExpectedTime()
     {
-        const int waitMs = 500;
+        const int waitSeconds = 1;
         const int toleranceMs = 200; // allow generous tolerance for test environment
 
         var sw = Stopwatch.StartNew();
         var result = await _client.CallToolTextAsync("Wait", new Dictionary<string, object?>
         {
-            ["ms"] = waitMs
+            ["duration"] = waitSeconds
         });
         sw.Stop();
 
         _output.WriteLine($"Wait result: {result}");
         _output.WriteLine($"Elapsed: {sw.ElapsedMilliseconds}ms");
 
-        Assert.True(sw.ElapsedMilliseconds >= waitMs - toleranceMs,
-            $"Wait should take at least ~{waitMs}ms, but took {sw.ElapsedMilliseconds}ms");
+        Assert.True(sw.ElapsedMilliseconds >= waitSeconds * 1000 - toleranceMs,
+            $"Wait should take at least ~{waitSeconds * 1000}ms, but took {sw.ElapsedMilliseconds}ms");
     }
 
     [Fact]
@@ -115,15 +114,13 @@ public class InputToolsParityTests : IAsyncLifetime
         // (Use Move first to ensure focus is reasonable)
         await _client.CallToolTextAsync("Move", new Dictionary<string, object?>
         {
-            ["x"] = 640,
-            ["y"] = 400
+            ["loc"] = new int[] { 640, 400 }
         });
 
         // Click to focus notepad
         await _client.CallToolAsync("Click", new Dictionary<string, object?>
         {
-            ["x"] = 640,
-            ["y"] = 400
+            ["loc"] = new int[] { 640, 400 }
         });
         await Task.Delay(300);
 
@@ -138,13 +135,13 @@ public class InputToolsParityTests : IAsyncLifetime
         // Select all (ctrl+a) and copy (ctrl+c) to get text into clipboard
         await _client.CallToolTextAsync("Shortcut", new Dictionary<string, object?>
         {
-            ["keys"] = "ctrl+a"
+            ["shortcut"] = "ctrl+a"
         });
         await Task.Delay(200);
 
         await _client.CallToolTextAsync("Shortcut", new Dictionary<string, object?>
         {
-            ["keys"] = "ctrl+c"
+            ["shortcut"] = "ctrl+c"
         });
         await Task.Delay(300);
 
@@ -168,7 +165,7 @@ public class InputToolsParityTests : IAsyncLifetime
         // We'll press 'escape' by itself — it should be accepted without error.
         var result = await _client.CallToolTextAsync("Shortcut", new Dictionary<string, object?>
         {
-            ["keys"] = "esc"
+            ["shortcut"] = "esc"
         });
 
         _output.WriteLine($"Shortcut result: {result}");
