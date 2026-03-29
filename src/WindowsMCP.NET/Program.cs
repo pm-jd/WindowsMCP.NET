@@ -1,10 +1,148 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using System.Reflection;
+using ModelContextProtocol.Server;
+using WindowsMcpNet.Config;
+using WindowsMcpNet.Security;
+using WindowsMcpNet.Services;
+using WindowsMcpNet.Setup;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.Logging.AddConsole(options =>
+var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.1.0";
+var baseDirectory = AppContext.BaseDirectory;
+var configManager = new ConfigManager(baseDirectory);
+var cliOptions = CliParser.Parse(args);
+
+// --help
+if (cliOptions.ShowHelp)
 {
-    options.LogToStandardErrorThreshold = LogLevel.Trace;
-});
+    CliParser.PrintHelp();
+    return;
+}
 
-await builder.Build().RunAsync();
+// --version
+if (cliOptions.ShowVersion)
+{
+    Console.WriteLine($"WindowsMCP.NET v{version}");
+    return;
+}
+
+// setup command
+if (cliOptions.Command == "setup")
+{
+    var wizard = new SetupWizard(configManager, baseDirectory);
+    wizard.Run(newKey: cliOptions.NewKey, newCert: cliOptions.NewCert);
+    return;
+}
+
+// info command
+if (cliOptions.Command == "info")
+{
+    if (!configManager.Exists)
+    {
+        Console.Error.WriteLine("No config found. Run 'WindowsMCP.NET.exe setup' first.");
+        return;
+    }
+    SetupWizard.PrintConfigSnippet(configManager.Load());
+    return;
+}
+
+// Load or create config
+var config = configManager.Exists ? configManager.Load() : new AppConfig();
+
+// Apply CLI overrides
+var transport = cliOptions.Transport ?? config.Transport;
+if (cliOptions.Port.HasValue) config.Port = cliOptions.Port.Value;
+if (cliOptions.Host is not null) config.Host = cliOptions.Host;
+if (cliOptions.ApiKey is not null) config.ApiKey = cliOptions.ApiKey;
+config.ApiKey ??= Environment.GetEnvironmentVariable("WMCP_API_KEY");
+if (cliOptions.AllowIps.Count > 0) config.AllowedIps = cliOptions.AllowIps;
+
+// First-run: auto-setup for HTTP mode
+if (transport == "http" && !configManager.Exists)
+{
+    var wizard = new SetupWizard(configManager, baseDirectory);
+    config = wizard.Run();
+}
+
+// Validate HTTP mode requirements
+if (transport == "http" && string.IsNullOrEmpty(config.ApiKey))
+{
+    Console.Error.WriteLine("HTTP mode requires an API key. Set via --api-key, WMCP_API_KEY env, or run setup.");
+    return;
+}
+
+void RegisterServices(IServiceCollection services)
+{
+    services.AddSingleton(config);
+    services.AddSingleton<DesktopService>();
+    services.AddSingleton<ScreenCaptureService>();
+    services.AddSingleton<UiAutomationService>();
+    services.AddSingleton<UiTreeService>();
+}
+
+if (transport == "stdio")
+{
+    var builder = Host.CreateApplicationBuilder(args);
+    builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+    RegisterServices(builder.Services);
+#pragma warning disable IL2026
+    builder.Services
+        .AddMcpServer(o =>
+        {
+            o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
+        })
+        .WithStdioServerTransport()
+        .WithToolsFromAssembly();
+#pragma warning restore IL2026
+
+    await builder.Build().RunAsync();
+}
+else
+{
+    var builder = WebApplication.CreateBuilder(args);
+    builder.Logging.AddConsole();
+    RegisterServices(builder.Services);
+
+    if (config.Https.Enabled)
+    {
+        var certPath = Path.IsPathRooted(config.Https.CertPath)
+            ? config.Https.CertPath
+            : Path.Combine(baseDirectory, config.Https.CertPath);
+
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenAnyIP(config.Port, listenOptions =>
+            {
+                listenOptions.UseHttps(certPath, config.Https.CertPassword);
+            });
+        });
+    }
+    else
+    {
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenAnyIP(config.Port);
+        });
+    }
+
+#pragma warning disable IL2026
+    builder.Services
+        .AddMcpServer(o =>
+        {
+            o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
+        })
+        .WithHttpTransport()
+        .WithToolsFromAssembly();
+#pragma warning restore IL2026
+
+    var app = builder.Build();
+
+    if (config.AllowedIps.Count > 0)
+        app.UseMiddleware<IpAllowlistMiddleware>(config.AllowedIps.AsEnumerable());
+
+    app.UseMiddleware<ApiKeyMiddleware>(config.ApiKey!);
+    app.MapMcp();
+
+    Console.Error.WriteLine($"WindowsMCP.NET v{version}");
+    Console.Error.WriteLine($"Listening on {(config.Https.Enabled ? "https" : "http")}://{config.Host}:{config.Port}");
+
+    await app.RunAsync();
+}
