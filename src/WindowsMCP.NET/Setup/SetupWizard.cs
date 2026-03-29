@@ -79,13 +79,18 @@ public sealed class SetupWizard
     {
         var scheme = config.Https.Enabled ? "https" : "http";
         var host = GetPrimaryLocalIp() ?? Dns.GetHostName();
+        var url = $"{scheme}://{host}:{config.Port}/mcp";
 
         Console.WriteLine();
-        Console.WriteLine("  Add this to your Claude Code settings:");
+        Console.WriteLine("  Run this command on the client machine to connect:");
+        Console.WriteLine();
+        Console.WriteLine($"  claude mcp add windows-mcp-dotnet \"{url}\" --transport http --scope user --header \"Authorization: Bearer {config.ApiKey}\"");
+        Console.WriteLine();
+        Console.WriteLine("  Or add this to your Claude Code settings JSON:");
         Console.WriteLine();
         Console.WriteLine("  \"windows-mcp-dotnet\": {");
-        Console.WriteLine("    \"type\": \"streamable-http\",");
-        Console.WriteLine($"    \"url\": \"{scheme}://{host}:{config.Port}/mcp\",");
+        Console.WriteLine("    \"type\": \"http\",");
+        Console.WriteLine($"    \"url\": \"{url}\",");
         Console.WriteLine("    \"headers\": {");
         Console.WriteLine($"      \"Authorization\": \"Bearer {config.ApiKey}\"");
         Console.WriteLine("    }");

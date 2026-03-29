@@ -40,7 +40,28 @@ public static class CertificateGenerator
         var pfxBytes = cert.Export(X509ContentType.Pfx, password);
         File.WriteAllBytes(certPath, pfxBytes);
 
+        // Install into Windows Trusted Root CA store so clients accept the certificate
+        InstallToTrustedRoot(cert);
+
         return (certPath, password);
+    }
+
+    private static void InstallToTrustedRoot(X509Certificate2 cert)
+    {
+        try
+        {
+            using var store = new X509Store(StoreName.Root, StoreLocation.LocalMachine);
+            store.Open(OpenFlags.ReadWrite);
+            store.Add(cert);
+            store.Close();
+            Console.WriteLine("  Certificate installed to Trusted Root CA store.");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"  Warning: Could not install certificate to trust store: {ex.Message}");
+            Console.Error.WriteLine("  Clients may reject the self-signed certificate.");
+            Console.Error.WriteLine("  Run as Administrator to install automatically, or import cert.pfx manually.");
+        }
     }
 
     private static IEnumerable<IPAddress> GetLocalIpAddresses()
