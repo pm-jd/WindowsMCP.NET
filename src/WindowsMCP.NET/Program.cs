@@ -14,6 +14,9 @@ try
     var configManager = new ConfigManager(baseDirectory);
     var cliOptions = CliParser.Parse(args);
 
+    // Check for updates (non-blocking)
+    _ = UpdateChecker.CheckAsync();
+
     // --help
     if (cliOptions.ShowHelp)
     {

@@ -1,6 +1,3 @@
-using System.Drawing;
-using System.Windows.Forms;
-
 namespace WindowsMcpNet.Setup;
 
 public sealed partial class TrayIconManager : IDisposable
@@ -29,6 +26,7 @@ public sealed partial class TrayIconManager : IDisposable
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add("Show Console", null, (_, _) => ShowConsole());
             contextMenu.Items.Add("Copy Config Snippet", null, (_, _) => CopyConfig());
+            contextMenu.Items.Add("Check for Updates", null, (_, _) => _ = CheckForUpdatesAsync());
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add("Stop Server", null, (_, _) =>
             {
@@ -80,6 +78,35 @@ public sealed partial class TrayIconManager : IDisposable
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         thread.Join();
+    }
+
+    private static async Task CheckForUpdatesAsync()
+    {
+        var result = await UpdateChecker.GetLatestAsync();
+        if (result is (string ver, string url))
+        {
+            var thread = new Thread(() =>
+            {
+                var answer = MessageBox.Show(
+                    $"Update available: v{ver}\n\nOpen download page?",
+                    "WindowsMCP.NET Update",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information);
+                if (answer == DialogResult.Yes)
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+        else
+        {
+            var thread = new Thread(() =>
+            {
+                MessageBox.Show("You are running the latest version.", "WindowsMCP.NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
     }
 
     public void Dispose()

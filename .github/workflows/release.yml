@@ -51,13 +51,13 @@ jobs:
       run: dotnet restore WindowsMCP.NET.slnx
 
     - name: Build
-      run: dotnet build WindowsMCP.NET.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+      run: dotnet build WindowsMCP.NET.slnx --configuration Release --no-restore -p:Version=${{ steps.version.outputs.version }} -p:GitHubPat=${{ secrets.UPDATE_CHECK_PAT }}
 
     - name: Test (Unit)
       run: dotnet test tests/WindowsMCP.NET.Tests/ --configuration Release --no-build
 
     - name: Publish
-      run: dotnet publish src/WindowsMCP.NET/WindowsMCP.NET.csproj -c Release -r win-x64 -p:Version=${{ steps.version.outputs.version }} -o publish/
+      run: dotnet publish src/WindowsMCP.NET/WindowsMCP.NET.csproj -c Release -r win-x64 -p:Version=${{ steps.version.outputs.version }} -p:GitHubPat=${{ secrets.UPDATE_CHECK_PAT }} -o publish/
 
     - name: Generate SHA256 checksum
       shell: bash

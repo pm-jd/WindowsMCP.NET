@@ -13,7 +13,22 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <UseWindowsForms>true</UseWindowsForms>
+    <GitHubPat Condition="'$(GitHubPat)' == ''">%%GITHUB_PAT%%</GitHubPat>
   </PropertyGroup>
+
+  <!-- Inject GitHub PAT into UpdateChecker.cs at compile time -->
+  <Target Name="InjectGitHubPat" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Compile Remove="Setup\UpdateChecker.cs" />
+    </ItemGroup>
+    <WriteLinesToFile
+      File="$(IntermediateOutputPath)UpdateChecker.g.cs"
+      Lines="$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Setup\UpdateChecker.cs').Replace('%%GITHUB_PAT%%','$(GitHubPat)'))"
+      Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)UpdateChecker.g.cs" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
