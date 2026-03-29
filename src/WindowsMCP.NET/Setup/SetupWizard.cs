@@ -1,0 +1,114 @@
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using WindowsMcpNet.Config;
+
+namespace WindowsMcpNet.Setup;
+
+public sealed class SetupWizard
+{
+    private readonly ConfigManager _configManager;
+    private readonly string _baseDirectory;
+
+    public SetupWizard(ConfigManager configManager, string baseDirectory)
+    {
+        _configManager = configManager;
+        _baseDirectory = baseDirectory;
+    }
+
+    public AppConfig Run(bool newKey = false, bool newCert = false)
+    {
+        var config = _configManager.Exists ? _configManager.Load() : new AppConfig();
+
+        Console.WriteLine();
+        Console.WriteLine("  WindowsMCP.NET — Setup");
+        Console.WriteLine();
+
+        // API Key
+        if (config.ApiKey is null || newKey)
+        {
+            config.ApiKey = GenerateApiKey();
+            Console.WriteLine($"  API-Key generated: {config.ApiKey}");
+        }
+        else
+        {
+            Console.WriteLine($"  API-Key: {config.ApiKey} (existing)");
+        }
+
+        // Certificate
+        var certFullPath = Path.Combine(_baseDirectory, config.Https.CertPath);
+        if (!File.Exists(certFullPath) || newCert)
+        {
+            Console.WriteLine();
+            Console.Write("  Generate self-signed HTTPS certificate? [Y/n] ");
+            var certAnswer = Console.ReadLine()?.Trim().ToLowerInvariant();
+            if (certAnswer is "" or "y" or "j")
+            {
+                var (certPath, certPassword) = CertificateGenerator.Generate(_baseDirectory);
+                config.Https.Enabled = true;
+                config.Https.CertPath = Path.GetFileName(certPath);
+                config.Https.CertPassword = certPassword;
+                Console.WriteLine("  Certificate created.");
+            }
+            else
+            {
+                config.Https.Enabled = false;
+                Console.WriteLine("  HTTPS disabled.");
+            }
+        }
+
+        // Port
+        Console.Write($"  Port [{config.Port}]: ");
+        var portInput = Console.ReadLine()?.Trim();
+        if (!string.IsNullOrEmpty(portInput) && int.TryParse(portInput, out var port))
+        {
+            config.Port = port;
+        }
+
+        _configManager.Save(config);
+        Console.WriteLine();
+        Console.WriteLine($"  Config saved to: {Path.Combine(_baseDirectory, "config.json")}");
+
+        PrintConfigSnippet(config);
+
+        return config;
+    }
+
+    public static void PrintConfigSnippet(AppConfig config)
+    {
+        var scheme = config.Https.Enabled ? "https" : "http";
+        var host = GetPrimaryLocalIp() ?? Dns.GetHostName();
+
+        Console.WriteLine();
+        Console.WriteLine("  Add this to your Claude Code settings:");
+        Console.WriteLine();
+        Console.WriteLine("  \"windows-mcp-dotnet\": {");
+        Console.WriteLine("    \"type\": \"streamable-http\",");
+        Console.WriteLine($"    \"url\": \"{scheme}://{host}:{config.Port}/mcp\",");
+        Console.WriteLine("    \"headers\": {");
+        Console.WriteLine($"      \"Authorization\": \"Bearer {config.ApiKey}\"");
+        Console.WriteLine("    }");
+        Console.WriteLine("  }");
+        Console.WriteLine();
+    }
+
+    private static string GenerateApiKey()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(24);
+        return "wmcp_" + Convert.ToBase64String(bytes)
+            .Replace("+", "")
+            .Replace("/", "")
+            .Replace("=", "")[..32];
+    }
+
+    private static string? GetPrimaryLocalIp()
+    {
+        return NetworkInterface.GetAllNetworkInterfaces()
+            .Where(ni => ni.OperationalStatus == OperationalStatus.Up
+                         && ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+            .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
+            .FirstOrDefault(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork)
+            ?.Address.ToString();
+    }
+}
