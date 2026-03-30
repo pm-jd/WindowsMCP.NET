@@ -29,62 +29,59 @@ public static class UpdateChecker
 
     public static async Task CheckAsync()
     {
-        if (string.IsNullOrEmpty(GitHubPat) || GitHubPat == "%%GITHUB_PAT%%")
-            return;
-
         try
         {
             var result = await GetLatestReleaseAsync();
-            if (result is null) return;
-
-            var (latestTag, _, _) = result.Value;
-            var currentVersion = GetCurrentVersion();
-
-            if (IsNewer(latestTag, currentVersion))
+            if (result is { Status: UpdateStatus.UpdateAvailable })
             {
                 Console.Error.WriteLine();
-                Console.Error.WriteLine($"  Update available: v{latestTag} (current: v{currentVersion})");
+                Console.Error.WriteLine($"  Update available: v{result.Version} (current: v{GetCurrentVersion()})");
                 Console.Error.WriteLine($"  Use tray icon 'Check for Updates' to install.");
                 Console.Error.WriteLine();
             }
         }
         catch
         {
-            // Silently ignore
+            // Silently ignore at startup
         }
     }
 
-    public static async Task<(string Version, string? PageUrl, string? ExeUrl)?> GetLatestReleaseAsync()
+    public static async Task<UpdateCheckResult> GetLatestReleaseAsync()
     {
         if (string.IsNullOrEmpty(GitHubPat) || GitHubPat == "%%GITHUB_PAT%%")
-            return null;
+            return UpdateCheckResult.Failed("No GitHub token configured. Rebuild with -p:GitHubPat=<token>.");
 
         try
         {
             using var http = CreateHttpClient();
             var response = await http.GetAsync($"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest");
-            if (!response.IsSuccessStatusCode) return null;
+            if (!response.IsSuccessStatusCode)
+                return UpdateCheckResult.Failed($"GitHub API returned {(int)response.StatusCode} {response.ReasonPhrase}.");
 
             var json = await response.Content.ReadAsStringAsync();
             var release = JsonSerializer.Deserialize(json, UpdateReleaseJsonContext.Default.GitHubRelease);
-            if (release is null) return null;
+            if (release is null)
+                return UpdateCheckResult.Failed("Could not parse release response.");
 
             var latestTag = release.TagName?.TrimStart('v') ?? "";
-            if (string.IsNullOrEmpty(latestTag)) return null;
+            if (string.IsNullOrEmpty(latestTag))
+                return UpdateCheckResult.Failed("Release has no version tag.");
 
             var currentVersion = GetCurrentVersion();
-            if (!IsNewer(latestTag, currentVersion)) return null;
+            if (!IsNewer(latestTag, currentVersion))
+                return UpdateCheckResult.UpToDate(currentVersion);
 
             // Find the .exe asset download URL
             var exeAsset = release.Assets?.FirstOrDefault(a =>
                 a.Name?.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == true
                 && a.Name.Contains("WindowsMCP", StringComparison.OrdinalIgnoreCase));
 
-            return (latestTag, release.HtmlUrl, exeAsset?.BrowserDownloadUrl);
+            return UpdateCheckResult.Available(latestTag, release.HtmlUrl, exeAsset?.BrowserDownloadUrl);
         }
-        catch { }
-
-        return null;
+        catch (Exception ex)
+        {
+            return UpdateCheckResult.Failed($"{ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     public static async Task<bool> DownloadAndApplyUpdateAsync(string exeDownloadUrl, Action onBeforeRestart)
@@ -196,6 +193,26 @@ public sealed class GitHubAsset
 
     [JsonPropertyName("browser_download_url")]
     public string? BrowserDownloadUrl { get; set; }
+}
+
+public enum UpdateStatus { UpToDate, UpdateAvailable, CheckFailed }
+
+public sealed class UpdateCheckResult
+{
+    public UpdateStatus Status { get; init; }
+    public string? Version { get; init; }
+    public string? PageUrl { get; init; }
+    public string? ExeUrl { get; init; }
+    public string? ErrorMessage { get; init; }
+
+    public static UpdateCheckResult UpToDate(string currentVersion) => new()
+        { Status = UpdateStatus.UpToDate, Version = currentVersion };
+
+    public static UpdateCheckResult Available(string version, string? pageUrl, string? exeUrl) => new()
+        { Status = UpdateStatus.UpdateAvailable, Version = version, PageUrl = pageUrl, ExeUrl = exeUrl };
+
+    public static UpdateCheckResult Failed(string error) => new()
+        { Status = UpdateStatus.CheckFailed, ErrorMessage = error };
 }
 
 [JsonSerializable(typeof(GitHubRelease))]

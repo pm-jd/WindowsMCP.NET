@@ -88,47 +88,50 @@ public sealed partial class TrayIconManager : IDisposable
     private async Task CheckForUpdatesAsync()
     {
         var result = await UpdateChecker.GetLatestReleaseAsync();
-        if (result is (string ver, string pageUrl, string exeUrl))
+
+        var thread = new Thread(() =>
         {
-            var thread = new Thread(() =>
+            switch (result.Status)
             {
-                var message = exeUrl is not null
-                    ? $"Update available: v{ver}\n\nDownload and install automatically?"
-                    : $"Update available: v{ver}\n\nOpen download page?";
+                case UpdateStatus.UpdateAvailable:
+                    var message = result.ExeUrl is not null
+                        ? $"Update available: v{result.Version}\n\nDownload and install automatically?"
+                        : $"Update available: v{result.Version}\n\nOpen download page?";
 
-                var answer = MessageBox.Show(message, "WindowsMCP.NET Update",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                    var answer = MessageBox.Show(message, "WindowsMCP.NET Update",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Information);
 
-                if (answer == DialogResult.Yes)
-                {
-                    if (exeUrl is not null)
+                    if (answer == DialogResult.Yes)
                     {
-                        _ = UpdateChecker.DownloadAndApplyUpdateAsync(exeUrl, () =>
+                        if (result.ExeUrl is not null)
                         {
-                            _onExit();
-                            Application.ExitThread();
-                        });
+                            _ = UpdateChecker.DownloadAndApplyUpdateAsync(result.ExeUrl, () =>
+                            {
+                                _onExit();
+                                Application.ExitThread();
+                            });
+                        }
+                        else if (result.PageUrl is not null)
+                        {
+                            System.Diagnostics.Process.Start(
+                                new System.Diagnostics.ProcessStartInfo(result.PageUrl) { UseShellExecute = true });
+                        }
                     }
-                    else if (pageUrl is not null)
-                    {
-                        System.Diagnostics.Process.Start(
-                            new System.Diagnostics.ProcessStartInfo(pageUrl) { UseShellExecute = true });
-                    }
-                }
-            });
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-        }
-        else
-        {
-            var thread = new Thread(() =>
-            {
-                MessageBox.Show("You are running the latest version.", "WindowsMCP.NET",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-            });
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-        }
+                    break;
+
+                case UpdateStatus.UpToDate:
+                    MessageBox.Show($"You are running the latest version (v{result.Version}).",
+                        "WindowsMCP.NET", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    break;
+
+                case UpdateStatus.CheckFailed:
+                    MessageBox.Show($"Update check failed:\n\n{result.ErrorMessage}",
+                        "WindowsMCP.NET", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    break;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
     }
 
     public void Dispose()
