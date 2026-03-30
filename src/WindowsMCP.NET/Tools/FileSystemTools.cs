@@ -10,12 +10,12 @@ public static class FileSystemTools
     private const int MaxReadBytes = 1_000_000; // 1 MB text limit
 
     [McpServerTool(Name = "FileSystem", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("File system operations. mode: read, write, copy, move, delete, list, search, info.")]
+    [Description("File system operations. mode: read, write, read_base64, write_base64, copy, move, delete, list, search, info.")]
     public static string FileSystem(
-        [Description("Mode: read, write, copy, move, delete, list, search, info")] string mode,
+        [Description("Mode: read, write, read_base64, write_base64, copy, move, delete, list, search, info")] string mode,
         [Description("Primary path (file or directory)")] string path,
         [Description("Destination path (for copy/move)")] string? destination = null,
-        [Description("Text content to write (for mode=write)")] string? content = null,
+        [Description("Text content to write (for mode=write), or Base64 data (for mode=write_base64)")] string? content = null,
         [Description("Search pattern (for mode=list/search, e.g. '*.txt')")] string? pattern = null,
         [Description("Recursive search (for mode=list/search)")] bool recursive = false,
         [Description("Encoding for read/write (utf8 default)")] string encoding = "utf8",
@@ -25,18 +25,27 @@ public static class FileSystemTools
         [Description("Overwrite destination if it exists (for copy/move)")] bool overwrite = true,
         [Description("Include hidden files and directories in list/search results")] bool show_hidden = false)
     {
-        return mode.ToLowerInvariant() switch
+        try
         {
-            "read"   => ReadFile(path, encoding, offset, limit),
-            "write"  => WriteFile(path, content, encoding, append),
-            "copy"   => CopyFile(path, destination, overwrite),
-            "move"   => MoveFile(path, destination, overwrite),
-            "delete" => DeleteFile(path),
-            "list"   => ListDirectory(path, pattern, recursive, show_hidden),
-            "search" => SearchFiles(path, pattern, recursive, show_hidden),
-            "info"   => GetInfo(path),
-            _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: read, write, copy, move, delete, list, search, info.")
-        };
+            return mode.ToLowerInvariant() switch
+            {
+                "read"   => ReadFile(path, encoding, offset, limit),
+                "write"  => WriteFile(path, content, encoding, append),
+                "copy"   => CopyFile(path, destination, overwrite),
+                "move"   => MoveFile(path, destination, overwrite),
+                "delete" => DeleteFile(path),
+                "list"   => ListDirectory(path, pattern, recursive, show_hidden),
+                "search" => SearchFiles(path, pattern, recursive, show_hidden),
+                "read_base64"  => ReadFileBase64(path),
+                "write_base64" => WriteFileBase64(path, content),
+                "info"   => GetInfo(path),
+                _        => $"[ERROR] Unknown mode '{mode}'. Use: read, write, read_base64, write_base64, copy, move, delete, list, search, info."
+            };
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     private static string ReadFile(string path, string enc, int offset, int limit)
@@ -74,10 +83,39 @@ public static class FileSystemTools
         return $"{(append ? "Appended" : "Written")} {content.Length} character(s) to {path}";
     }
 
+    private static string ReadFileBase64(string path)
+    {
+        var fileInfo = new FileInfo(path);
+        if (!fileInfo.Exists)
+            throw new FileNotFoundException($"File not found: {path}");
+        if (fileInfo.Length > MaxReadBytes)
+            throw new InvalidOperationException($"File too large ({fileInfo.Length:N0} bytes). Max is {MaxReadBytes:N0} bytes.");
+
+        var bytes = File.ReadAllBytes(path);
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static string WriteFileBase64(string path, string? content)
+    {
+        if (content is null)
+            throw new ArgumentException("'content' is required for mode=write_base64 (Base64-encoded data).");
+
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        var bytes = Convert.FromBase64String(content);
+        File.WriteAllBytes(path, bytes);
+        return $"Written {bytes.Length} byte(s) to {path}";
+    }
+
     private static string CopyFile(string source, string? dest, bool overwrite)
     {
         if (dest is null)
             throw new ArgumentException("'destination' is required for mode=copy.");
+
+        if (Directory.Exists(source))
+            return CopyDirectory(source, dest, overwrite);
 
         var destDir = Path.GetDirectoryName(dest);
         if (!string.IsNullOrEmpty(destDir))
@@ -87,10 +125,36 @@ public static class FileSystemTools
         return $"Copied {source} → {dest}";
     }
 
+    private static string CopyDirectory(string source, string dest, bool overwrite)
+    {
+        var srcDir = new DirectoryInfo(source);
+        Directory.CreateDirectory(dest);
+        int count = 0;
+
+        foreach (var file in srcDir.EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(source, file.FullName);
+            var destFile = Path.Combine(dest, relativePath);
+            var destFileDir = Path.GetDirectoryName(destFile);
+            if (!string.IsNullOrEmpty(destFileDir))
+                Directory.CreateDirectory(destFileDir);
+            file.CopyTo(destFile, overwrite);
+            count++;
+        }
+
+        return $"Copied directory {source} → {dest} ({count} file(s))";
+    }
+
     private static string MoveFile(string source, string? dest, bool overwrite)
     {
         if (dest is null)
             throw new ArgumentException("'destination' is required for mode=move.");
+
+        if (Directory.Exists(source))
+        {
+            Directory.Move(source, dest);
+            return $"Moved directory {source} → {dest}";
+        }
 
         var destDir = Path.GetDirectoryName(dest);
         if (!string.IsNullOrEmpty(destDir))
