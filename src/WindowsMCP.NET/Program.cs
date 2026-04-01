@@ -114,7 +114,14 @@ try
         services.AddSingleton<UiTreeService>();
     }
 
-    var logPath = Path.Combine(baseDirectory, "WindowsMCP.NET.log");
+    // Clean up log files older than 7 days
+    foreach (var oldLog in Directory.GetFiles(baseDirectory, "WindowsMCP.NET.*.log"))
+    {
+        try { if (File.GetLastWriteTime(oldLog) < DateTime.Now.AddDays(-7)) File.Delete(oldLog); }
+        catch { /* in use or already gone */ }
+    }
+
+    var logPath = Path.Combine(baseDirectory, $"WindowsMCP.NET.{Environment.ProcessId}.log");
     var fileLoggerProvider = new FileLoggerProvider(logPath);
 
     if (transport == "stdio")
