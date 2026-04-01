@@ -22,7 +22,7 @@ public static class UpdateChecker
         });
         http.Timeout = TimeSpan.FromSeconds(30);
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("WindowsMCP.NET", "1.0"));
-        if (!string.IsNullOrEmpty(GitHubPat) && GitHubPat != "%%GITHUB_PAT%%")
+        if (!string.IsNullOrEmpty(GitHubPat) && !GitHubPat.StartsWith("%%"))
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GitHubPat);
         return http;
     }
@@ -48,7 +48,7 @@ public static class UpdateChecker
 
     public static async Task<UpdateCheckResult> GetLatestReleaseAsync()
     {
-        if (string.IsNullOrEmpty(GitHubPat) || GitHubPat == "%%GITHUB_PAT%%")
+        if (string.IsNullOrEmpty(GitHubPat) || GitHubPat.StartsWith("%%"))
             return UpdateCheckResult.Failed("No GitHub token configured. Rebuild with -p:GitHubPat=<token>.");
 
         try
