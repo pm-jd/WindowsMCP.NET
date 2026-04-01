@@ -24,34 +24,44 @@ public static class SnapshotTools
         [Description("Reference line for width annotation (not yet implemented)")] int? width_reference_line = null,
         [Description("Reference line for height annotation (not yet implemented)")] int? height_reference_line = null)
     {
-        var result = new List<ContentBlock>();
-
-        // use_ui_tree is an alias for use_dom
-        bool buildTree = use_dom && use_ui_tree;
-
-        if (buildTree)
+        try
         {
-            uiTreeService.InvalidateCache();
-            var tree = uiTreeService.BuildAnnotatedTree();
-            result.Add(new TextContentBlock { Text = tree.ToText() });
-        }
+            var result = new List<ContentBlock>();
 
-        if (use_vision)
-        {
-            var pngBytes = captureService.CaptureScreen(display);
+            // use_ui_tree is an alias for use_dom
+            bool buildTree = use_dom && use_ui_tree;
 
-            if (use_annotation)
+            if (buildTree)
             {
-                var points = uiTreeService.GetAnnotationPoints()
-                    .Select(p => (p.X, p.Y, p.Label))
-                    .ToList<(int X, int Y, string Label)>();
-                pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
+                uiTreeService.InvalidateCache();
+                var tree = uiTreeService.BuildAnnotatedTree();
+                result.Add(new TextContentBlock { Text = tree.ToText() });
             }
 
-            result.Insert(0, ImageContentBlock.FromBytes(pngBytes, "image/png"));
-        }
+            if (use_vision)
+            {
+                var pngBytes = captureService.CaptureScreen(display);
 
-        return result;
+                if (use_annotation)
+                {
+                    var points = uiTreeService.GetAnnotationPoints()
+                        .Select(p => (p.X, p.Y, p.Label))
+                        .ToList<(int X, int Y, string Label)>();
+                    pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
+                }
+
+                result.Insert(0, ImageContentBlock.FromBytes(pngBytes, "image/png"));
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            return new List<ContentBlock>
+            {
+                new TextContentBlock { Text = $"[ERROR] {ex.GetType().Name}: {ex.Message}" }
+            };
+        }
     }
 
     [McpServerTool(Name = "Screenshot", ReadOnly = true, Idempotent = true)]
@@ -64,19 +74,29 @@ public static class SnapshotTools
         [Description("Reference line for width annotation (not yet implemented)")] int? width_reference_line = null,
         [Description("Reference line for height annotation (not yet implemented)")] int? height_reference_line = null)
     {
-        var pngBytes = captureService.CaptureScreen(display);
-
-        if (use_annotation)
+        try
         {
-            var points = uiTreeService.GetAnnotationPoints()
-                .Select(p => (p.X, p.Y, p.Label))
-                .ToList<(int X, int Y, string Label)>();
-            pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
+            var pngBytes = captureService.CaptureScreen(display);
+
+            if (use_annotation)
+            {
+                var points = uiTreeService.GetAnnotationPoints()
+                    .Select(p => (p.X, p.Y, p.Label))
+                    .ToList<(int X, int Y, string Label)>();
+                pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
+            }
+
+            return new List<ContentBlock>
+            {
+                ImageContentBlock.FromBytes(pngBytes, "image/png"),
+            };
         }
-
-        return new List<ContentBlock>
+        catch (Exception ex)
         {
-            ImageContentBlock.FromBytes(pngBytes, "image/png"),
-        };
+            return new List<ContentBlock>
+            {
+                new TextContentBlock { Text = $"[ERROR] {ex.GetType().Name}: {ex.Message}" }
+            };
+        }
     }
 }

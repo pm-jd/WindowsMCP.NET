@@ -14,52 +14,59 @@ public static class SystemTools
         [Description("PowerShell command or script to execute")] string command,
         [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30)
     {
-        timeout = Math.Clamp(timeout, 1, 120);
-
-        var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -EncodedCommand {encoded}",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        using var proc = new System.Diagnostics.Process { StartInfo = psi };
-        var stdout = new StringBuilder();
-        var stderr = new StringBuilder();
-
-        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-        proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
-
-        proc.Start();
-        proc.BeginOutputReadLine();
-        proc.BeginErrorReadLine();
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
         try
         {
-            await proc.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            proc.Kill(entireProcessTree: true);
-            return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}";
-        }
+            timeout = Math.Clamp(timeout, 1, 120);
 
-        var result = new StringBuilder();
-        if (stdout.Length > 0) result.Append(stdout);
-        if (stderr.Length > 0)
-        {
-            if (result.Length > 0) result.AppendLine();
-            result.Append("[stderr]\n").Append(stderr);
-        }
-        if (proc.ExitCode != 0)
-            result.AppendLine($"[ExitCode={proc.ExitCode}]");
+            var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -EncodedCommand {encoded}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
 
-        return result.Length > 0 ? result.ToString().TrimEnd() : "(no output)";
+            using var proc = new System.Diagnostics.Process { StartInfo = psi };
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
+
+            proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
+            proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+
+            proc.Start();
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
+            try
+            {
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                proc.Kill(entireProcessTree: true);
+                return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}";
+            }
+
+            var result = new StringBuilder();
+            if (stdout.Length > 0) result.Append(stdout);
+            if (stderr.Length > 0)
+            {
+                if (result.Length > 0) result.AppendLine();
+                result.Append("[stderr]\n").Append(stderr);
+            }
+            if (proc.ExitCode != 0)
+                result.AppendLine($"[ExitCode={proc.ExitCode}]");
+
+            return result.Length > 0 ? result.ToString().TrimEnd() : "(no output)";
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     [McpServerTool(Name = "Process", Destructive = true, OpenWorld = true, ReadOnly = false)]
@@ -72,12 +79,19 @@ public static class SystemTools
         [Description("Maximum number of processes to return in list mode")] int limit = 20,
         [Description("Force kill (SIGKILL / TerminateProcess) instead of graceful close")] bool force = false)
     {
-        return mode.ToLowerInvariant() switch
+        try
         {
-            "list" => ListProcesses(name, sort_by, limit),
-            "kill" => KillProcess(pid, force),
-            _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: list or kill.")
-        };
+            return mode.ToLowerInvariant() switch
+            {
+                "list" => ListProcesses(name, sort_by, limit),
+                "kill" => KillProcess(pid, force),
+                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: list or kill.")
+            };
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     [McpServerTool(Name = "Registry", Destructive = true, OpenWorld = true, ReadOnly = false)]
@@ -90,14 +104,21 @@ public static class SystemTools
         [Description("Value data to set (for mode=set)")] string? value = null,
         [Description("Value type for set: String (default), DWord, QWord, Binary, ExpandString")] string type = "String")
     {
-        return mode.ToLowerInvariant() switch
+        try
         {
-            "get"    => RegistryGet(path, name),
-            "set"    => RegistrySet(path, name, value, type),
-            "delete" => RegistryDelete(path, name),
-            "list"   => RegistryList(path),
-            _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get, set, delete, or list.")
-        };
+            return mode.ToLowerInvariant() switch
+            {
+                "get"    => RegistryGet(path, name),
+                "set"    => RegistrySet(path, name, value, type),
+                "delete" => RegistryDelete(path, name),
+                "list"   => RegistryList(path),
+                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get, set, delete, or list.")
+            };
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     // --- Process helpers ---

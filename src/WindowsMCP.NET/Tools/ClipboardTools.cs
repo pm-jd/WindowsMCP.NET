@@ -14,12 +14,19 @@ public static class ClipboardTools
         [Description("Mode: get or set")] string mode,
         [Description("Text to place on clipboard (required for mode=set)")] string? text = null)
     {
-        return mode.ToLowerInvariant() switch
+        try
         {
-            "get" => ClipboardGet(),
-            "set" => ClipboardSet(text),
-            _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get or set.")
-        };
+            return mode.ToLowerInvariant() switch
+            {
+                "get" => ClipboardGet(),
+                "set" => ClipboardSet(text),
+                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get or set.")
+            };
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     private static string ClipboardGet()

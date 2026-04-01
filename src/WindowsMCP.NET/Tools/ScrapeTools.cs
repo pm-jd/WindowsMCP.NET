@@ -42,29 +42,36 @@ public static class ScrapeTools
         [Description("Use browser DOM for scraping (not implemented; accepted for API compatibility)")] bool use_dom = false,
         [Description("Use sampling to reduce content length")] bool use_sampling = true)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != "http" && uri.Scheme != "https"))
+        try
         {
-            throw new ArgumentException($"Invalid URL: '{url}'. Must be http or https.");
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != "http" && uri.Scheme != "https"))
+            {
+                throw new ArgumentException($"Invalid URL: '{url}'. Must be http or https.");
+            }
+
+            using var response = await _httpClient.GetAsync(uri);
+            response.EnsureSuccessStatusCode();
+
+            var html = await response.Content.ReadAsStringAsync();
+            var markdown = _markdownConverter.Convert(html);
+
+            if (query is not null)
+            {
+                var filteredLines = markdown
+                    .Split('\n')
+                    .Where(line => line.Contains(query, StringComparison.OrdinalIgnoreCase));
+                markdown = string.Join('\n', filteredLines);
+            }
+
+            if (markdown.Length > MaxChars)
+                markdown = markdown[..MaxChars] + $"\n\n[Truncated at {MaxChars:N0} characters]";
+
+            return markdown;
         }
-
-        using var response = await _httpClient.GetAsync(uri);
-        response.EnsureSuccessStatusCode();
-
-        var html = await response.Content.ReadAsStringAsync();
-        var markdown = _markdownConverter.Convert(html);
-
-        if (query is not null)
+        catch (Exception ex)
         {
-            var filteredLines = markdown
-                .Split('\n')
-                .Where(line => line.Contains(query, StringComparison.OrdinalIgnoreCase));
-            markdown = string.Join('\n', filteredLines);
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
         }
-
-        if (markdown.Length > MaxChars)
-            markdown = markdown[..MaxChars] + $"\n\n[Truncated at {MaxChars:N0} characters]";
-
-        return markdown;
     }
 }

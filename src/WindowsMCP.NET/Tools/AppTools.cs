@@ -18,13 +18,20 @@ public static class AppTools
         [Description("Window position as [x, y] (for resize)")] JsonElement? window_loc = null,
         [Description("Window size as [width, height] (for resize)")] JsonElement? window_size = null)
     {
-        return mode.ToLowerInvariant() switch
+        try
         {
-            "launch" => await LaunchApp(desktopService, name),
-            "switch" => SwitchToApp(desktopService, name),
-            "resize" => ResizeApp(desktopService, name, window_loc, window_size),
-            _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: launch, switch, or resize.")
-        };
+            return mode.ToLowerInvariant() switch
+            {
+                "launch" => await LaunchApp(desktopService, name),
+                "switch" => SwitchToApp(desktopService, name),
+                "resize" => ResizeApp(desktopService, name, window_loc, window_size),
+                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: launch, switch, or resize.")
+            };
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     private static async Task<string> LaunchApp(DesktopService desktopService, string name)

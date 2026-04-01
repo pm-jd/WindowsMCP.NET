@@ -18,36 +18,43 @@ public static class MultiTools
         [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] JsonElement? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true)
     {
-        var targets = ResolveTargets(uiTreeService, labels, locs);
-        if (targets.Count == 0)
-            throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
-
-        if (press_ctrl)
-        {
-            var ctrlDown = MakeVkKey(0x11, keyUp: false);
-            User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-        }
-
-        var clicked = new List<string>();
         try
         {
-            foreach (var (x, y, desc) in targets)
-            {
-                User32.SetCursorPos(x, y);
-                SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
-                clicked.Add(desc);
-            }
-        }
-        finally
-        {
+            var targets = ResolveTargets(uiTreeService, labels, locs);
+            if (targets.Count == 0)
+                throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
+
             if (press_ctrl)
             {
-                var ctrlUp = MakeVkKey(0x11, keyUp: true);
-                User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+                var ctrlDown = MakeVkKey(0x11, keyUp: false);
+                User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
             }
-        }
 
-        return $"Multi-selected {clicked.Count} element(s): {string.Join(", ", clicked)}";
+            var clicked = new List<string>();
+            try
+            {
+                foreach (var (x, y, desc) in targets)
+                {
+                    User32.SetCursorPos(x, y);
+                    SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+                    clicked.Add(desc);
+                }
+            }
+            finally
+            {
+                if (press_ctrl)
+                {
+                    var ctrlUp = MakeVkKey(0x11, keyUp: true);
+                    User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+                }
+            }
+
+            return $"Multi-selected {clicked.Count} element(s): {string.Join(", ", clicked)}";
+        }
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     [McpServerTool(Name = "MultiEdit", Destructive = true, OpenWorld = true, ReadOnly = false)]
@@ -59,31 +66,38 @@ public static class MultiTools
         [Description("Array of [x, y, text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']]")] JsonElement? locs = null,
         [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] JsonElement? labels = null)
     {
-        var pairs = BuildEditPairs(uiTreeService, locs, labels);
-        if (pairs.Count == 0)
-            throw new ArgumentException("No fields specified. Provide 'locs' or 'labels'.");
-
-        var results = new List<string>();
-        foreach (var (cx, cy, text, desc) in pairs)
+        try
         {
-            // Click the field
-            User32.SetCursorPos(cx, cy);
-            SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+            var pairs = BuildEditPairs(uiTreeService, locs, labels);
+            if (pairs.Count == 0)
+                throw new ArgumentException("No fields specified. Provide 'locs' or 'labels'.");
 
-            // Type the text
-            var typeInputs = new INPUT[text.Length * 2];
-            int idx = 0;
-            foreach (char ch in text)
+            var results = new List<string>();
+            foreach (var (cx, cy, text, desc) in pairs)
             {
-                typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: false);
-                typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: true);
+                // Click the field
+                User32.SetCursorPos(cx, cy);
+                SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+
+                // Type the text
+                var typeInputs = new INPUT[text.Length * 2];
+                int idx = 0;
+                foreach (char ch in text)
+                {
+                    typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: false);
+                    typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: true);
+                }
+                User32.SendInput((uint)typeInputs.Length, typeInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+
+                results.Add($"{desc}=\"{text}\"");
             }
-            User32.SendInput((uint)typeInputs.Length, typeInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
 
-            results.Add($"{desc}=\"{text}\"");
+            return $"Edited {results.Count} field(s): {string.Join(", ", results)}";
         }
-
-        return $"Edited {results.Count} field(s): {string.Join(", ", results)}";
+        catch (Exception ex)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+        }
     }
 
     // --- Helpers ---
