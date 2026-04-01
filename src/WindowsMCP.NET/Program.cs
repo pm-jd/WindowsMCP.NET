@@ -195,6 +195,10 @@ try
 
         var app = builder.Build();
 
+        // Prevent Ctrl+C keyboard events (sent by Shortcut tool) from killing the server.
+        // Shutdown is handled by app.Lifetime.StopApplication() via tray icon instead.
+        Console.CancelKeyPress += (_, e) => e.Cancel = true;
+
         if (config.AllowedIps.Count > 0)
             app.UseMiddleware<IpAllowlistMiddleware>(config.AllowedIps.AsEnumerable());
 
