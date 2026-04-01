@@ -201,6 +201,21 @@ try
         app.UseMiddleware<ApiKeyMiddleware>(config.ApiKey!);
         app.MapMcp();
 
+        app.MapGet("/health", () =>
+        {
+            var process = System.Diagnostics.Process.GetCurrentProcess();
+            return Results.Ok(new
+            {
+                status = "healthy",
+                version = version,
+                uptime = (DateTime.UtcNow - process.StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss"),
+                transport = "http",
+                tools = 20,
+                pid = Environment.ProcessId,
+                machine = Environment.MachineName,
+            });
+        });
+
         Console.Error.WriteLine($"WindowsMCP.NET v{version}");
         Console.Error.WriteLine($"Listening on {(config.Https.Enabled ? "https" : "http")}://{config.Host}:{config.Port}");
         Console.Error.WriteLine("Press Ctrl+C to stop.");

@@ -15,6 +15,12 @@ public sealed class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        if (context.Request.Path.StartsWithSegments("/health"))
+        {
+            await _next(context);
+            return;
+        }
+
         var authHeader = context.Request.Headers.Authorization.ToString();
         if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
