@@ -46,6 +46,17 @@ public static class PerformTools
 
             try
             {
+                // Check if_exists: skip step if label not found
+                if (step.GetBool("if_exists"))
+                {
+                    var label = step.GetString("label");
+                    if (label is not null && uiTreeService.ResolveLabel(label) is null)
+                    {
+                        results.Add(new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)"));
+                        continue;
+                    }
+                }
+
                 var msg = await ExecuteStep(step, uiTreeService);
                 results.Add(new StepResult(stepNum, true, msg));
             }
@@ -144,7 +155,8 @@ public static class PerformTools
 
         foreach (var r in results)
         {
-            sb.AppendLine($"Step {r.StepNumber}: {(r.Success ? "OK" : "FAIL")} — {r.Message}");
+            var status = !r.Success ? "FAIL" : r.Message.StartsWith("Skipped") ? "SKIP" : "OK";
+            sb.AppendLine($"Step {r.StepNumber}: {status} — {r.Message}");
         }
 
         sb.AppendLine();

@@ -84,4 +84,20 @@ public class PerformToolsTests
         Assert.Contains("1/2 succeeded", text);
         Assert.Contains("stop_on_error", text);
     }
+
+    [Fact]
+    public void FormatResults_WithSkip()
+    {
+        var results = new List<PerformTools.StepResult>
+        {
+            new(1, true, "Clicked"),
+            new(2, true, "Skipped — label '99' not found (if_exists)"),
+            new(3, true, "Typed 5 character(s)"),
+        };
+        var text = PerformTools.FormatResults(results, false);
+        Assert.Contains("Step 1: OK", text);
+        Assert.Contains("Step 2: SKIP", text);
+        Assert.Contains("Step 3: OK", text);
+        Assert.Contains("3/3 succeeded", text);
+    }
 }
