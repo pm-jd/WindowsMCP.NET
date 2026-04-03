@@ -36,7 +36,7 @@ public sealed partial class TrayIconManager : IDisposable
 
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,  // Use default app icon
+                Icon = CreateTrayIcon(),
                 Text = $"WindowsMCP.NET\n{_url}",
                 Visible = true,
                 ContextMenuStrip = contextMenu,
@@ -142,6 +142,37 @@ public sealed partial class TrayIconManager : IDisposable
             _notifyIcon.Dispose();
             _notifyIcon = null;
         }
+    }
+
+    private static Icon CreateTrayIcon()
+    {
+        using var bmp = new Bitmap(32, 32);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(Color.Transparent);
+
+        // Teal rounded-rectangle background
+        using var bgBrush = new SolidBrush(Color.FromArgb(0, 151, 167));
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var rect = new Rectangle(1, 1, 29, 29);
+        int r = 6;
+        path.AddArc(rect.X, rect.Y, r, r, 180, 90);
+        path.AddArc(rect.Right - r, rect.Y, r, r, 270, 90);
+        path.AddArc(rect.Right - r, rect.Bottom - r, r, r, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - r, r, r, 90, 90);
+        path.CloseFigure();
+        g.FillPath(bgBrush, path);
+
+        // White lightning bolt (automation symbol)
+        using var fgBrush = new SolidBrush(Color.White);
+        g.FillPolygon(fgBrush, new PointF[]
+        {
+            new(17, 4), new(10, 16), new(15, 16),
+            new(13, 28), new(22, 14), new(17, 14),
+        });
+
+        var hIcon = bmp.GetHicon();
+        return Icon.FromHandle(hIcon);
     }
 
     [System.Runtime.InteropServices.LibraryImport("kernel32.dll")]
