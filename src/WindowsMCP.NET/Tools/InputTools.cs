@@ -50,8 +50,7 @@ public static class InputTools
     };
 
     [McpServerTool(Name = "Click", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Click at a screen coordinate or on a UI element identified by label. " +
-                 "button: left (default), right, middle. clicks: 1 for single (default), 2 for double.")]
+    [Description("Click at coordinates or a labeled UI element.")]
     public static string Click(
         UiTreeService uiTreeService,
         [Description("Coordinate as [x, y] (ignored when label is given)")] JsonElement? loc = null,
@@ -101,15 +100,14 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Type", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Type text using Unicode key events. Optionally move to a coordinate or click a label first.")]
+    [Description("Type text, optionally clicking a target element first.")]
     public static string Type(
         UiTreeService uiTreeService,
         [Description("Text to type")] string text,
         [Description("Optional: click this label before typing")] string? label = null,
         [Description("Coordinate to click before typing as [x, y]")] JsonElement? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
-        [Description("Press Enter after typing")] bool press_enter = false,
-        [Description("Caret position after typing: start, idle, or end (not yet implemented)")] string? caret_position = null)
+        [Description("Press Enter after typing")] bool press_enter = false)
     {
         try
         {
@@ -170,7 +168,7 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Scroll", Destructive = false, OpenWorld = false, ReadOnly = false)]
-    [Description("Scroll the mouse wheel at given coordinates or label. direction: up or down (or left/right for horizontal). type: vertical (default) or horizontal.")]
+    [Description("Scroll mouse wheel at coordinates or labeled element.")]
     public static string Scroll(
         UiTreeService uiTreeService,
         [Description("Scroll direction: up or down (vertical), left or right (horizontal)")] string direction = "down",
@@ -235,7 +233,7 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Move", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Move the mouse cursor to a coordinate or UI element label. Optionally drag (mousedown before move, mouseup after).")]
+    [Description("Move cursor to coordinates or label, with optional drag.")]
     public static string Move(
         UiTreeService uiTreeService,
         [Description("Coordinate as [x, y]")] JsonElement? loc = null,
@@ -291,7 +289,7 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Shortcut", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Send a keyboard shortcut. Format: 'ctrl+c', 'alt+f4', 'ctrl+shift+s', etc.")]
+    [Description("Send a keyboard shortcut (e.g. ctrl+c, alt+f4).")]
     public static string Shortcut(
         [Description("Key combination, e.g. 'ctrl+c', 'alt+tab', 'win+d'")] string shortcut)
     {

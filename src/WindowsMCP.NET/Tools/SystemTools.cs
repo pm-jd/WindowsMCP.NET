@@ -9,7 +9,7 @@ namespace WindowsMcpNet.Tools;
 public static class SystemTools
 {
     [McpServerTool(Name = "PowerShell", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Execute a PowerShell command. WARNING: This tool has full system access. Commands run with the server's privileges and can modify files, registry, processes, and network settings.")]
+    [Description("Execute a PowerShell command on the remote machine.")]
     public static async Task<string> PowerShell(
         [Description("PowerShell command or script to execute")] string command,
         [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30)

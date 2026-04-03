@@ -34,8 +34,7 @@ public static class ScrapeTools
     });
 
     [McpServerTool(Name = "Scrape", ReadOnly = true, Idempotent = true)]
-    [Description("Fetch a URL and return its content as Markdown. Truncates at 50,000 characters. " +
-                 "Optionally filter content by a query string.")]
+    [Description("Fetch URL and return content as Markdown.")]
     public static async Task<string> Scrape(
         [Description("URL to fetch (http or https)")] string url,
         [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null,
