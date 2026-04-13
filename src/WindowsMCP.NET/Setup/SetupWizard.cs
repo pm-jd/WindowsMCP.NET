@@ -17,9 +17,12 @@ public sealed class SetupWizard
         _baseDirectory = baseDirectory;
     }
 
-    public AppConfig Run(bool newKey = false, bool newCert = false)
+    public AppConfig Run(bool newKey = false, bool newCert = false, string? advertiseHost = null)
     {
         var config = _configManager.Exists ? _configManager.Load() : new AppConfig();
+
+        if (advertiseHost is not null)
+            config.AdvertiseHost = advertiseHost;
 
         Console.WriteLine();
         Console.WriteLine("  WindowsMCP.NET — Setup");
@@ -92,7 +95,7 @@ public sealed class SetupWizard
     public static void PrintConfigSnippet(AppConfig config)
     {
         var scheme = config.Https.Enabled ? "https" : "http";
-        var host = GetPrimaryLocalIp() ?? Dns.GetHostName();
+        var (host, alternatives) = ResolveAdvertiseHost(config);
         var url = $"{scheme}://{host}:{config.Port}";
 
         Console.WriteLine();
@@ -110,6 +113,79 @@ public sealed class SetupWizard
         Console.WriteLine("    }");
         Console.WriteLine("  }");
         Console.WriteLine();
+
+        if (alternatives.Count > 0)
+        {
+            Console.WriteLine("  Alternative addresses detected on this machine:");
+            foreach (var alt in alternatives)
+                Console.WriteLine($"    {scheme}://{alt}:{config.Port}");
+            Console.WriteLine("  If the address above is not reachable from clients, set 'advertiseHost'");
+            Console.WriteLine("  in config.json or pass --advertise-host <ip> to override auto-detection.");
+            Console.WriteLine();
+        }
+    }
+
+    private static (string Host, List<string> Alternatives) ResolveAdvertiseHost(AppConfig config)
+    {
+        // Priority: config.AdvertiseHost → WMCP_ADVERTISE_HOST env → route-probe → gateway-filtered NIC → hostname
+        if (!string.IsNullOrWhiteSpace(config.AdvertiseHost))
+            return (config.AdvertiseHost!, []);
+
+        var envHost = Environment.GetEnvironmentVariable("WMCP_ADVERTISE_HOST");
+        if (!string.IsNullOrWhiteSpace(envHost))
+            return (envHost, []);
+
+        var candidates = GetRoutableIPv4Addresses();
+        if (candidates.Count == 0)
+            return (Dns.GetHostName(), []);
+
+        var primary = ProbeOutboundIPv4() ?? candidates[0];
+        var alternatives = candidates.Where(ip => ip != primary).ToList();
+        return (primary, alternatives);
+    }
+
+    private static string? ProbeOutboundIPv4()
+    {
+        // Classic trick: UDP Connect does not send a packet but makes Windows
+        // walk the routing table and bind LocalEndPoint to the interface it
+        // would use for outbound traffic. That's the default-gateway NIC,
+        // which is almost always the correct LAN address.
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            socket.Connect("8.8.8.8", 65530);
+            return (socket.LocalEndPoint as IPEndPoint)?.Address.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static List<string> GetRoutableIPv4Addresses()
+    {
+        var result = new List<string>();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != OperationalStatus.Up) continue;
+            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (ni.NetworkInterfaceType == NetworkInterfaceType.Tunnel) continue;
+
+            var props = ni.GetIPProperties();
+            // Gateway filter kicks out WSL, Hyper-V virtual switches, Docker
+            // host-only adapters — none of them have a default gateway.
+            if (props.GatewayAddresses.Count == 0) continue;
+
+            foreach (var ua in props.UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                var ip = ua.Address.ToString();
+                // Skip APIPA (link-local) — visible as "up" but not routable.
+                if (ip.StartsWith("169.254.", StringComparison.Ordinal)) continue;
+                result.Add(ip);
+            }
+        }
+        return result;
     }
 
     private static string GenerateApiKey()
@@ -144,13 +220,4 @@ public sealed class SetupWizard
         }
     }
 
-    private static string? GetPrimaryLocalIp()
-    {
-        return NetworkInterface.GetAllNetworkInterfaces()
-            .Where(ni => ni.OperationalStatus == OperationalStatus.Up
-                         && ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
-            .FirstOrDefault(ua => ua.Address.AddressFamily == AddressFamily.InterNetwork)
-            ?.Address.ToString();
-    }
 }

@@ -59,7 +59,7 @@ try
     if (cliOptions.Command == "setup")
     {
         var wizard = new SetupWizard(configManager, baseDirectory);
-        wizard.Run(newKey: cliOptions.NewKey, newCert: cliOptions.NewCert);
+        wizard.Run(newKey: cliOptions.NewKey, newCert: cliOptions.NewCert, advertiseHost: cliOptions.AdvertiseHost);
         if (isInteractive) { Console.WriteLine("\nPress Enter to exit..."); Console.ReadLine(); }
         return;
     }
@@ -86,6 +86,7 @@ try
     var transport = cliOptions.Transport ?? config.Transport;
     if (cliOptions.Port.HasValue) config.Port = cliOptions.Port.Value;
     if (cliOptions.Host is not null) config.Host = cliOptions.Host;
+    if (cliOptions.AdvertiseHost is not null) config.AdvertiseHost = cliOptions.AdvertiseHost;
     if (cliOptions.ApiKey is not null) config.ApiKey = cliOptions.ApiKey;
     config.ApiKey ??= Environment.GetEnvironmentVariable("WMCP_API_KEY");
     if (cliOptions.AllowIps.Count > 0) config.AllowedIps = cliOptions.AllowIps;

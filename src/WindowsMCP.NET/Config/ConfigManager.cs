@@ -36,6 +36,7 @@ public sealed class ConfigManager
             Transport = config.Transport,
             Host = config.Host,
             Port = config.Port,
+            AdvertiseHost = config.AdvertiseHost,
             ApiKey = Encrypt(config.ApiKey),
             Https = new HttpsConfig
             {

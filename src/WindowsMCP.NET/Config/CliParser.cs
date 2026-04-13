@@ -6,6 +6,7 @@ public sealed record CliOptions
     public string? Transport { get; init; }
     public string? Host { get; init; }
     public int? Port { get; init; }
+    public string? AdvertiseHost { get; init; }
     public string? ApiKey { get; init; }
     public string? CertPath { get; init; }
     public string? CertPassword { get; init; }
@@ -25,6 +26,7 @@ public static class CliParser
         string? transport = null;
         string? host = null;
         int? port = null;
+        string? advertiseHost = null;
         string? apiKey = null;
         string? certPath = null;
         string? certPassword = null;
@@ -48,6 +50,9 @@ public static class CliParser
                     break;
                 case "--host" when i + 1 < args.Length:
                     host = args[++i];
+                    break;
+                case "--advertise-host" when i + 1 < args.Length:
+                    advertiseHost = args[++i];
                     break;
                 case "--port" when i + 1 < args.Length:
                     if (int.TryParse(args[++i], out var parsedPort))
@@ -91,6 +96,7 @@ public static class CliParser
             Transport = transport,
             Host = host,
             Port = port,
+            AdvertiseHost = advertiseHost,
             ApiKey = apiKey,
             CertPath = certPath,
             CertPassword = certPassword,
@@ -118,6 +124,9 @@ public static class CliParser
               --transport <stdio|http>      Transport mode (default: http)
               --host <host>                 Bind address (default: 0.0.0.0)
               --port <port>                 Port (default: 8000)
+              --advertise-host <ip|host>    Address shown in the setup snippet
+                                            (overrides auto-detection;
+                                            alt: WMCP_ADVERTISE_HOST env)
 
             Security (HTTP mode):
               --api-key <key>               API key (alt: WMCP_API_KEY env)

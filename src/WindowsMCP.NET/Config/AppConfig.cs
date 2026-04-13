@@ -7,6 +7,7 @@ public sealed class AppConfig
     public string Transport { get; set; } = "http";
     public string Host { get; set; } = "0.0.0.0";
     public int Port { get; set; } = 8000;
+    public string? AdvertiseHost { get; set; }
     public string? ApiKey { get; set; }
     public HttpsConfig Https { get; set; } = new();
     public List<string> AllowedIps { get; set; } = [];
