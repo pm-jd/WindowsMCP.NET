@@ -229,12 +229,7 @@ try
             TrayIconManager.HideConsole();
 
         var displayHost = config.Host == "0.0.0.0"
-            ? (System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-                .Where(ni => ni.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
-                             && ni.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
-                .SelectMany(ni => ni.GetIPProperties().UnicastAddresses)
-                .FirstOrDefault(ua => ua.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                ?.Address.ToString() ?? System.Net.Dns.GetHostName())
+            ? SetupWizard.ResolveAdvertiseHosts(config)[0].Host
             : config.Host;
         var url = $"{(config.Https.Enabled ? "https" : "http")}://{displayHost}:{config.Port}";
         using var trayIcon = new TrayIconManager(url, config.ApiKey, () =>

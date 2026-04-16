@@ -92,56 +92,81 @@ public sealed class SetupWizard
         return config;
     }
 
+    public sealed record HostCandidate(string Host, string Label, bool IsPrimary);
+
     public static void PrintConfigSnippet(AppConfig config)
     {
         var scheme = config.Https.Enabled ? "https" : "http";
-        var (host, alternatives) = ResolveAdvertiseHost(config);
-        var url = $"{scheme}://{host}:{config.Port}";
+        var candidates = ResolveAdvertiseHosts(config);
 
         Console.WriteLine();
-        Console.WriteLine("  Run this command on the client machine to connect:");
-        Console.WriteLine();
-        Console.WriteLine($"  claude mcp add windows-mcp-dotnet \"{url}\" --transport http --scope user --header \"Authorization: Bearer {config.ApiKey}\"");
-        Console.WriteLine();
-        Console.WriteLine("  Or add this to your Claude Code settings JSON:");
-        Console.WriteLine();
-        Console.WriteLine("  \"windows-mcp-dotnet\": {");
-        Console.WriteLine("    \"type\": \"http\",");
-        Console.WriteLine($"    \"url\": \"{url}\",");
-        Console.WriteLine("    \"headers\": {");
-        Console.WriteLine($"      \"Authorization\": \"Bearer {config.ApiKey}\"");
-        Console.WriteLine("    }");
-        Console.WriteLine("  }");
-        Console.WriteLine();
-
-        if (alternatives.Count > 0)
+        if (candidates.Count == 1)
         {
-            Console.WriteLine("  Alternative addresses detected on this machine:");
-            foreach (var alt in alternatives)
-                Console.WriteLine($"    {scheme}://{alt}:{config.Port}");
-            Console.WriteLine("  If the address above is not reachable from clients, set 'advertiseHost'");
+            Console.WriteLine("  Run this command on the client machine to connect:");
+            PrintCandidateBlock(candidates[0], scheme, config, indent: "  ");
+        }
+        else
+        {
+            Console.WriteLine("  This machine has multiple reachable addresses. Copy the block");
+            Console.WriteLine("  that matches the network your clients are on:");
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var c = candidates[i];
+                Console.WriteLine();
+                var marker = c.IsPrimary ? "  (auto-detected default gateway)" : "";
+                Console.WriteLine($"  --- Option {i + 1} - {c.Label} - {c.Host}{marker}");
+                PrintCandidateBlock(c, scheme, config, indent: "  ");
+            }
+            Console.WriteLine();
+            Console.WriteLine("  If none of these are reachable from clients, set 'advertiseHost'");
             Console.WriteLine("  in config.json or pass --advertise-host <ip> to override auto-detection.");
             Console.WriteLine();
         }
     }
 
-    private static (string Host, List<string> Alternatives) ResolveAdvertiseHost(AppConfig config)
+    private static void PrintCandidateBlock(HostCandidate candidate, string scheme, AppConfig config, string indent)
     {
-        // Priority: config.AdvertiseHost → WMCP_ADVERTISE_HOST env → route-probe → gateway-filtered NIC → hostname
+        var url = $"{scheme}://{candidate.Host}:{config.Port}";
+        Console.WriteLine();
+        Console.WriteLine($"{indent}claude mcp add windows-mcp-dotnet \"{url}\" --transport http --scope user --header \"Authorization: Bearer {config.ApiKey}\"");
+        Console.WriteLine();
+        Console.WriteLine($"{indent}\"windows-mcp-dotnet\": {{");
+        Console.WriteLine($"{indent}  \"type\": \"http\",");
+        Console.WriteLine($"{indent}  \"url\": \"{url}\",");
+        Console.WriteLine($"{indent}  \"headers\": {{");
+        Console.WriteLine($"{indent}    \"Authorization\": \"Bearer {config.ApiKey}\"");
+        Console.WriteLine($"{indent}  }}");
+        Console.WriteLine($"{indent}}}");
+    }
+
+    public static List<HostCandidate> ResolveAdvertiseHosts(AppConfig config)
+    {
+        // Priority: config.AdvertiseHost → WMCP_ADVERTISE_HOST env → route-probe + NIC enumeration → hostname
         if (!string.IsNullOrWhiteSpace(config.AdvertiseHost))
-            return (config.AdvertiseHost!, []);
+            return [new HostCandidate(config.AdvertiseHost!, "configured (advertiseHost)", IsPrimary: true)];
 
         var envHost = Environment.GetEnvironmentVariable("WMCP_ADVERTISE_HOST");
         if (!string.IsNullOrWhiteSpace(envHost))
-            return (envHost, []);
+            return [new HostCandidate(envHost, "configured (WMCP_ADVERTISE_HOST)", IsPrimary: true)];
 
-        var candidates = GetRoutableIPv4Addresses();
-        if (candidates.Count == 0)
-            return (Dns.GetHostName(), []);
+        var nicCandidates = GetRoutableIPv4Addresses();
+        if (nicCandidates.Count == 0)
+            return [new HostCandidate(Dns.GetHostName(), "hostname fallback", IsPrimary: true)];
 
-        var primary = ProbeOutboundIPv4() ?? candidates[0];
-        var alternatives = candidates.Where(ip => ip != primary).ToList();
-        return (primary, alternatives);
+        var probedIp = ProbeOutboundIPv4();
+        var primaryIndex = probedIp is null
+            ? 0
+            : nicCandidates.FindIndex(c => c.Ip == probedIp);
+        if (primaryIndex < 0) primaryIndex = 0;
+
+        var result = new List<HostCandidate>(nicCandidates.Count);
+        result.Add(new HostCandidate(nicCandidates[primaryIndex].Ip, nicCandidates[primaryIndex].InterfaceName, IsPrimary: true));
+        for (int i = 0; i < nicCandidates.Count; i++)
+        {
+            if (i == primaryIndex) continue;
+            result.Add(new HostCandidate(nicCandidates[i].Ip, nicCandidates[i].InterfaceName, IsPrimary: false));
+        }
+        return result;
     }
 
     private static string? ProbeOutboundIPv4()
@@ -162,9 +187,9 @@ public sealed class SetupWizard
         }
     }
 
-    private static List<string> GetRoutableIPv4Addresses()
+    private static List<(string Ip, string InterfaceName)> GetRoutableIPv4Addresses()
     {
-        var result = new List<string>();
+        var result = new List<(string, string)>();
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (ni.OperationalStatus != OperationalStatus.Up) continue;
@@ -182,7 +207,7 @@ public sealed class SetupWizard
                 var ip = ua.Address.ToString();
                 // Skip APIPA (link-local) — visible as "up" but not routable.
                 if (ip.StartsWith("169.254.", StringComparison.Ordinal)) continue;
-                result.Add(ip);
+                result.Add((ip, ni.Name));
             }
         }
         return result;
