@@ -141,12 +141,16 @@ public sealed class DesktopService
         return User32.MoveWindow(hWnd, x, y, width, height, true);
     }
 
-    public async Task<WindowInfo?> LaunchApp(string name)
+    public Task<WindowInfo?> LaunchApp(string name) => LaunchApp(name, null);
+
+    public async Task<WindowInfo?> LaunchApp(string name, string? launchCommand)
     {
-        _logger.LogInformation("Launching app: {Name}", name);
+        var target = string.IsNullOrWhiteSpace(launchCommand) ? name : launchCommand;
+        _logger.LogInformation("Launching app: {Name} (command={Command})", name, target);
+
         var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = name,
+            FileName = target,
             UseShellExecute = true,
         });
 
