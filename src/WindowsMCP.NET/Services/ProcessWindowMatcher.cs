@@ -33,10 +33,15 @@ public static class ProcessWindowMatcher
 
         // Fuzzy-title fallback.
         return materialized
-            .Select(c => (c.Window, c.Process.Name,
-                Score: Fuzz.PartialRatio(needle, c.Window.Title.ToLowerInvariant())))
-            .Where(x => x.Score >= FuzzyThreshold)
-            .Select(x => (x.Window, x.Name))
+            .Where(c =>
+            {
+                var candStripped = StripExe(c.Process.Name).ToLowerInvariant();
+                // Reject sibling apps (same prefix, different name) — e.g. "notepad" must not match "notepad++"
+                if (candStripped != needle && candStripped.StartsWith(needle))
+                    return false;
+                return Fuzz.PartialRatio(needle, c.Window.Title.ToLowerInvariant()) >= FuzzyThreshold;
+            })
+            .Select(c => (c.Window, c.Process.Name))
             .ToList();
     }
 

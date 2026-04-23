@@ -126,4 +126,18 @@ public class ProcessWindowMatcherTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void Match_SiblingAppWithPrefix_RejectedFromFuzzy()
+    {
+        // query "notepad" must NOT match "notepad++" via fuzzy title fallback.
+        var input = new[]
+        {
+            (new ProcessSnapshot(100, "notepad++"), Win(1, "file.txt - Notepad++", 100)),
+        };
+
+        var result = ProcessWindowMatcher.Match(input, "notepad");
+
+        Assert.Empty(result);
+    }
 }
