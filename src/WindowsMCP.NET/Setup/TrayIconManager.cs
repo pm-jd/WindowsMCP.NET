@@ -3,6 +3,7 @@ namespace WindowsMcpNet.Setup;
 public sealed partial class TrayIconManager : IDisposable
 {
     private NotifyIcon? _notifyIcon;
+    private ToolStripMenuItem? _autostartMenuItem;
     private readonly string _url;
     private readonly string? _apiKey;
     private readonly Action _onExit;
@@ -27,6 +28,21 @@ public sealed partial class TrayIconManager : IDisposable
             contextMenu.Items.Add("Show Console", null, (_, _) => ShowConsole());
             contextMenu.Items.Add("Copy Config Snippet", null, (_, _) => CopyConfig());
             contextMenu.Items.Add("Check for Updates", null, (_, _) => CheckForUpdatesHandler());
+
+            _autostartMenuItem = new ToolStripMenuItem("Autostart")
+            {
+                Checked = AutoStartManager.IsEnabled(),
+                CheckOnClick = false,
+            };
+            _autostartMenuItem.Click += (_, _) => ToggleAutostart();
+            contextMenu.Items.Add(_autostartMenuItem);
+
+            contextMenu.Opening += (_, _) =>
+            {
+                if (_autostartMenuItem is not null)
+                    _autostartMenuItem.Checked = AutoStartManager.IsEnabled();
+            };
+
             contextMenu.Items.Add(new ToolStripSeparator());
             contextMenu.Items.Add("Stop Server", null, (_, _) =>
             {
@@ -83,6 +99,29 @@ public sealed partial class TrayIconManager : IDisposable
     private void CheckForUpdatesHandler()
     {
         _ = CheckForUpdatesAsync();
+    }
+
+    private void ToggleAutostart()
+    {
+        if (_autostartMenuItem is null) return;
+
+        var currentlyEnabled = _autostartMenuItem.Checked;
+        var success = currentlyEnabled
+            ? AutoStartManager.Disable()
+            : AutoStartManager.Enable();
+
+        if (success)
+        {
+            _autostartMenuItem.Checked = !currentlyEnabled;
+        }
+        else
+        {
+            var action = currentlyEnabled ? "disable" : "enable";
+            MessageBox.Show(
+                $"Failed to {action} Autostart.\n\n" +
+                "Check that you have permission to manage Windows Scheduled Tasks.",
+                "WindowsMCP.NET", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private async Task CheckForUpdatesAsync()

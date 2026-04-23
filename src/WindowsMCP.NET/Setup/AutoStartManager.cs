@@ -6,7 +6,7 @@ public static class AutoStartManager
 {
     private const string TaskName = "WindowsMCP.NET";
 
-    public static void Enable()
+    public static bool Enable()
     {
         var exePath = Process.GetCurrentProcess().MainModule?.FileName
             ?? Path.Combine(AppContext.BaseDirectory, "WindowsMCP.NET.exe");
@@ -19,18 +19,26 @@ public static class AutoStartManager
             $"/Create /TN \"{TaskName}\" /TR \"\\\"{exePath}\\\"\" /SC ONLOGON /RL HIGHEST /F");
 
         if (result == 0)
+        {
             Console.WriteLine("  Autostart enabled (Windows Task Scheduler).");
-        else
-            Console.Error.WriteLine("  Warning: Could not create scheduled task for autostart.");
+            return true;
+        }
+
+        Console.Error.WriteLine("  Warning: Could not create scheduled task for autostart.");
+        return false;
     }
 
-    public static void Disable()
+    public static bool Disable()
     {
         var result = RunSchtasks($"/Delete /TN \"{TaskName}\" /F");
         if (result == 0)
+        {
             Console.WriteLine("  Autostart disabled.");
-        else
-            Console.Error.WriteLine("  Warning: Could not remove scheduled task.");
+            return true;
+        }
+
+        Console.Error.WriteLine("  Warning: Could not remove scheduled task.");
+        return false;
     }
 
     public static bool IsEnabled()
