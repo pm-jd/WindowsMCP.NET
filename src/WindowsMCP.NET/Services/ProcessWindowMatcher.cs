@@ -19,8 +19,11 @@ public static class ProcessWindowMatcher
         string name)
     {
         var needle = StripExe(name).ToLowerInvariant();
+        // Materialize once so both passes read the same snapshot
+        // (callers may pass live LINQ queries).
+        var materialized = candidates.ToList();
 
-        var exactMatches = candidates
+        var exactMatches = materialized
             .Where(c => StripExe(c.Process.Name).Equals(needle, StringComparison.OrdinalIgnoreCase))
             .Select(c => (c.Window, c.Process.Name))
             .ToList();
@@ -29,9 +32,9 @@ public static class ProcessWindowMatcher
             return exactMatches;
 
         // Fuzzy-title fallback.
-        return candidates
+        return materialized
             .Select(c => (c.Window, c.Process.Name,
-                Score: Fuzz.PartialRatio(name.ToLowerInvariant(), c.Window.Title.ToLowerInvariant())))
+                Score: Fuzz.PartialRatio(needle, c.Window.Title.ToLowerInvariant())))
             .Where(x => x.Score >= FuzzyThreshold)
             .Select(x => (x.Window, x.Name))
             .ToList();
