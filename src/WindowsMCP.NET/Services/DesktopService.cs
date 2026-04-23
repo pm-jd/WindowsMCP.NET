@@ -58,6 +58,34 @@ public sealed class DesktopService
             rect.Right - rect.Left, rect.Bottom - rect.Top, true);
     }
 
+    /// <summary>
+    /// Enumerates all visible top-level windows with their owning process names,
+    /// then delegates matching to ProcessWindowMatcher.
+    /// Preserves Z-order (EnumWindows returns top-to-bottom).
+    /// </summary>
+    public List<(WindowInfo Window, string ProcessName)> FindMatches(string name)
+    {
+        var windows = ListWindows();  // Z-ordered via EnumWindows
+        var pidToName = new Dictionary<uint, string>();
+
+        foreach (var proc in System.Diagnostics.Process.GetProcesses())
+        {
+            try
+            {
+                pidToName[(uint)proc.Id] = proc.ProcessName;
+            }
+            catch { /* access denied — skip */ }
+            finally { proc.Dispose(); }
+        }
+
+        var candidates = windows
+            .Where(w => pidToName.ContainsKey(w.ProcessId))
+            .Select(w => (Process: new ProcessSnapshot(w.ProcessId, pidToName[w.ProcessId]),
+                          Window: w));
+
+        return ProcessWindowMatcher.Match(candidates, name);
+    }
+
     public WindowInfo? SwitchToWindow(string name)
     {
         var windows = ListWindows();
