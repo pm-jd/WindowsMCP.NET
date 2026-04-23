@@ -86,4 +86,143 @@ public class AppToolsParityTests : IAsyncLifetime
         // (window title may not have loaded yet), but result must not be empty
         Assert.False(string.IsNullOrWhiteSpace(result));
     }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Ensure_NotRunning_LaunchesApp()
+    {
+        // Ensure no notepads are running at the start
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
+            try { p.Kill(entireProcessTree: true); } catch { }
+        await Task.Delay(500);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "ensure",
+            ["name"] = "notepad"
+        });
+
+        _output.WriteLine($"ensure (not running) result: {result}");
+        await Task.Delay(1000);
+
+        Assert.Contains("Launched", result);
+        Assert.True(System.Diagnostics.Process.GetProcessesByName("notepad").Length > 0);
+    }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Ensure_AlreadyRunning_Focuses()
+    {
+        // Pre-launch
+        await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "launch",
+            ["name"] = "notepad.exe"
+        });
+        await Task.Delay(1500);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "ensure",
+            ["name"] = "notepad"
+        });
+
+        _output.WriteLine($"ensure (running) result: {result}");
+        Assert.Contains("Focused", result);
+    }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Status_NotRunning_ReturnsNotRunning()
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
+            try { p.Kill(entireProcessTree: true); } catch { }
+        await Task.Delay(500);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "status",
+            ["name"] = "notepad"
+        });
+
+        _output.WriteLine($"status (not running) result: {result}");
+        Assert.Equal("Not running", result.Trim());
+    }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Status_Running_ReturnsPidAndTitle()
+    {
+        await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "launch",
+            ["name"] = "notepad.exe"
+        });
+        await Task.Delay(1500);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "status",
+            ["name"] = "notepad"
+        });
+
+        _output.WriteLine($"status (running) result: {result}");
+        Assert.Contains("Running:", result);
+        Assert.Contains("PID=", result);
+    }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Ensure_MultipleMatches_Error_ReturnsList()
+    {
+        // Launch two notepad instances
+        await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "launch", ["name"] = "notepad.exe"
+        });
+        await Task.Delay(800);
+        await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"] = "launch", ["name"] = "notepad.exe"
+        });
+        await Task.Delay(1200);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"]      = "ensure",
+            ["name"]      = "notepad",
+            ["ambiguous"] = "error"
+        });
+
+        _output.WriteLine($"ensure ambiguous=error result: {result}");
+        Assert.Contains("Multiple matches:", result);
+    }
+
+    [Fact]
+    [Trait("Category", "Functional")]
+    [Trait("Category", "Desktop")]
+    public async Task Ensure_LaunchCommandOverride_UsesOverride()
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
+            try { p.Kill(entireProcessTree: true); } catch { }
+        await Task.Delay(500);
+
+        var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
+        {
+            ["mode"]           = "ensure",
+            ["name"]           = "definitely-not-a-real-app",
+            ["launch_command"] = "notepad.exe"
+        });
+
+        _output.WriteLine($"ensure with launch_command result: {result}");
+        await Task.Delay(1000);
+
+        // launch_command fires only when no match → notepad should start
+        Assert.True(System.Diagnostics.Process.GetProcessesByName("notepad").Length > 0);
+    }
 }
