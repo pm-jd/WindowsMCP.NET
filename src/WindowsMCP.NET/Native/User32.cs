@@ -89,6 +89,19 @@ internal static partial class User32
     [LibraryImport("user32.dll")]
     internal static partial uint MapVirtualKeyW(uint uCode, uint uMapType);
 
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AttachThreadInput(uint idAttach, uint idAttachTo,
+        [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool BringWindowToTop(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(nint hWnd);
+
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     internal const int SW_SHOW = 5;
