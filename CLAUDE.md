@@ -49,7 +49,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | **PowerShell** | Execute PowerShell commands |
 | **Process** | List or kill processes |
 | **Registry** | Read/write/delete/list Windows registry |
-| **App** | Launch, switch to, or resize windows |
+| **App** | Launch, focus, check, or resize windows. Modes: launch, ensure, status, switch, resize |
 | **Clipboard** | Get or set clipboard text |
 | **Notification** | Show Windows toast notifications |
 | **Scrape** | Fetch URL and convert HTML to Markdown |
@@ -59,6 +59,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Efficient UI workflow**: Use `Context` to get state, then `Perform` to batch actions (2 calls instead of 5+)
 - **Label-based interaction**: `Snapshot` assigns numbered labels to UI elements; `Click`/`Type` reference labels
 - **Binary file transfer**: Use `read_base64`/`write_base64` for cross-machine binary file operations (1MB limit)
+- **Foreground without screenshots**: Use `App(mode="ensure", name="notepad")` to focus an app if running, launch if not — one call instead of screenshot+parse workflow.
 
 ## Project Structure
 
