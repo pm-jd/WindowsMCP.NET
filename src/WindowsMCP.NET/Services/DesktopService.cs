@@ -86,6 +86,39 @@ public sealed class DesktopService
         return ProcessWindowMatcher.Match(candidates, name);
     }
 
+    /// <summary>
+    /// Brings a window to the foreground using the AttachThreadInput Win32 workaround
+    /// to bypass foreground-lock restrictions common in remote/automation scenarios.
+    /// Returns true if SetForegroundWindow succeeded; false indicates a soft failure
+    /// (window may still have flashed in taskbar).
+    /// </summary>
+    public bool BringToForeground(nint hWnd)
+    {
+        if (User32.IsIconic(hWnd))
+            User32.ShowWindow(hWnd, User32.SW_RESTORE);
+
+        uint currentThread = Kernel32.GetCurrentThreadId();
+        uint targetThread  = User32.GetWindowThreadProcessId(hWnd, out _);
+
+        if (currentThread == targetThread)
+        {
+            return User32.SetForegroundWindow(hWnd);
+        }
+
+        bool attached = User32.AttachThreadInput(currentThread, targetThread, true);
+        try
+        {
+            bool ok = User32.SetForegroundWindow(hWnd);
+            User32.BringWindowToTop(hWnd);
+            return ok;
+        }
+        finally
+        {
+            if (attached)
+                User32.AttachThreadInput(currentThread, targetThread, false);
+        }
+    }
+
     public WindowInfo? SwitchToWindow(string name)
     {
         var windows = ListWindows();
