@@ -8,8 +8,10 @@
           "default": "launch",
           "enum": [
             "launch",
-            "resize",
-            "switch"
+            "ensure",
+            "status",
+            "switch",
+            "resize"
           ],
           "type": "string"
         },
@@ -51,6 +53,25 @@
             }
           ],
           "default": null
+        },
+        "launch_command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ambiguous": {
+          "default": "first",
+          "enum": [
+            "first",
+            "error"
+          ],
+          "type": "string"
         }
       },
       "type": "object"

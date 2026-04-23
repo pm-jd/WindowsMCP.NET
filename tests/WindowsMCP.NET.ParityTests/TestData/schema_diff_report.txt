@@ -1,6 +1,21 @@
 === Schema Diff Report ===
 Tools only in baseline  : 0
-Tools only in actual    : 0
-Tools with differences  : 0
-Total differences       : 0
+Tools only in actual    : 2
+Tools with differences  : 3
+Total differences       : 7
+
+--- New tools (in actual only) ---
+  + Context
+  + Perform
+
+--- Snapshot ---
+  [Snapshot.params.width_reference_line] baseline=exists actual=missing
+  [Snapshot.params.height_reference_line] baseline=exists actual=missing
+
+--- Screenshot ---
+  [Screenshot.params.width_reference_line] baseline=exists actual=missing
+  [Screenshot.params.height_reference_line] baseline=exists actual=missing
+
+--- Type ---
+  [Type.params.caret_position] baseline=exists actual=missing
 
