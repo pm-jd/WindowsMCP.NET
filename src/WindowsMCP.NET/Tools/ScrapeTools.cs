@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Net.Http;
 using ModelContextProtocol.Server;
 using ReverseMarkdown;
 
@@ -37,9 +36,7 @@ public static class ScrapeTools
     [Description("Fetch URL and return content as Markdown.")]
     public static async Task<string> Scrape(
         [Description("URL to fetch (http or https)")] string url,
-        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null,
-        [Description("Use browser DOM for scraping (not implemented; accepted for API compatibility)")] bool use_dom = false,
-        [Description("Use sampling to reduce content length")] bool use_sampling = true)
+        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null)
     {
         try
         {

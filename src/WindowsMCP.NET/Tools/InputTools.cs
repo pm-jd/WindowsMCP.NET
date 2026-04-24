@@ -85,11 +85,16 @@ public static class InputTools
                 _        => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
             };
 
+            // Atomic batch: all click events in one SendInput call so Windows sees
+            // consecutive timestamps within GetDoubleClickTime() for clicks=2.
             int actualClicks = Math.Max(1, clicks);
+            var inputs = new INPUT[actualClicks * 2];
             for (int i = 0; i < actualClicks; i++)
             {
-                SendMouseClick(downFlag, upFlag);
+                inputs[i * 2]     = MakeMouseInput(downFlag);
+                inputs[i * 2 + 1] = MakeMouseInput(upFlag);
             }
+            User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
 
             return $"Clicked {button} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
         }
@@ -365,13 +370,15 @@ public static class InputTools
 
     private static void SendMouseClick(uint downFlag, uint upFlag)
     {
-        var inputs = new INPUT[]
-        {
-            new INPUT { Type = User32.INPUT_MOUSE, U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = downFlag } } },
-            new INPUT { Type = User32.INPUT_MOUSE, U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = upFlag } } },
-        };
+        var inputs = new INPUT[] { MakeMouseInput(downFlag), MakeMouseInput(upFlag) };
         User32.SendInput(2, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
     }
+
+    private static INPUT MakeMouseInput(uint flags) => new INPUT
+    {
+        Type = User32.INPUT_MOUSE,
+        U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = flags } }
+    };
 
     private static INPUT MakeUnicodeKey(char ch, bool keyUp)
     {

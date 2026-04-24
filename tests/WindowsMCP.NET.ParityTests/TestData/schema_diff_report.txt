@@ -1,14 +1,21 @@
 === Schema Diff Report ===
 Tools only in baseline  : 0
 Tools only in actual    : 2
-Tools with differences  : 3
-Total differences       : 7
+Tools with differences  : 8
+Total differences       : 17
 
 --- New tools (in actual only) ---
   + Context
   + Perform
 
+--- App ---
+  [App.params.format] baseline=missing actual=exists
+
+--- FileSystem ---
+  [FileSystem.params.format] baseline=missing actual=exists
+
 --- Snapshot ---
+  [Snapshot.params.use_ui_tree] baseline=exists actual=missing
   [Snapshot.params.width_reference_line] baseline=exists actual=missing
   [Snapshot.params.height_reference_line] baseline=exists actual=missing
 
@@ -18,4 +25,17 @@ Total differences       : 7
 
 --- Type ---
   [Type.params.caret_position] baseline=exists actual=missing
+
+--- Scrape ---
+  [Scrape.params.use_dom] baseline=exists actual=missing
+  [Scrape.params.use_sampling] baseline=exists actual=missing
+
+--- Process ---
+  [Process.params.offset] baseline=missing actual=exists
+  [Process.params.format] baseline=missing actual=exists
+
+--- Registry ---
+  [Registry.params.limit] baseline=missing actual=exists
+  [Registry.params.offset] baseline=missing actual=exists
+  [Registry.params.format] baseline=missing actual=exists
 

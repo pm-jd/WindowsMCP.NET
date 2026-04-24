@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace WindowsMcpNet.Tools;
@@ -20,10 +21,11 @@ public static class FileSystemTools
         [Description("Recursive search (for mode=list/search)")] bool recursive = false,
         [Description("Encoding for read/write (utf8 default)")] string encoding = "utf8",
         [Description("Append instead of overwrite (for mode=write)")] bool append = false,
-        [Description("Line offset for read (0-based, for paging)")] int offset = 0,
-        [Description("Maximum lines to return for read (0 = all)")] int limit = 0,
+        [Description("Skip first N entries (line-based for read, item-based for list/search)")] int offset = 0,
+        [Description("Max items to return (0 = unlimited for read; default 200 for list/search)")] int limit = 0,
         [Description("Overwrite destination if it exists (for copy/move)")] bool overwrite = true,
-        [Description("Include hidden files and directories in list/search results")] bool show_hidden = false)
+        [Description("Include hidden files and directories in list/search results")] bool show_hidden = false,
+        [Description("Output format: markdown (default) or json (for list/search/info)")] string format = "markdown")
     {
         try
         {
@@ -34,11 +36,11 @@ public static class FileSystemTools
                 "copy"   => CopyFile(path, destination, overwrite),
                 "move"   => MoveFile(path, destination, overwrite),
                 "delete" => DeleteFile(path),
-                "list"   => ListDirectory(path, pattern, recursive, show_hidden),
-                "search" => SearchFiles(path, pattern, recursive, show_hidden),
+                "list"   => ListDirectory(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
+                "search" => SearchFiles(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
                 "read_base64"  => ReadFileBase64(path),
                 "write_base64" => WriteFileBase64(path, content),
-                "info"   => GetInfo(path),
+                "info"   => GetInfo(path, format),
                 _        => $"[ERROR] Unknown mode '{mode}'. Use: read, write, read_base64, write_base64, copy, move, delete, list, search, info."
             };
         }
@@ -47,6 +49,8 @@ public static class FileSystemTools
             return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
         }
     }
+
+    private static bool IsJson(string format) => ToolHelpers.IsJson(format);
 
     private static string ReadFile(string path, string enc, int offset, int limit)
     {
@@ -198,7 +202,8 @@ public static class FileSystemTools
         return $"Path not found: {path}";
     }
 
-    private static string ListDirectory(string path, string? pattern, bool recursive, bool showHidden)
+    private static string ListDirectory(string path, string? pattern, bool recursive,
+        bool showHidden, int offset, int limit, string format)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -206,17 +211,42 @@ public static class FileSystemTools
         var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
         var pat = pattern ?? "*";
 
-        var entries = Directory.GetFileSystemEntries(path, pat, searchOption)
-            .Where(e => showHidden || !IsHidden(e))
-            .OrderBy(e => e)
-            .ToList();
+        var (page, hasMore) = ToolHelpers.Paginate(
+            Directory.EnumerateFileSystemEntries(path, pat, searchOption)
+                .Where(e => showHidden || !IsHidden(e))
+                .OrderBy(e => e),
+            offset, limit);
+
+        if (IsJson(format))
+        {
+            var items = page.Select(e =>
+            {
+                if (Directory.Exists(e))
+                    return (object)new { type = "dir", path = e };
+                var fi = new FileInfo(e);
+                return new { type = "file", path = e, size = fi.Length, modified = fi.LastWriteTime.ToString("o") };
+            }).ToList();
+
+            return JsonSerializer.Serialize(new
+            {
+                path,
+                pattern = pat,
+                recursive,
+                items,
+                count = items.Count,
+                offset,
+                limit,
+                has_more = hasMore,
+                next_offset = hasMore ? offset + items.Count : (int?)null,
+            }, ToolHelpers.JsonOptions);
+        }
 
         var sb = new StringBuilder();
         sb.AppendLine($"Contents of: {path}");
         sb.AppendLine($"Pattern: {pat}{(recursive ? " (recursive)" : "")}");
         sb.AppendLine();
 
-        foreach (var entry in entries)
+        foreach (var entry in page)
         {
             if (Directory.Exists(entry))
                 sb.AppendLine($"[DIR]  {entry}");
@@ -227,11 +257,12 @@ public static class FileSystemTools
             }
         }
 
-        sb.AppendLine($"\nTotal: {entries.Count} item(s)");
+        sb.Append('\n').Append(ToolHelpers.FormatPaginationFooter(page.Count, offset, limit, hasMore, "item"));
         return sb.ToString().TrimEnd();
     }
 
-    private static string SearchFiles(string path, string? pattern, bool recursive, bool showHidden)
+    private static string SearchFiles(string path, string? pattern, bool recursive,
+        bool showHidden, int offset, int limit, string format)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -239,31 +270,67 @@ public static class FileSystemTools
         var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
         var pat = pattern ?? "*";
 
-        var files = Directory.GetFiles(path, pat, searchOption)
-            .Where(f => showHidden || !IsHidden(f))
-            .OrderBy(f => f)
-            .ToList();
+        var (page, hasMore) = ToolHelpers.Paginate(
+            Directory.EnumerateFiles(path, pat, searchOption)
+                .Where(f => showHidden || !IsHidden(f))
+                .OrderBy(f => f),
+            offset, limit);
+
+        if (IsJson(format))
+        {
+            var items = page.Select(f =>
+            {
+                var fi = new FileInfo(f);
+                return new { path = f, size = fi.Length, modified = fi.LastWriteTime.ToString("o") };
+            }).ToList();
+
+            return JsonSerializer.Serialize(new
+            {
+                path,
+                pattern = pat,
+                recursive,
+                items,
+                count = items.Count,
+                offset,
+                limit,
+                has_more = hasMore,
+                next_offset = hasMore ? offset + items.Count : (int?)null,
+            }, ToolHelpers.JsonOptions);
+        }
 
         var sb = new StringBuilder();
         sb.AppendLine($"Search in: {path}");
         sb.AppendLine($"Pattern: {pat}{(recursive ? " (recursive)" : "")}");
         sb.AppendLine();
 
-        foreach (var file in files)
+        foreach (var file in page)
         {
             var fi = new FileInfo(file);
             sb.AppendLine($"{file}  ({fi.Length:N0} bytes)");
         }
 
-        sb.AppendLine($"\nFound: {files.Count} file(s)");
+        sb.Append('\n').Append(ToolHelpers.FormatPaginationFooter(page.Count, offset, limit, hasMore, "file"));
         return sb.ToString().TrimEnd();
     }
 
-    private static string GetInfo(string path)
+    private static string GetInfo(string path, string format)
     {
         if (File.Exists(path))
         {
             var fi = new FileInfo(path);
+            if (IsJson(format))
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    type = "file",
+                    path = fi.FullName,
+                    size = fi.Length,
+                    created = fi.CreationTime.ToString("o"),
+                    modified = fi.LastWriteTime.ToString("o"),
+                    accessed = fi.LastAccessTime.ToString("o"),
+                    attributes = fi.Attributes.ToString(),
+                }, ToolHelpers.JsonOptions);
+            }
             return $"Type:         File\n" +
                    $"Path:         {fi.FullName}\n" +
                    $"Size:         {fi.Length:N0} bytes\n" +
@@ -277,6 +344,19 @@ public static class FileSystemTools
             var di = new DirectoryInfo(path);
             var fileCount = di.EnumerateFiles("*", SearchOption.TopDirectoryOnly).Count();
             var dirCount  = di.EnumerateDirectories("*", SearchOption.TopDirectoryOnly).Count();
+            if (IsJson(format))
+            {
+                return JsonSerializer.Serialize(new
+                {
+                    type = "directory",
+                    path = di.FullName,
+                    files = fileCount,
+                    subdirs = dirCount,
+                    created = di.CreationTime.ToString("o"),
+                    modified = di.LastWriteTime.ToString("o"),
+                    attributes = di.Attributes.ToString(),
+                }, ToolHelpers.JsonOptions);
+            }
             return $"Type:         Directory\n" +
                    $"Path:         {di.FullName}\n" +
                    $"Files:        {fileCount:N0}\n" +
@@ -285,7 +365,9 @@ public static class FileSystemTools
                    $"Modified:     {di.LastWriteTime:yyyy-MM-dd HH:mm:ss}\n" +
                    $"Attributes:   {di.Attributes}";
         }
-        return $"Path not found: {path}";
+        return IsJson(format)
+            ? JsonSerializer.Serialize(new { type = "missing", path }, ToolHelpers.JsonOptions)
+            : $"Path not found: {path}";
     }
 
     private static bool IsHidden(string path)

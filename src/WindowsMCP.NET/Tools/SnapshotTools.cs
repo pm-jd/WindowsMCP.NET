@@ -15,18 +15,14 @@ public static class SnapshotTools
         ScreenCaptureService captureService,
         [Description("Overlay element labels on the screenshot")] bool use_annotation = true,
         [Description("Capture screenshot (set false to skip image)")] bool use_vision = true,
-        [Description("Build UI element tree (set false to skip DOM)")] bool use_dom = true,
-        [Description("Build UI element tree using UI Automation (alias for use_dom)")] bool use_ui_tree = true,
+        [Description("Build UI element tree (set false to skip)")] bool use_dom = true,
         [Description("Display index (null = primary)")] int? display = null)
     {
         try
         {
             var result = new List<ContentBlock>();
 
-            // use_ui_tree is an alias for use_dom
-            bool buildTree = use_dom && use_ui_tree;
-
-            if (buildTree)
+            if (use_dom)
             {
                 uiTreeService.InvalidateCache();
                 var tree = uiTreeService.BuildAnnotatedTree();

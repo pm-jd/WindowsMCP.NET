@@ -25,7 +25,8 @@ public static class AppTools
                      "(e.g. full path or URI like 'ms-teams:'). Defaults to `name`.")]
         string? launch_command = null,
         [Description("Behavior on multiple matches (ensure/status): 'first' (default) or 'error'.")]
-        string ambiguous = "first")
+        string ambiguous = "first",
+        [Description("Output format: markdown (default) or json (for mode=status)")] string format = "markdown")
     {
         try
         {
@@ -33,7 +34,7 @@ public static class AppTools
             {
                 "launch" => await LaunchApp(desktopService, name),
                 "ensure" => await EnsureApp(desktopService, name, launch_command, ambiguous),
-                "status" => StatusApp(desktopService, name, ambiguous),
+                "status" => StatusApp(desktopService, name, ambiguous, format),
                 "switch" => SwitchToApp(desktopService, name),
                 "resize" => ResizeApp(desktopService, name, window_loc, window_size),
                 _ => throw new ArgumentException(
@@ -113,13 +114,28 @@ public static class AppTools
             : $"Attempted focus on \"{target.Title}\" (PID={target.ProcessId}) — window may not have come to front";
     }
 
-    private static string StatusApp(DesktopService desktopService, string name, string ambiguous)
+    private static string StatusApp(DesktopService desktopService, string name, string ambiguous, string format)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("'name' is required for mode=status.");
         ValidateAmbiguous(ambiguous);
 
         var matches = desktopService.FindMatches(name);
+
+        if (ToolHelpers.IsJson(format))
+        {
+            return JsonSerializer.Serialize(new
+            {
+                running = matches.Count > 0,
+                match_count = matches.Count,
+                matches = matches.Select(m => new
+                {
+                    pid = m.Window.ProcessId,
+                    process = m.ProcessName,
+                    title = m.Window.Title,
+                }).ToArray(),
+            }, ToolHelpers.JsonOptions);
+        }
 
         if (matches.Count == 0)
             return "Not running";
