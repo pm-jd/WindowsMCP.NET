@@ -1,3 +1,4 @@
+using System.Text.Json;
 using WindowsMcpNet.Tools;
 using Xunit;
 
@@ -185,6 +186,115 @@ public class FileSystemToolsTests : IDisposable
         var result = FileSystemTools.FileSystem("read_base64", filePath);
         Assert.StartsWith("[ERROR]", result);
         Assert.Contains("too large", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // --- format=json + pagination ---
+
+    [Fact]
+    public void List_FormatJson_ReturnsParseableEnvelope()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "a.txt"), "");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "sub"));
+
+        var result = FileSystemTools.FileSystem("list", _tempDir, format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        Assert.Equal(_tempDir, root.GetProperty("path").GetString());
+        Assert.True(root.GetProperty("items").GetArrayLength() >= 2);
+        Assert.False(root.GetProperty("has_more").GetBoolean());
+        Assert.Equal(0, root.GetProperty("offset").GetInt32());
+    }
+
+    [Fact]
+    public void List_LimitAndOffset_ReportsHasMoreAndNextOffset()
+    {
+        for (int i = 0; i < 5; i++)
+            File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
+
+        var result = FileSystemTools.FileSystem("list", _tempDir, limit: 2, offset: 0, format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        Assert.Equal(2, root.GetProperty("count").GetInt32());
+        Assert.True(root.GetProperty("has_more").GetBoolean());
+        Assert.Equal(2, root.GetProperty("next_offset").GetInt32());
+    }
+
+    [Fact]
+    public void List_OffsetSkipsEntries()
+    {
+        for (int i = 0; i < 3; i++)
+            File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
+
+        var result = FileSystemTools.FileSystem("list", _tempDir, limit: 10, offset: 2, format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        var items = doc.RootElement.GetProperty("items");
+        Assert.Equal(1, items.GetArrayLength());
+        Assert.Contains("file02.txt", items[0].GetProperty("path").GetString()!);
+    }
+
+    [Fact]
+    public void List_MarkdownFooter_ShowsPaginationHint()
+    {
+        for (int i = 0; i < 5; i++)
+            File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
+
+        var result = FileSystemTools.FileSystem("list", _tempDir, limit: 2);
+        Assert.Contains("has_more=true", result);
+        Assert.Contains("offset=2", result);
+    }
+
+    [Fact]
+    public void Search_FormatJson_OnlyFiles()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "match.cs"), "");
+        File.WriteAllText(Path.Combine(_tempDir, "skip.txt"), "");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "subdir"));
+
+        var result = FileSystemTools.FileSystem("search", _tempDir, pattern: "*.cs", format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        var items = doc.RootElement.GetProperty("items");
+        Assert.Equal(1, items.GetArrayLength());
+        Assert.Contains("match.cs", items[0].GetProperty("path").GetString()!);
+    }
+
+    [Fact]
+    public void Info_File_FormatJson_HasSize()
+    {
+        var filePath = Path.Combine(_tempDir, "data.txt");
+        File.WriteAllText(filePath, "hello");
+
+        var result = FileSystemTools.FileSystem("info", filePath, format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        Assert.Equal("file", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal(5, doc.RootElement.GetProperty("size").GetInt64());
+    }
+
+    [Fact]
+    public void Info_Directory_FormatJson_HasFileCount()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "x.txt"), "");
+        File.WriteAllText(Path.Combine(_tempDir, "y.txt"), "");
+
+        var result = FileSystemTools.FileSystem("info", _tempDir, format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        Assert.Equal("directory", doc.RootElement.GetProperty("type").GetString());
+        Assert.Equal(2, doc.RootElement.GetProperty("files").GetInt32());
+    }
+
+    [Fact]
+    public void Info_Missing_FormatJson_ReturnsTypeMissing()
+    {
+        var result = FileSystemTools.FileSystem("info",
+            Path.Combine(_tempDir, "ghost.txt"), format: "json");
+
+        using var doc = JsonDocument.Parse(result);
+        Assert.Equal("missing", doc.RootElement.GetProperty("type").GetString());
     }
 
     public void Dispose()

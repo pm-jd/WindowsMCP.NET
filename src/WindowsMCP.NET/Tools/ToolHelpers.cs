@@ -5,7 +5,7 @@ namespace WindowsMcpNet.Tools;
 /// <summary>
 /// Shared helpers for tool implementations: pagination, format detection, JSON serialization options.
 /// </summary>
-internal static class ToolHelpers
+public static class ToolHelpers
 {
     public const int DefaultListLimit = 200;
 
