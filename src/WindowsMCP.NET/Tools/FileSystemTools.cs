@@ -25,7 +25,12 @@ public static class FileSystemTools
         [Description("Max items to return (0 = unlimited for read; default 200 for list/search)")] int limit = 0,
         [Description("Overwrite destination if it exists (for copy/move)")] bool overwrite = true,
         [Description("Include hidden files and directories in list/search results")] bool show_hidden = false,
-        [Description("Output format: markdown (default) or json (for list/search/info)")] string format = "markdown")
+        [Description("Output format: markdown (default) or json (for list/search/info). json shapes: " +
+                     "list/search={path, pattern, recursive, items:[{type:'file'|'dir', path, size?, modified?}], count, offset, limit, has_more, next_offset}; " +
+                     "info file={type:'file', path, size, created, modified, accessed, attributes}; " +
+                     "info dir={type:'directory', path, files, subdirs, created, modified, attributes}; " +
+                     "info missing={type:'missing', path}")]
+        string format = "markdown")
     {
         try
         {

@@ -26,7 +26,9 @@ public static class AppTools
         string? launch_command = null,
         [Description("Behavior on multiple matches (ensure/status): 'first' (default) or 'error'.")]
         string ambiguous = "first",
-        [Description("Output format: markdown (default) or json (for mode=status)")] string format = "markdown")
+        [Description("Output format: markdown (default) or json (for mode=status). " +
+                     "json shape: {running:bool, match_count:int, matches:[{pid:int, process:str, title:str}]}")]
+        string format = "markdown")
     {
         try
         {

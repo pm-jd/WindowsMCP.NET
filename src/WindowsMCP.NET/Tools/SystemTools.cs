@@ -81,7 +81,9 @@ public static class SystemTools
         [Description("Maximum number of processes to return (default 20)")] int limit = 20,
         [Description("Skip first N entries (for mode=list paging)")] int offset = 0,
         [Description("Force kill (SIGKILL / TerminateProcess) instead of graceful close")] bool force = false,
-        [Description("Output format: markdown (default) or json (for mode=list)")] string format = "markdown")
+        [Description("Output format: markdown (default) or json (for mode=list). " +
+                     "json shape: {items:[{pid:int, name:str, memory_bytes:long}], count, offset, limit, sort_by, name_filter, has_more, next_offset}")]
+        string format = "markdown")
     {
         try
         {
@@ -109,7 +111,10 @@ public static class SystemTools
         [Description("Value type for set: String (default), DWord, QWord, Binary, ExpandString")] string type = "String",
         [Description("Max subkeys/values per section (default 200, for mode=list)")] int limit = 0,
         [Description("Skip first N entries per section (for mode=list paging)")] int offset = 0,
-        [Description("Output format: markdown (default) or json (for mode=get/list)")] string format = "markdown")
+        [Description("Output format: markdown (default) or json (for mode=get/list). json shapes: " +
+                     "get={key, name, value, kind, exists:bool}; " +
+                     "list={key, subkeys:[str], subkeys_total, subkeys_has_more, values:[{name, value, kind}], values_total, values_has_more, offset, limit, next_offset}")]
+        string format = "markdown")
     {
         try
         {

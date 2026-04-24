@@ -63,7 +63,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Label-based interaction**: `Snapshot` assigns numbered labels to UI elements; `Click`/`Type` reference labels
 - **Binary file transfer**: Use `read_base64`/`write_base64` for cross-machine binary file operations (1MB limit)
 - **Foreground without screenshots**: Use `App(mode="ensure", name="notepad")` to focus an app if running, launch if not — one call instead of screenshot+parse workflow
-- **Structured output**: Pass `format="json"` to `App.status`, `FileSystem.list/search/info`, `Process.list`, `Registry.get/list` to get parseable JSON envelopes instead of human-readable text — useful when chaining tool output into agent logic
+- **Structured output**: Pass `format="json"` to `App.status`, `FileSystem.list/search/info`, `Process.list`, `Registry.get/list` to get parseable JSON envelopes instead of human-readable text — useful when chaining tool output into agent logic. The exact JSON shape per mode is documented inline in each `format` parameter description so agents can compose calls without round-tripping
 - **Pagination**: List tools (`FileSystem.list/search`, `Process.list`, `Registry.list`) accept `offset`/`limit` and report `has_more`/`next_offset` so agents can page through large result sets
 - **Helpers**: `ToolHelpers.cs` centralizes pagination (`Paginate`), JSON serialization options, and format-detection — reuse instead of duplicating per-tool
 
