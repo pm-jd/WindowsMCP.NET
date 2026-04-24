@@ -1,6 +1,7 @@
 using System.Reflection;
 using WindowsMcpNet.Config;
 using WindowsMcpNet.Security;
+using WindowsMcpNet.Server;
 using WindowsMcpNet.Services;
 using WindowsMcpNet.Setup;
 
@@ -138,7 +139,12 @@ try
                 o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
             })
             .WithStdioServerTransport()
-            .WithToolsFromAssembly();
+            .WithToolsFromAssembly()
+            .WithRequestFilters(filters =>
+            {
+                filters.AddCallToolFilter(next => async (ctx, ct) =>
+                    ErrorFlagFilter.Apply(await next(ctx, ct)));
+            });
 #pragma warning restore IL2026
 
         await builder.Build().RunAsync();
@@ -191,7 +197,12 @@ try
             {
                 options.Stateless = true;
             })
-            .WithToolsFromAssembly();
+            .WithToolsFromAssembly()
+            .WithRequestFilters(filters =>
+            {
+                filters.AddCallToolFilter(next => async (ctx, ct) =>
+                    ErrorFlagFilter.Apply(await next(ctx, ct)));
+            });
 #pragma warning restore IL2026
 
         var app = builder.Build();

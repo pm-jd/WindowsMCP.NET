@@ -8,10 +8,10 @@ Windows desktop automation MCP server for Claude Code. Provides 20 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (84 tests)
+# Unit tests (90 tests)
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
-# Parity tests (44 tests: 21 schema + 23 functional — requires desktop session)
+# Parity tests (47 tests: 21 schema + 26 functional — requires desktop session)
 # NOTE: Parity tests launch the Debug exe from bin/Debug/.../win-x64/. Build that first
 # with `dotnet build src/WindowsMCP.NET -c Debug -r win-x64` or the apphost will fail
 # with "No frameworks were found".
@@ -29,7 +29,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Transport**: HTTP (remote, default) or stdio (local Claude Code)
 - **Tools**: Static classes in `src/WindowsMCP.NET/Tools/` with `[McpServerTool]` attribute
 - **Services**: Singletons injected as tool method parameters (`DesktopService`, `UiTreeService`, `ScreenCaptureService`)
-- **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (MCP SDK swallows raw exceptions)
+- **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (MCP SDK 1.2.0 swallows raw exceptions). A central `ErrorFlagFilter` (`Server/ErrorFlagFilter.cs`) detects this prefix and sets `CallToolResult.IsError=true` so clients can branch on the protocol flag instead of string-matching the body
 - **Security**: API key auth (Bearer token), optional IP allowlist, optional HTTPS
 
 ## Tools (20)
