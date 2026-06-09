@@ -8,6 +8,15 @@ using WindowsMcpNet.Setup;
 // Detect double-click launch (no args, not piped stdin)
 var isInteractive = args.Length == 0 && !Console.IsInputRedirected;
 
+// Internal elevated helpers: AutoStartManager self-relaunches with these args
+// (via UAC) to create/remove the HighestAvailable autostart task, then exits.
+// Handled before any server/update work so the elevated child stays minimal.
+if (args.Length == 1 && args[0] is "--autostart-register" or "--autostart-unregister")
+{
+    Environment.ExitCode = AutoStartManager.RunElevatedCommand(args[0]);
+    return;
+}
+
 try
 {
     // Read version: prefer -p:Version from CI, fallback to embedded version.txt
