@@ -51,8 +51,8 @@ public sealed class McpServerFixture : IAsyncLifetime
         var repoRoot = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", ".."));
         var candidates = new[]
         {
-            Path.Combine(repoRoot, "src", "WindowsMCP.NET", "bin", "Debug", "net9.0-windows", "win-x64", "WindowsMCP.NET.exe"),
-            Path.Combine(repoRoot, "src", "WindowsMCP.NET", "bin", "Release", "net9.0-windows", "win-x64", "WindowsMCP.NET.exe"),
+            Path.Combine(repoRoot, "src", "WindowsMCP.NET", "bin", "Debug", "net10.0-windows", "win-x64", "WindowsMCP.NET.exe"),
+            Path.Combine(repoRoot, "src", "WindowsMCP.NET", "bin", "Release", "net10.0-windows", "win-x64", "WindowsMCP.NET.exe"),
         };
         return candidates.FirstOrDefault(File.Exists)
             ?? throw new FileNotFoundException("WindowsMCP.NET.exe not found. Build first or set DOTNET_MCP_PATH.");

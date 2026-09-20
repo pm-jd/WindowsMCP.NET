@@ -26,6 +26,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 
 ## Architecture
 
+- **Runtime**: net10.0-windows (LTS), ModelContextProtocol SDK 2.2.0 (MCP spec 2026-07-28; Streamable HTTP in stateless mode)
 - **Transport**: HTTP (remote, default) or stdio (local Claude Code)
 - **Tools**: Static classes in `src/WindowsMCP.NET/Tools/` with `[McpServerTool]` attribute
 - **Services**: Singletons injected as tool method parameters (`DesktopService`, `UiTreeService`, `ScreenCaptureService`)
