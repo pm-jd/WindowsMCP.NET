@@ -16,6 +16,28 @@ public sealed record CliOptions
     public bool ShowVersion { get; init; }
     public bool NewKey { get; init; }
     public bool NewCert { get; init; }
+
+    /// <summary>
+    /// Applies every option that was given on the command line on top of the loaded config.
+    /// Options that were not passed leave the config value untouched. Passing --cert implies HTTPS.
+    /// </summary>
+    public void ApplyTo(AppConfig config)
+    {
+        if (Transport is not null) config.Transport = Transport;
+        if (Host is not null) config.Host = Host;
+        if (Port.HasValue) config.Port = Port.Value;
+        if (AdvertiseHost is not null) config.AdvertiseHost = AdvertiseHost;
+        if (ApiKey is not null) config.ApiKey = ApiKey;
+        if (AllowIps.Count > 0) config.AllowedIps = AllowIps;
+        if (LogLevel is not null) config.LogLevel = LogLevel;
+
+        if (CertPath is not null)
+        {
+            config.Https.CertPath = CertPath;
+            config.Https.Enabled = true;
+        }
+        if (CertPassword is not null) config.Https.CertPassword = CertPassword;
+    }
 }
 
 public static class CliParser

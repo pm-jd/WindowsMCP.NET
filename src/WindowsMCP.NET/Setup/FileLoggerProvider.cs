@@ -8,9 +8,12 @@ public sealed class FileLoggerProvider : ILoggerProvider
     private readonly object _lock = new();
     private StreamWriter? _writer;
 
-    public FileLoggerProvider(string logPath, long maxFileSize = 10 * 1024 * 1024) // 10 MB default
+    internal LogLevel MinLevel { get; }
+
+    public FileLoggerProvider(string logPath, LogLevel minLevel = LogLevel.Information, long maxFileSize = 10 * 1024 * 1024) // 10 MB default
     {
         _logPath = logPath;
+        MinLevel = minLevel;
         _maxFileSize = maxFileSize;
         _writer = new StreamWriter(new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.Read))
         {
@@ -88,7 +91,8 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+        public bool IsEnabled(LogLevel logLevel) =>
+            logLevel != LogLevel.None && logLevel >= _provider.MinLevel;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {

@@ -92,14 +92,10 @@ try
     // Load or create config
     var config = configManager.Exists ? configManager.Load() : new AppConfig();
 
-    // Apply CLI overrides
-    var transport = cliOptions.Transport ?? config.Transport;
-    if (cliOptions.Port.HasValue) config.Port = cliOptions.Port.Value;
-    if (cliOptions.Host is not null) config.Host = cliOptions.Host;
-    if (cliOptions.AdvertiseHost is not null) config.AdvertiseHost = cliOptions.AdvertiseHost;
-    if (cliOptions.ApiKey is not null) config.ApiKey = cliOptions.ApiKey;
+    // Apply CLI overrides (transport, network, auth, TLS cert, log level)
+    cliOptions.ApplyTo(config);
     config.ApiKey ??= Environment.GetEnvironmentVariable("WMCP_API_KEY");
-    if (cliOptions.AllowIps.Count > 0) config.AllowedIps = cliOptions.AllowIps;
+    var transport = config.Transport;
 
     // First-run: auto-setup for HTTP mode
     if (transport == "http" && !configManager.Exists)
@@ -133,11 +129,13 @@ try
     }
 
     var logPath = Path.Combine(baseDirectory, $"WindowsMCP.NET.{Environment.ProcessId}.log");
-    var fileLoggerProvider = new FileLoggerProvider(logPath);
+    var minLogLevel = LogLevelParser.Parse(config.LogLevel);
+    var fileLoggerProvider = new FileLoggerProvider(logPath, minLogLevel);
 
     if (transport == "stdio")
     {
         var builder = Host.CreateApplicationBuilder(args);
+        builder.Logging.SetMinimumLevel(minLogLevel);
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
         builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
@@ -161,6 +159,7 @@ try
     else
     {
         var builder = WebApplication.CreateBuilder(args);
+        builder.Logging.SetMinimumLevel(minLogLevel);
         builder.Logging.AddConsole();
         builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
