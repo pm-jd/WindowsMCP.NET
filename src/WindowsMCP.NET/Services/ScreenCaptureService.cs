@@ -6,20 +6,8 @@ namespace WindowsMcpNet.Services;
 
 public sealed class ScreenCaptureService
 {
-    private readonly ILogger<ScreenCaptureService> _logger;
-
-    public ScreenCaptureService(ILogger<ScreenCaptureService> logger)
-    {
-        _logger = logger;
-    }
-
+    /// <summary>Captures one monitor (or the primary) as PNG via GDI+.</summary>
     public byte[] CaptureScreen(int? displayIndex = null)
-    {
-        // DXGI not yet implemented, using GDI+
-        return CaptureWithGdi(displayIndex);
-    }
-
-    private byte[] CaptureWithGdi(int? displayIndex)
     {
         var monitors = EnumerateMonitors();
 
@@ -63,14 +51,6 @@ public sealed class ScreenCaptureService
             return true;
         }, nint.Zero);
         return monitors;
-    }
-
-    private byte[] CaptureWithDxgi(int? displayIndex)
-    {
-        // DXGI Desktop Duplication will be implemented as a future enhancement.
-        // For now, delegate to GDI+ so the tool chain works end-to-end.
-        _logger.LogDebug("DXGI not yet implemented, using GDI+");
-        return CaptureWithGdi(displayIndex);
     }
 
     public byte[] AnnotateScreenshot(byte[] pngBytes, IReadOnlyList<(int X, int Y, string Label)> annotations)

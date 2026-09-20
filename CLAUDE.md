@@ -8,7 +8,7 @@ Windows desktop automation MCP server for Claude Code. Provides 20 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (90 tests)
+# Unit tests (133 tests)
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
 # Parity tests (47 tests: 21 schema + 26 functional — requires desktop session)

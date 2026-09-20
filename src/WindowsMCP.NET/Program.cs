@@ -1,5 +1,6 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using ModelContextProtocol.Server;
 using WindowsMcpNet.Config;
 using WindowsMcpNet.Security;
 using WindowsMcpNet.Server;
@@ -219,7 +220,8 @@ try
         app.UseMiddleware<ApiKeyMiddleware>(config.ApiKey!);
         app.MapMcp();
 
-        app.MapGet("/health", () =>
+        // Tools registered via WithToolsFromAssembly live in DI as McpServerTool singletons.
+        app.MapGet("/health", (IEnumerable<McpServerTool> tools) =>
         {
             var process = System.Diagnostics.Process.GetCurrentProcess();
             return Results.Ok(new
@@ -228,7 +230,7 @@ try
                 version = version,
                 uptime = (DateTime.UtcNow - process.StartTime.ToUniversalTime()).ToString(@"d\.hh\:mm\:ss"),
                 transport = "http",
-                tools = 20,
+                tools = tools.Count(),
                 pid = Environment.ProcessId,
                 machine = Environment.MachineName,
             });
@@ -236,7 +238,7 @@ try
 
         Console.Error.WriteLine($"WindowsMCP.NET v{version}");
         Console.Error.WriteLine($"Listening on {(config.Https.Enabled ? "https" : "http")}://{config.Host}:{config.Port}");
-        Console.Error.WriteLine("Press Ctrl+C to stop.");
+        Console.Error.WriteLine("Stop via tray icon → 'Stop Server' (Ctrl+C is intercepted so the Shortcut tool can send it).");
 
         if (isInteractive)
             TrayIconManager.HideConsole();

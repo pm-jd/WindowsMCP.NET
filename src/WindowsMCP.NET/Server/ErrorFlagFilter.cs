@@ -7,10 +7,11 @@ namespace WindowsMcpNet.Server;
 /// CallToolResult with IsError=true, so MCP clients can detect failures via the protocol
 /// flag instead of string-matching the response body.
 ///
-/// Tools currently swallow exceptions inside try/catch and return "[ERROR] {Type}: {message}"
-/// because raw exceptions get masked by generic SDK messages. This filter complements that
-/// pattern: the text stays human-readable, and IsError surfaces the failure to the protocol
-/// layer additively.
+/// Tools catch exceptions inside try/catch and return "[ERROR] {Type}: {message}" because the
+/// SDK only forwards the message of <see cref="ModelContextProtocol.McpException"/>; any other
+/// exception type is reported as a generic "An error occurred invoking '{tool}'." (unchanged
+/// through SDK 2.x). This filter complements that pattern: the text stays human-readable, and
+/// IsError surfaces the failure to the protocol layer additively.
 /// </summary>
 public static class ErrorFlagFilter
 {
