@@ -133,7 +133,9 @@ public sealed partial class TrayIconManager : IDisposable
             switch (result.Status)
             {
                 case UpdateStatus.UpdateAvailable:
-                    var message = result.ExeUrl is not null
+                    // Auto-install only when the release ships a checksum we can verify against.
+                    var canAutoInstall = result.ExeUrl is not null && result.ShaUrl is not null;
+                    var message = canAutoInstall
                         ? $"Update available: v{result.Version}\n\nDownload and install automatically?"
                         : $"Update available: v{result.Version}\n\nOpen download page?";
 
@@ -142,9 +144,9 @@ public sealed partial class TrayIconManager : IDisposable
 
                     if (answer == DialogResult.Yes)
                     {
-                        if (result.ExeUrl is not null)
+                        if (canAutoInstall)
                         {
-                            _ = UpdateChecker.DownloadAndApplyUpdateAsync(result.ExeUrl, () =>
+                            _ = UpdateChecker.DownloadAndApplyUpdateAsync(result.ExeUrl!, result.ShaUrl, () =>
                             {
                                 _onExit();
                                 Application.ExitThread();

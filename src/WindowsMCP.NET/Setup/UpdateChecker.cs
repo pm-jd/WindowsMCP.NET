@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -71,12 +72,8 @@ public static class UpdateChecker
             if (!IsNewer(latestTag, currentVersion))
                 return UpdateCheckResult.UpToDate(currentVersion);
 
-            // Find the .exe asset download URL
-            var exeAsset = release.Assets?.FirstOrDefault(a =>
-                a.Name?.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) == true
-                && a.Name.Contains("WindowsMCP", StringComparison.OrdinalIgnoreCase));
-
-            return UpdateCheckResult.Available(latestTag, release.HtmlUrl, exeAsset?.BrowserDownloadUrl);
+            var (exeUrl, shaUrl) = SelectAssets(release.Assets);
+            return UpdateCheckResult.Available(latestTag, release.HtmlUrl, exeUrl, shaUrl);
         }
         catch (Exception ex)
         {
@@ -84,8 +81,19 @@ public static class UpdateChecker
         }
     }
 
-    public static async Task<bool> DownloadAndApplyUpdateAsync(string exeDownloadUrl, Action onBeforeRestart)
+    /// <summary>
+    /// Downloads the release exe, verifies it against the published <c>.sha256</c> asset and
+    /// swaps it in via a helper batch script. Refuses to install (fail closed) when no checksum
+    /// asset exists or the hash does not match, so a tampered download can never replace the binary.
+    /// </summary>
+    public static async Task<bool> DownloadAndApplyUpdateAsync(string exeDownloadUrl, string? checksumDownloadUrl, Action onBeforeRestart)
     {
+        if (string.IsNullOrEmpty(checksumDownloadUrl))
+        {
+            Console.Error.WriteLine("  Update refused: release has no .sha256 checksum asset, cannot verify integrity.");
+            return false;
+        }
+
         var currentExePath = Process.GetCurrentProcess().MainModule?.FileName
             ?? Path.Combine(AppContext.BaseDirectory, "WindowsMCP.NET.exe");
         var updateExePath = currentExePath + ".update";
@@ -93,11 +101,17 @@ public static class UpdateChecker
 
         try
         {
-            // Step 1: Download new exe
+            // Step 1: Download new exe + checksum, verify before anything touches disk
             Console.Error.WriteLine("  Downloading update...");
             using var http = CreateHttpClient();
             http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
             var bytes = await http.GetByteArrayAsync(exeDownloadUrl);
+            var checksumFile = await http.GetStringAsync(checksumDownloadUrl);
+            if (!VerifyChecksum(bytes, checksumFile))
+            {
+                Console.Error.WriteLine("  Update refused: SHA-256 of the downloaded exe does not match the published checksum.");
+                return false;
+            }
             await File.WriteAllBytesAsync(updateExePath, bytes);
             Console.Error.WriteLine($"  Downloaded {bytes.Length / (1024 * 1024)} MB.");
 
@@ -138,6 +152,51 @@ public static class UpdateChecker
             if (File.Exists(updateExePath)) File.Delete(updateExePath);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Verifies <paramref name="data"/> against a <c>sha256sum</c>-style checksum file
+    /// ("&lt;hex&gt;  filename"). Returns false on mismatch or unparseable content (fail closed).
+    /// </summary>
+    public static bool VerifyChecksum(ReadOnlySpan<byte> data, string checksumFileContent)
+    {
+        var expected = ParseChecksum(checksumFileContent);
+        if (expected is null) return false;
+
+        var actual = SHA256.HashData(data);
+        return CryptographicOperations.FixedTimeEquals(actual, expected);
+    }
+
+    private static byte[]? ParseChecksum(string content)
+    {
+        var firstLine = content
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        var token = firstLine?.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (token is null || token.Length != SHA256.HashSizeInBytes * 2) return null;
+
+        try { return Convert.FromHexString(token); }
+        catch (FormatException) { return null; }
+    }
+
+    /// <summary>Picks the WindowsMCP exe and its companion <c>.exe.sha256</c> from the release assets.</summary>
+    public static (string? ExeUrl, string? ShaUrl) SelectAssets(IEnumerable<GitHubAsset>? assets)
+    {
+        if (assets is null) return (null, null);
+
+        string? exeUrl = null;
+        string? shaUrl = null;
+        foreach (var asset in assets)
+        {
+            if (asset.Name is null || !asset.Name.Contains("WindowsMCP", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (asset.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                exeUrl ??= asset.BrowserDownloadUrl;
+            else if (asset.Name.EndsWith(".exe.sha256", StringComparison.OrdinalIgnoreCase))
+                shaUrl ??= asset.BrowserDownloadUrl;
+        }
+        return (exeUrl, shaUrl);
     }
 
     private static string GetCurrentVersion()
@@ -203,13 +262,15 @@ public sealed class UpdateCheckResult
     public string? Version { get; init; }
     public string? PageUrl { get; init; }
     public string? ExeUrl { get; init; }
+    /// <summary>Download URL of the <c>.exe.sha256</c> asset; null means auto-install is not possible.</summary>
+    public string? ShaUrl { get; init; }
     public string? ErrorMessage { get; init; }
 
     public static UpdateCheckResult UpToDate(string currentVersion) => new()
         { Status = UpdateStatus.UpToDate, Version = currentVersion };
 
-    public static UpdateCheckResult Available(string version, string? pageUrl, string? exeUrl) => new()
-        { Status = UpdateStatus.UpdateAvailable, Version = version, PageUrl = pageUrl, ExeUrl = exeUrl };
+    public static UpdateCheckResult Available(string version, string? pageUrl, string? exeUrl, string? shaUrl) => new()
+        { Status = UpdateStatus.UpdateAvailable, Version = version, PageUrl = pageUrl, ExeUrl = exeUrl, ShaUrl = shaUrl };
 
     public static UpdateCheckResult Failed(string error) => new()
         { Status = UpdateStatus.CheckFailed, ErrorMessage = error };
