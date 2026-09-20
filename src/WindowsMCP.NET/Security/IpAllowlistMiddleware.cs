@@ -3,24 +3,17 @@ namespace WindowsMcpNet.Security;
 public sealed class IpAllowlistMiddleware
 {
     private readonly RequestDelegate _next;
-    private readonly HashSet<string> _allowedIps;
+    private readonly IpAllowlist _allowlist;
 
-    public IpAllowlistMiddleware(RequestDelegate next, IEnumerable<string> allowedIps)
+    public IpAllowlistMiddleware(RequestDelegate next, IpAllowlist allowlist)
     {
         _next = next;
-        _allowedIps = new HashSet<string>(allowedIps);
+        _allowlist = allowlist;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (_allowedIps.Count == 0)
-        {
-            await _next(context);
-            return;
-        }
-
-        var remoteIp = context.Connection.RemoteIpAddress?.ToString();
-        if (remoteIp is null || !_allowedIps.Contains(remoteIp))
+        if (!_allowlist.Allows(context.Connection.RemoteIpAddress))
         {
             context.Response.StatusCode = 403;
             await context.Response.WriteAsync("Forbidden.");

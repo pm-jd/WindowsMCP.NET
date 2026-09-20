@@ -1,13 +1,42 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace WindowsMcpNet.Tools;
 
 /// <summary>
-/// Shared helpers for tool implementations: pagination, format detection, JSON serialization options.
+/// Shared helpers for tool implementations: pagination, format detection, JSON serialization options,
+/// output capping for streamed process output.
 /// </summary>
 public static class ToolHelpers
 {
     public const int DefaultListLimit = 200;
+
+    /// <summary>Cap for streamed tool output (PowerShell stdout/stderr); mirrors the FileSystem 1 MB read limit.</summary>
+    public const int MaxOutputChars = 1_000_000;
+
+    /// <summary>
+    /// Appends <paramref name="line"/> plus a newline while the builder stays within <paramref name="maxChars"/>.
+    /// Returns false once the cap is reached (the line is cut at the cap); callers then append
+    /// <see cref="TruncationMarker"/> so the client knows output was dropped.
+    /// </summary>
+    public static bool AppendCapped(StringBuilder sb, string line, int maxChars)
+    {
+        var remaining = maxChars - sb.Length;
+        if (remaining <= 0) return false;
+
+        if (line.Length >= remaining)
+        {
+            sb.Append(line, 0, remaining);
+            return false;
+        }
+
+        sb.AppendLine(line);
+        return true;
+    }
+
+    public static string TruncationMarker(int maxChars) =>
+        $"\n[Output truncated at {maxChars.ToString("N0", CultureInfo.InvariantCulture)} characters]";
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {

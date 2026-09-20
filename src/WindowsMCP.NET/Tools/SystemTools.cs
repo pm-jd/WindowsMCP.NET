@@ -34,9 +34,19 @@ public static class SystemTools
             using var proc = new System.Diagnostics.Process { StartInfo = psi };
             var stdout = new StringBuilder();
             var stderr = new StringBuilder();
+            var truncated = false;
 
-            proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdout.AppendLine(e.Data); };
-            proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderr.AppendLine(e.Data); };
+            // Cap accumulated output so a chatty command cannot exhaust memory or flood the MCP response.
+            proc.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is not null && !ToolHelpers.AppendCapped(stdout, e.Data, ToolHelpers.MaxOutputChars))
+                    truncated = true;
+            };
+            proc.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is not null && !ToolHelpers.AppendCapped(stderr, e.Data, ToolHelpers.MaxOutputChars))
+                    truncated = true;
+            };
 
             proc.Start();
             proc.BeginOutputReadLine();
@@ -50,7 +60,8 @@ public static class SystemTools
             catch (OperationCanceledException)
             {
                 proc.Kill(entireProcessTree: true);
-                return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}";
+                var marker = truncated ? ToolHelpers.TruncationMarker(ToolHelpers.MaxOutputChars) : "";
+                return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}{marker}";
             }
 
             var result = new StringBuilder();
@@ -62,6 +73,8 @@ public static class SystemTools
             }
             if (proc.ExitCode != 0)
                 result.AppendLine($"[ExitCode={proc.ExitCode}]");
+            if (truncated)
+                result.Append(ToolHelpers.TruncationMarker(ToolHelpers.MaxOutputChars));
 
             return result.Length > 0 ? result.ToString().TrimEnd() : "(no output)";
         }

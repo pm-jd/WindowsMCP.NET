@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using WindowsMcpNet.Config;
 using WindowsMcpNet.Security;
 using WindowsMcpNet.Server;
@@ -164,36 +165,27 @@ try
         builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
 
-        if (config.Https.Enabled)
-        {
-            var certPath = Path.IsPathRooted(config.Https.CertPath)
-                ? config.Https.CertPath
-                : Path.Combine(baseDirectory, config.Https.CertPath);
+        var certPath = Path.IsPathRooted(config.Https.CertPath)
+            ? config.Https.CertPath
+            : Path.Combine(baseDirectory, config.Https.CertPath);
 
-            builder.WebHost.ConfigureKestrel(kestrel =>
-            {
-                if (config.Host == "0.0.0.0")
-                    kestrel.ListenAnyIP(config.Port, listenOptions =>
-                    {
-                        listenOptions.UseHttps(certPath, config.Https.CertPassword);
-                    });
-                else
-                    kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port, listenOptions =>
-                    {
-                        listenOptions.UseHttps(certPath, config.Https.CertPassword);
-                    });
-            });
-        }
-        else
+        builder.WebHost.ConfigureKestrel(kestrel =>
         {
-            builder.WebHost.ConfigureKestrel(kestrel =>
+            // Tool payloads are small (write_base64 carries ~1.4 MB at most); keep request
+            // bodies well below Kestrel's 30 MB default. Header/keep-alive timeouts stay at defaults.
+            kestrel.Limits.MaxRequestBodySize = 16 * 1024 * 1024;
+
+            void ConfigureListener(ListenOptions listen)
             {
-                if (config.Host == "0.0.0.0")
-                    kestrel.ListenAnyIP(config.Port);
-                else
-                    kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port);
-            });
-        }
+                if (config.Https.Enabled)
+                    listen.UseHttps(certPath, config.Https.CertPassword);
+            }
+
+            if (config.Host == "0.0.0.0")
+                kestrel.ListenAnyIP(config.Port, ConfigureListener);
+            else
+                kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port, ConfigureListener);
+        });
 
 #pragma warning disable IL2026
         builder.Services
@@ -219,8 +211,10 @@ try
         // Shutdown is handled by app.Lifetime.StopApplication() via tray icon instead.
         Console.CancelKeyPress += (_, e) => e.Cancel = true;
 
-        if (config.AllowedIps.Count > 0)
-            app.UseMiddleware<IpAllowlistMiddleware>(config.AllowedIps.AsEnumerable());
+        // Parsed up front so an invalid entry fails at startup instead of on the first request.
+        var ipAllowlist = new IpAllowlist(config.AllowedIps);
+        if (!ipAllowlist.IsEmpty)
+            app.UseMiddleware<IpAllowlistMiddleware>(ipAllowlist);
 
         app.UseMiddleware<ApiKeyMiddleware>(config.ApiKey!);
         app.MapMcp();
