@@ -2,9 +2,9 @@ name: Build & Test
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   build:
@@ -32,7 +32,7 @@ jobs:
       env:
         PARITY_SERVER: dotnet
 
-    - name: Publish (AOT)
+    - name: Publish (single-file, self-contained)
       run: dotnet publish src/WindowsMCP.NET/WindowsMCP.NET.csproj -c Release -r win-x64
 
     - name: Upload artifact
