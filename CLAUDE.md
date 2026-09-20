@@ -30,7 +30,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Transport**: HTTP (remote, default) or stdio (local Claude Code)
 - **Tools**: Static classes in `src/WindowsMCP.NET/Tools/` with `[McpServerTool]` attribute
 - **Services**: Singletons injected as tool method parameters (`DesktopService`, `UiTreeService`, `ScreenCaptureService`)
-- **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (MCP SDK 1.2.0 swallows raw exceptions). A central `ErrorFlagFilter` (`Server/ErrorFlagFilter.cs`) detects this prefix and sets `CallToolResult.IsError=true` so clients can branch on the protocol flag instead of string-matching the body
+- **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (the SDK forwards only `McpException` messages; any other exception becomes a generic "An error occurred invoking" text, unchanged through SDK 2.x). A central `ErrorFlagFilter` (`Server/ErrorFlagFilter.cs`) detects this prefix and sets `CallToolResult.IsError=true` so clients can branch on the protocol flag instead of string-matching the body
 - **Security**: API key auth (Bearer token), optional IP allowlist, optional HTTPS
 
 ## Tools (20)
@@ -78,7 +78,7 @@ src/WindowsMCP.NET/
   Models/          # WindowInfo, UiElementNode, AnnotatedTree
   Config/          # AppConfig, CliParser, ConfigManager
   Setup/           # TrayIcon, UpdateChecker, CertificateGenerator, SetupWizard
-  Security/        # ApiKeyMiddleware, IpAllowlistMiddleware
+  Security/        # ApiKeyMiddleware, IpAllowlist (CIDR/IPv6), IpAllowlistMiddleware
 tests/
   WindowsMCP.NET.Tests/         # Unit tests
   WindowsMCP.NET.ParityTests/   # Integration/schema parity tests
