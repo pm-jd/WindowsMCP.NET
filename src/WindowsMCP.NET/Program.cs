@@ -141,20 +141,7 @@ try
         builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
         builder.Logging.AddProvider(fileLoggerProvider);
         RegisterServices(builder.Services);
-#pragma warning disable IL2026
-        builder.Services
-            .AddMcpServer(o =>
-            {
-                o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
-            })
-            .WithStdioServerTransport()
-            .WithToolsFromAssembly()
-            .WithRequestFilters(filters =>
-            {
-                filters.AddCallToolFilter(next => async (ctx, ct) =>
-                    ErrorFlagFilter.Apply(await next(ctx, ct)));
-            });
-#pragma warning restore IL2026
+        builder.Services.AddWindowsMcpServer(version).WithStdioServerTransport();
 
         await builder.Build().RunAsync();
     }
@@ -188,23 +175,8 @@ try
                 kestrel.Listen(System.Net.IPAddress.Parse(config.Host), config.Port, ConfigureListener);
         });
 
-#pragma warning disable IL2026
-        builder.Services
-            .AddMcpServer(o =>
-            {
-                o.ServerInfo = new() { Name = "WindowsMCP.NET", Version = version };
-            })
-            .WithHttpTransport(options =>
-            {
-                options.Stateless = true;
-            })
-            .WithToolsFromAssembly()
-            .WithRequestFilters(filters =>
-            {
-                filters.AddCallToolFilter(next => async (ctx, ct) =>
-                    ErrorFlagFilter.Apply(await next(ctx, ct)));
-            });
-#pragma warning restore IL2026
+        builder.Services.AddWindowsMcpServer(version)
+            .WithHttpTransport(options => options.Stateless = true);
 
         var app = builder.Build();
 
