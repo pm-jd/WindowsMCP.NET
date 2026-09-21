@@ -13,6 +13,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Tool output (sizes, dates, numbers) must read the same on every site regardless of the
+         machine's Windows locale; also what makes the CA1305/CA1310 exemptions in .editorconfig valid. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <!-- WFO0003: WinForms prefers ApplicationHighDpiMode + ApplicationConfiguration.Initialize(),
          but that only runs when WinForms starts. The stdio host never does, so DPI awareness is
          declared in app.manifest (PerMonitorV2) to cover both transports at process start. -->

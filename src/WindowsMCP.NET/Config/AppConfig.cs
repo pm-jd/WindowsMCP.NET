@@ -16,7 +16,7 @@ public sealed class AppConfig
 
 public sealed class HttpsConfig
 {
-    public bool Enabled { get; set; } = false;
+    public bool Enabled { get; set; }
     public string CertPath { get; set; } = "cert.pfx";
     public string? CertPassword { get; set; }
 }

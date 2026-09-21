@@ -1,0 +1,32 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8-bom
+insert_final_newline = true
+
+# --- Code-quality rule adjustments (AnalysisLevel latest-recommended) ---
+
+# Tool parameter names (mode, sort_by, press_enter, ...) are the MCP input-schema property names
+# that clients and the Python original use; they are snake_case by design.
+dotnet_diagnostic.CA1707.severity = none
+
+# The server runs with InvariantGlobalization=true, so culture-sensitive formatting and
+# string comparison already behave invariantly on every site regardless of the Windows locale.
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1310.severity = none
+
+# Logging is sparse and never on a hot path; LoggerMessage source generation buys nothing here.
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none
+
+[tests/**.cs]
+# xunit conventions: sealed test classes implement IDisposable for cleanup (no finalizer),
+# InlineData/Theory use inline constant arrays, fixture/collection classes end in "Collection".
+dotnet_diagnostic.CA1816.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1711.severity = none
+# Test infrastructure: interface return types keep the comparer readable; micro-perf is irrelevant here.
+dotnet_diagnostic.CA1859.severity = none

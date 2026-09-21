@@ -75,7 +75,7 @@ public static class ClipboardTools
             int byteCount = (text.Length + 1) * 2;
             var hMem = Kernel32.GlobalAlloc(Kernel32.GMEM_MOVEABLE, (nuint)byteCount);
             if (hMem == nint.Zero)
-                throw new OutOfMemoryException("GlobalAlloc failed.");
+                throw new InvalidOperationException("GlobalAlloc failed.");
 
             var ptr = Kernel32.GlobalLock(hMem);
             if (ptr == nint.Zero)

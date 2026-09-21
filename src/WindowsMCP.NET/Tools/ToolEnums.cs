@@ -42,7 +42,16 @@ public enum RegistryMode { Get, Set, Delete, List }
 
 /// <summary>Registry value kinds keep their Win32 spelling (DWord, QWord, ExpandString); reading is case-insensitive.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<RegistryValueType>))]
-public enum RegistryValueType { String, DWord, QWord, Binary, ExpandString }
+public enum RegistryValueType
+{
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1720:Identifier contains type name",
+        Justification = "Mirrors the Win32 REG_SZ kind name that clients and the Python original use")]
+    String,
+    DWord,
+    QWord,
+    Binary,
+    ExpandString,
+}
 
 [JsonConverter(typeof(SnakeCaseEnumConverter<AppMode>))]
 public enum AppMode { Launch, Ensure, Status, Switch, Resize }
