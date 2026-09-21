@@ -38,7 +38,7 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
-    <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
     <PackageReference Include="FuzzySharp" Version="2.0.2" />
     <PackageReference Include="ReverseMarkdown" Version="4.6.0" />
   </ItemGroup>
