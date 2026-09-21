@@ -1,6 +1,5 @@
 using WindowsMcpNet.ParityTests.Infrastructure;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace WindowsMcpNet.ParityTests.Phase2_FunctionalTests;
 
@@ -17,13 +16,13 @@ public class AppToolsParityTests : IAsyncLifetime
         _output = output;
     }
 
-    public Task InitializeAsync()
+    public ValueTask InitializeAsync()
     {
         _client = new McpTestClient(_fixture.Client);
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         // Kill any notepad processes started by these tests
         try
@@ -51,7 +50,7 @@ public class AppToolsParityTests : IAsyncLifetime
         _output.WriteLine($"Launch result: {result}");
 
         // Give the OS a moment to register the process
-        await Task.Delay(1000);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
 
         var notepadRunning = System.Diagnostics.Process.GetProcessesByName("notepad").Length > 0;
         Assert.True(notepadRunning, "Notepad process should be running after launch");
@@ -70,7 +69,7 @@ public class AppToolsParityTests : IAsyncLifetime
         });
 
         // Wait for window to appear
-        await Task.Delay(1500);
+        await Task.Delay(1500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -95,7 +94,7 @@ public class AppToolsParityTests : IAsyncLifetime
         // Ensure no notepads are running at the start
         foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
             try { p.Kill(entireProcessTree: true); } catch { }
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -104,7 +103,7 @@ public class AppToolsParityTests : IAsyncLifetime
         });
 
         _output.WriteLine($"ensure (not running) result: {result}");
-        await Task.Delay(1000);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
 
         Assert.Contains("Launched", result);
         Assert.True(System.Diagnostics.Process.GetProcessesByName("notepad").Length > 0);
@@ -121,7 +120,7 @@ public class AppToolsParityTests : IAsyncLifetime
             ["mode"] = "launch",
             ["name"] = "notepad.exe"
         });
-        await Task.Delay(1500);
+        await Task.Delay(1500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -140,7 +139,7 @@ public class AppToolsParityTests : IAsyncLifetime
     {
         foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
             try { p.Kill(entireProcessTree: true); } catch { }
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -162,7 +161,7 @@ public class AppToolsParityTests : IAsyncLifetime
             ["mode"] = "launch",
             ["name"] = "notepad.exe"
         });
-        await Task.Delay(1500);
+        await Task.Delay(1500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -185,12 +184,12 @@ public class AppToolsParityTests : IAsyncLifetime
         {
             ["mode"] = "launch", ["name"] = "notepad.exe"
         });
-        await Task.Delay(800);
+        await Task.Delay(800, TestContext.Current.CancellationToken);
         await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
             ["mode"] = "launch", ["name"] = "notepad.exe"
         });
-        await Task.Delay(1200);
+        await Task.Delay(1200, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -210,7 +209,7 @@ public class AppToolsParityTests : IAsyncLifetime
     {
         foreach (var p in System.Diagnostics.Process.GetProcessesByName("notepad"))
             try { p.Kill(entireProcessTree: true); } catch { }
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
 
         var result = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
@@ -220,7 +219,7 @@ public class AppToolsParityTests : IAsyncLifetime
         });
 
         _output.WriteLine($"ensure with launch_command result: {result}");
-        await Task.Delay(1000);
+        await Task.Delay(1000, TestContext.Current.CancellationToken);
 
         // launch_command fires only when no match → notepad should start
         Assert.True(System.Diagnostics.Process.GetProcessesByName("notepad").Length > 0);

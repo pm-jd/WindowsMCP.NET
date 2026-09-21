@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using WindowsMcpNet.ParityTests.Infrastructure;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace WindowsMcpNet.ParityTests.Phase2_FunctionalTests;
 
@@ -19,13 +18,13 @@ public class InputToolsParityTests : IAsyncLifetime
         _output = output;
     }
 
-    public Task InitializeAsync()
+    public ValueTask InitializeAsync()
     {
         _client = new McpTestClient(_fixture.Client);
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         // Kill any notepad processes started by these tests
         try
@@ -108,7 +107,7 @@ public class InputToolsParityTests : IAsyncLifetime
         });
 
         // Wait for notepad to open and be ready
-        await Task.Delay(2000);
+        await Task.Delay(2000, TestContext.Current.CancellationToken);
 
         // Click roughly center of screen to focus notepad's text area
         // (Use Move first to ensure focus is reasonable)
@@ -122,7 +121,7 @@ public class InputToolsParityTests : IAsyncLifetime
         {
             ["loc"] = new int[] { 640, 400 }
         });
-        await Task.Delay(300);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
 
         // Type the test text
         var typeResult = await _client.CallToolTextAsync("Type", new Dictionary<string, object?>
@@ -130,20 +129,20 @@ public class InputToolsParityTests : IAsyncLifetime
             ["text"] = testText
         });
         _output.WriteLine($"Type result: {typeResult}");
-        await Task.Delay(300);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
 
         // Select all (ctrl+a) and copy (ctrl+c) to get text into clipboard
         await _client.CallToolTextAsync("Shortcut", new Dictionary<string, object?>
         {
             ["shortcut"] = "ctrl+a"
         });
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         await _client.CallToolTextAsync("Shortcut", new Dictionary<string, object?>
         {
             ["shortcut"] = "ctrl+c"
         });
-        await Task.Delay(300);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
 
         // Read clipboard to verify typed text
         var clipboardContent = await _client.CallToolTextAsync("Clipboard", new Dictionary<string, object?>

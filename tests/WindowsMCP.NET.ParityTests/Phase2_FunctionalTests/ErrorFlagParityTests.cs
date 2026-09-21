@@ -1,6 +1,5 @@
 using WindowsMcpNet.ParityTests.Infrastructure;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace WindowsMcpNet.ParityTests.Phase2_FunctionalTests;
 
@@ -17,13 +16,13 @@ public class ErrorFlagParityTests : IAsyncLifetime
         _output = output;
     }
 
-    public Task InitializeAsync()
+    public ValueTask InitializeAsync()
     {
         _client = new McpTestClient(_fixture.Client);
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
     [Trait("Category", "Functional")]

@@ -9,7 +9,7 @@ public sealed class McpServerFixture : IAsyncLifetime
     public McpClient Client => _client ?? throw new InvalidOperationException("Not initialized");
     public string ServerType { get; private set; } = "dotnet";
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         ServerType = Environment.GetEnvironmentVariable("PARITY_SERVER") ?? "dotnet";
 
@@ -39,7 +39,7 @@ public sealed class McpServerFixture : IAsyncLifetime
         _client = await McpClient.CreateAsync(clientTransport);
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_client is IAsyncDisposable d) await d.DisposeAsync();
         _client = null;
