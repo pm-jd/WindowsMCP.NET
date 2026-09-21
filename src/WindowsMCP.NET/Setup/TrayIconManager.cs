@@ -20,7 +20,9 @@ public sealed partial class TrayIconManager : IDisposable
         var thread = new Thread(() =>
         {
             Application.EnableVisualStyles();
-            Application.SetHighDpiMode(HighDpiMode.SystemAware);
+            // The process is already PerMonitorV2 via app.manifest; this keeps WinForms' own
+            // bookkeeping consistent and is a no-op (returns false) when the manifest applied.
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
             var contextMenu = new ContextMenuStrip();
             contextMenu.Items.Add($"WindowsMCP.NET — {_url}", null, null!).Enabled = false;

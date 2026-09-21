@@ -13,6 +13,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- WFO0003: WinForms prefers ApplicationHighDpiMode + ApplicationConfiguration.Initialize(),
+         but that only runs when WinForms starts. The stdio host never does, so DPI awareness is
+         declared in app.manifest (PerMonitorV2) to cover both transports at process start. -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <GitHubPat Condition="'$(GitHubPat)' == ''">%%GITHUB_PAT%%</GitHubPat>
   </PropertyGroup>
 

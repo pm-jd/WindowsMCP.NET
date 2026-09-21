@@ -7,4 +7,14 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
+  <!-- Per-monitor DPI awareness for BOTH transports. UI Automation, SendInput/SetCursorPos and
+       GDI screenshots all work in physical pixels; without this the stdio host ran DPI-unaware
+       (virtualised, scaled coordinates) while the HTTP host got SystemAware from the tray thread,
+       so screenshots and click targets could disagree on >100 % displays. -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
 </assembly>
