@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Services;
@@ -24,6 +25,7 @@ public static class PerformTools
         [Description("Stop executing on first error")] bool stop_on_error = true,
         [Description("Capture screenshot after execution")] bool snapshot_after = true,
         [Description("Milliseconds to wait between steps")] int delay_between_ms = 100,
+        IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken ct = default)
     {
         var parsed = ParseSteps(steps);
@@ -37,39 +39,19 @@ public static class PerformTools
         {
             var step = parsed[i];
             var stepNum = i + 1;
+            var stepResult = await RunStep(step, stepNum, uiTreeService, ct);
+            results.Add(stepResult);
 
-            if (step.IsUnknown)
+            // One notification per step (bound to the request's progressToken by the SDK; a
+            // client without a token gets a no-op sink) so long chains are visibly progressing.
+            progress?.Report(new ProgressNotificationValue
             {
-                results.Add(new StepResult(stepNum, false, $"Unknown action '{step.Action}'"));
-                if (stop_on_error) { stopped = true; break; }
-                continue;
-            }
+                Progress = stepNum,
+                Total = parsed.Count,
+                Message = $"Step {stepNum}/{parsed.Count}: {(stepResult.Success ? "OK" : "FAIL")} — {stepResult.Message}",
+            });
 
-            try
-            {
-                // Check if_exists: skip step if label not found
-                if (step.GetBool("if_exists"))
-                {
-                    var label = step.GetString("label");
-                    if (label is not null && uiTreeService.ResolveLabel(label) is null)
-                    {
-                        results.Add(new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)"));
-                        continue;
-                    }
-                }
-
-                var msg = await ExecuteStep(step, uiTreeService, ct);
-                results.Add(new StepResult(stepNum, true, msg));
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw; // client cancelled; abandon the remaining steps
-            }
-            catch (Exception ex)
-            {
-                results.Add(new StepResult(stepNum, false, $"{ex.GetType().Name}: {ex.Message}"));
-                if (stop_on_error) { stopped = true; break; }
-            }
+            if (!stepResult.Success && stop_on_error) { stopped = true; break; }
 
             if (i < parsed.Count - 1 && delay_between_ms > 0)
                 await Task.Delay(delay_between_ms, ct);
@@ -93,6 +75,29 @@ public static class PerformTools
         }
 
         return content;
+    }
+
+    private static async Task<StepResult> RunStep(ParsedStep step, int stepNum, UiTreeService uiTreeService, CancellationToken ct)
+    {
+        if (step.IsUnknown)
+            return new StepResult(stepNum, false, $"Unknown action '{step.Action}'");
+
+        try
+        {
+            // if_exists: skip the step when the referenced label is not in the current UI tree
+            if (step.GetBool("if_exists") && step.GetString("label") is { } label && uiTreeService.ResolveLabel(label) is null)
+                return new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)");
+
+            return new StepResult(stepNum, true, await ExecuteStep(step, uiTreeService, ct));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled; abandon the remaining steps
+        }
+        catch (Exception ex)
+        {
+            return new StepResult(stepNum, false, $"{ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService, CancellationToken ct)

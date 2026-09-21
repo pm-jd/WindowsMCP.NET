@@ -89,6 +89,7 @@ public class ToolSchemaTests(McpToolsFixture fixture)
         var names = Schema(tool).GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
 
         Assert.DoesNotContain("ct", names);
+        Assert.DoesNotContain("progress", names);
         Assert.DoesNotContain(names, n => n.EndsWith("Service", StringComparison.Ordinal));
     }
 
