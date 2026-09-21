@@ -32,7 +32,8 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Tools**: Static classes in `src/WindowsMCP.NET/Tools/` with `[McpServerTool]` attribute
 - **Services**: Singletons injected as tool method parameters (`DesktopService`, `UiTreeService`, `ScreenCaptureService`)
 - **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (the SDK forwards only `McpException` messages; any other exception becomes a generic "An error occurred invoking" text, unchanged through SDK 2.x). A central `ErrorFlagFilter` (`Server/ErrorFlagFilter.cs`) detects this prefix and sets `CallToolResult.IsError=true` so clients can branch on the protocol flag instead of string-matching the body
-- **Security**: API key auth (Bearer token), optional IP allowlist, optional HTTPS
+- **Security**: API key auth (Bearer token, constant-time compare), optional IP allowlist (plain or CIDR, IPv4/IPv6), optional HTTPS. `/health` is anonymous but returns liveness only; details (version, host, PID, tool count) require the key. Auto-update verifies the release's `.sha256` before swapping the exe
+- **Cancellation & progress**: async tools take a `CancellationToken` (bound to the client's request; PowerShell/Notification kill their child process on cancel); `Perform` reports one progress notification per step via `IProgress<ProgressNotificationValue>`
 
 ## Tools (20)
 
@@ -43,8 +44,8 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | **Snapshot** | Capture screenshot + build UI element tree with numbered labels |
 | **Screenshot** | Fast screenshot without rebuilding UI tree |
 | **Click** | Click at coordinates or labeled UI element |
-| **Type** | Type text with optional target click |
-| **Shortcut** | Send keyboard shortcuts (ctrl+c, alt+f4, etc.) |
+| **Type** | Type text with optional target click; `\n` is sent as Enter, `\t` as Tab |
+| **Shortcut** | Send keyboard shortcuts (ctrl+c, alt+f4, win+printscreen, ctrl++ for the plus key; see `InputTools.ParseShortcut`) |
 | **Scroll** | Scroll mouse wheel |
 | **Move** | Move cursor, optional drag |
 | **Wait** | Pause execution (max 10s) |
@@ -52,7 +53,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | **MultiEdit** | Fill multiple form fields |
 | **FileSystem** | File ops: read, write, copy, move, delete, list, search, info, read_base64, write_base64. `list/search/info` support `format=json` and `offset/limit` pagination (default limit 200) |
 | **PowerShell** | Execute PowerShell commands |
-| **Process** | List or kill processes. `list` supports `format=json`, `offset/limit/has_more` pagination |
+| **Process** | List or kill processes. `list` supports `format=json`, `offset/limit/has_more` pagination. `kill` refuses PID 0/4, the server itself and critical system processes (`ProcessGuard`) |
 | **Registry** | Read/write/delete/list Windows registry. `get/list` support `format=json`; `list` paginates per section (subkeys+values, default limit 200) |
 | **App** | Launch, focus, check, or resize windows. Modes: launch, ensure, status, switch, resize. `status` supports `format=json` returning all matches |
 | **Clipboard** | Get or set clipboard text |
@@ -77,7 +78,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 src/WindowsMCP.NET/
   Tools/           # MCP tool implementations (static classes)
   Services/        # Singletons: DesktopService, ScreenCaptureService, UiTreeService, UiAutomationService
-  Native/          # P/Invoke: User32, Kernel32
+  Native/          # P/Invoke: User32, Kernel32; InputFactory (shared SendInput builders, text→keystrokes)
   Models/          # WindowInfo, UiElementNode, AnnotatedTree
   Config/          # AppConfig, CliParser, ConfigManager
   Setup/           # TrayIcon, UpdateChecker, CertificateGenerator, SetupWizard
