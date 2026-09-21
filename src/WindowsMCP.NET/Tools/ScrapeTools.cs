@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using ModelContextProtocol.Server;
 using ReverseMarkdown;
 
@@ -24,12 +25,14 @@ public static class ScrapeTools
         }
     };
 
+    // ReverseMarkdown 6.x: the Default flavor already emits GitHub-style output (pipe tables,
+    // fenced code blocks, ~~strikethrough~~). Do NOT set Flavor = MarkdownFlavor.GitHub — in
+    // 6.2.1 any non-default flavor returns the input HTML unchanged (covered by ScrapeToolsTests).
     private static readonly Converter _markdownConverter = new(new ReverseMarkdown.Config
     {
-        UnknownTags = ReverseMarkdown.Config.UnknownTagsOption.PassThrough,
-        GithubFlavored = true,
-        RemoveComments = true,
-        SmartHrefHandling = true,
+        Tags = { Unknown = ReverseMarkdown.Config.UnknownTagsOption.PassThrough },
+        Formatting = { RemoveComments = true },
+        Links = { SmartHref = true },
     });
 
     [McpServerTool(Name = "Scrape", ReadOnly = true, Idempotent = true)]
@@ -50,24 +53,34 @@ public static class ScrapeTools
             response.EnsureSuccessStatusCode();
 
             var html = await response.Content.ReadAsStringAsync();
-            var markdown = _markdownConverter.Convert(html);
-
-            if (query is not null)
-            {
-                var filteredLines = markdown
-                    .Split('\n')
-                    .Where(line => line.Contains(query, StringComparison.OrdinalIgnoreCase));
-                markdown = string.Join('\n', filteredLines);
-            }
-
-            if (markdown.Length > MaxChars)
-                markdown = markdown[..MaxChars] + $"\n\n[Truncated at {MaxChars:N0} characters]";
-
-            return markdown;
+            return ConvertHtml(html, query);
         }
         catch (Exception ex)
         {
             return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// Converts HTML to GitHub-flavored Markdown, optionally keeping only lines that contain
+    /// <paramref name="query"/> (case-insensitive), and caps the result at <see cref="MaxChars"/>.
+    /// </summary>
+    public static string ConvertHtml(string html, string? query)
+    {
+        var markdown = _markdownConverter.Convert(html);
+
+        if (query is not null)
+        {
+            var filteredLines = markdown
+                .Split('\n')
+                .Where(line => line.Contains(query, StringComparison.OrdinalIgnoreCase));
+            markdown = string.Join('\n', filteredLines);
+        }
+
+        if (markdown.Length > MaxChars)
+            markdown = markdown[..MaxChars] +
+                       $"\n\n[Truncated at {MaxChars.ToString("N0", CultureInfo.InvariantCulture)} characters]";
+
+        return markdown;
     }
 }
