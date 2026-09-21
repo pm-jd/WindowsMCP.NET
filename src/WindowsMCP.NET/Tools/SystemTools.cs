@@ -14,7 +14,8 @@ public static class SystemTools
     [Description("Execute a PowerShell command on the remote machine.")]
     public static async Task<string> PowerShell(
         [Description("PowerShell command or script to execute")] string command,
-        [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30)
+        [Description("Timeout in seconds (default 30, max 120)")] int timeout = 30,
+        CancellationToken ct = default)
     {
         try
         {
@@ -52,14 +53,18 @@ public static class SystemTools
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeout));
+            // Linked so both the tool timeout and a client-side cancel tear the process down.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeout));
             try
             {
-                await proc.WaitForExitAsync(cts.Token);
+                await proc.WaitForExitAsync(timeoutCts.Token);
             }
             catch (OperationCanceledException)
             {
                 proc.Kill(entireProcessTree: true);
+                if (ct.IsCancellationRequested)
+                    throw;
                 var marker = truncated ? ToolHelpers.TruncationMarker(ToolHelpers.MaxOutputChars) : "";
                 return $"[TIMEOUT after {timeout}s]\n{stdout}{stderr}{marker}";
             }
@@ -77,6 +82,10 @@ public static class SystemTools
                 result.Append(ToolHelpers.TruncationMarker(ToolHelpers.MaxOutputChars));
 
             return result.Length > 0 ? result.ToString().TrimEnd() : "(no output)";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled the request; the SDK reports it as cancelled, not as a tool error
         }
         catch (Exception ex)
         {

@@ -23,7 +23,8 @@ public static class PerformTools
         [Description("Array of action steps: [{action, ...params}]")] JsonElement steps,
         [Description("Stop executing on first error")] bool stop_on_error = true,
         [Description("Capture screenshot after execution")] bool snapshot_after = true,
-        [Description("Milliseconds to wait between steps")] int delay_between_ms = 100)
+        [Description("Milliseconds to wait between steps")] int delay_between_ms = 100,
+        CancellationToken ct = default)
     {
         var parsed = ParseSteps(steps);
         if (parsed.Count == 0)
@@ -57,8 +58,12 @@ public static class PerformTools
                     }
                 }
 
-                var msg = await ExecuteStep(step, uiTreeService);
+                var msg = await ExecuteStep(step, uiTreeService, ct);
                 results.Add(new StepResult(stepNum, true, msg));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // client cancelled; abandon the remaining steps
             }
             catch (Exception ex)
             {
@@ -67,7 +72,7 @@ public static class PerformTools
             }
 
             if (i < parsed.Count - 1 && delay_between_ms > 0)
-                await Task.Delay(delay_between_ms);
+                await Task.Delay(delay_between_ms, ct);
         }
 
         var text = FormatResults(results, stopped);
@@ -90,7 +95,7 @@ public static class PerformTools
         return content;
     }
 
-    private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService)
+    private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService, CancellationToken ct)
     {
         return step.Action switch
         {
@@ -122,7 +127,7 @@ public static class PerformTools
                 drag: step.GetBool("drag")),
 
             "wait" => await InputTools.Wait(
-                duration: step.GetInt("duration") ?? 1),
+                duration: step.GetInt("duration") ?? 1, ct: ct),
 
             _ => throw new ArgumentException($"Unknown action: {step.Action}")
         };

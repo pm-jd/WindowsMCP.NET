@@ -143,7 +143,7 @@ public sealed class DesktopService
 
     public Task<WindowInfo?> LaunchApp(string name) => LaunchApp(name, null);
 
-    public async Task<WindowInfo?> LaunchApp(string name, string? launchCommand)
+    public async Task<WindowInfo?> LaunchApp(string name, string? launchCommand, CancellationToken ct = default)
     {
         var target = string.IsNullOrWhiteSpace(launchCommand) ? name : launchCommand;
         _logger.LogInformation("Launching app: {Name} (command={Command})", name, target);
@@ -157,7 +157,7 @@ public sealed class DesktopService
         if (process is null) return null;
 
         process.WaitForInputIdle(3000);
-        await Task.Delay(500);
+        await Task.Delay(500, ct);
 
         var windows = ListWindows();
         return windows.FirstOrDefault(w => w.ProcessId == (uint)process.Id);

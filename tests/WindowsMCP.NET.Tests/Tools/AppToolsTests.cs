@@ -12,7 +12,7 @@ public class AppToolsTests
     public async Task Ensure_EmptyName_ReturnsError()
     {
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
-        var result = await AppTools.App(ds, mode: "ensure", name: "");
+        var result = await AppTools.App(ds, mode: "ensure", name: "", ct: TestContext.Current.CancellationToken);
         Assert.Contains("[ERROR]", result);
         Assert.Contains("'name' is required", result);
     }
@@ -21,7 +21,7 @@ public class AppToolsTests
     public async Task Status_EmptyName_ReturnsError()
     {
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
-        var result = await AppTools.App(ds, mode: "status", name: "");
+        var result = await AppTools.App(ds, mode: "status", name: "", ct: TestContext.Current.CancellationToken);
         Assert.Contains("[ERROR]", result);
         Assert.Contains("'name' is required", result);
     }
@@ -30,7 +30,7 @@ public class AppToolsTests
     public async Task Ensure_UnknownAmbiguous_ReturnsError()
     {
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
-        var result = await AppTools.App(ds, mode: "ensure", name: "notepad", ambiguous: "bogus");
+        var result = await AppTools.App(ds, mode: "ensure", name: "notepad", ambiguous: "bogus", ct: TestContext.Current.CancellationToken);
         Assert.Contains("[ERROR]", result);
         Assert.Contains("'ambiguous'", result);
     }
@@ -39,7 +39,7 @@ public class AppToolsTests
     public async Task App_UnknownMode_ReturnsError()
     {
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
-        var result = await AppTools.App(ds, mode: "quark", name: "notepad");
+        var result = await AppTools.App(ds, mode: "quark", name: "notepad", ct: TestContext.Current.CancellationToken);
         Assert.Contains("[ERROR]", result);
         Assert.Contains("Unknown mode", result);
     }
@@ -62,7 +62,7 @@ public class AppToolsTests
     {
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
         var result = await AppTools.App(ds, mode: "status",
-            name: $"definitely_not_a_real_app_{Guid.NewGuid():N}", format: "json");
+            name: $"definitely_not_a_real_app_{Guid.NewGuid():N}", format: "json", ct: TestContext.Current.CancellationToken);
 
         using var doc = System.Text.Json.JsonDocument.Parse(result);
         Assert.False(doc.RootElement.GetProperty("running").GetBoolean());
@@ -75,7 +75,7 @@ public class AppToolsTests
     {
         // Validation runs before format — error remains plain text, not JSON.
         var ds = new WindowsMcpNet.Services.DesktopService(NullLog);
-        var result = await AppTools.App(ds, mode: "status", name: "", format: "json");
+        var result = await AppTools.App(ds, mode: "status", name: "", format: "json", ct: TestContext.Current.CancellationToken);
         Assert.StartsWith("[ERROR]", result);
     }
 }

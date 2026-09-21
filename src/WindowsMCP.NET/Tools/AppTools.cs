@@ -28,14 +28,15 @@ public static class AppTools
         string ambiguous = "first",
         [Description("Output format: markdown (default) or json (for mode=status). " +
                      "json shape: {running:bool, match_count:int, matches:[{pid:int, process:str, title:str}]}")]
-        string format = "markdown")
+        string format = "markdown",
+        CancellationToken ct = default)
     {
         try
         {
             return mode.ToLowerInvariant() switch
             {
-                "launch" => await LaunchApp(desktopService, name),
-                "ensure" => await EnsureApp(desktopService, name, launch_command, ambiguous),
+                "launch" => await LaunchApp(desktopService, name, ct),
+                "ensure" => await EnsureApp(desktopService, name, launch_command, ambiguous, ct),
                 "status" => StatusApp(desktopService, name, ambiguous, format),
                 "switch" => SwitchToApp(desktopService, name),
                 "resize" => ResizeApp(desktopService, name, window_loc, window_size),
@@ -43,15 +44,19 @@ public static class AppTools
                     $"Unknown mode '{mode}'. Use: launch, ensure, status, switch, or resize.")
             };
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled the request; the SDK reports it as cancelled, not as a tool error
+        }
         catch (Exception ex)
         {
             return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
         }
     }
 
-    private static async Task<string> LaunchApp(DesktopService desktopService, string name)
+    private static async Task<string> LaunchApp(DesktopService desktopService, string name, CancellationToken ct)
     {
-        var window = await desktopService.LaunchApp(name);
+        var window = await desktopService.LaunchApp(name, null, ct);
         if (window is null)
             return $"Launched '{name}' (window not yet visible)";
         return $"Launched '{name}' — window: \"{window.Title}\" PID={window.ProcessId}";
@@ -90,7 +95,7 @@ public static class AppTools
     }
 
     private static async Task<string> EnsureApp(DesktopService desktopService,
-        string name, string? launchCommand, string ambiguous)
+        string name, string? launchCommand, string ambiguous, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("'name' is required for mode=ensure.");
@@ -100,7 +105,7 @@ public static class AppTools
 
         if (matches.Count == 0)
         {
-            var window = await desktopService.LaunchApp(name, launchCommand);
+            var window = await desktopService.LaunchApp(name, launchCommand, ct);
             if (window is null)
                 return $"Launched '{name}' (window not yet visible)";
             return $"Launched '{name}' — window: \"{window.Title}\" PID={window.ProcessId}";

@@ -340,13 +340,18 @@ public static class InputTools
     [McpServerTool(Name = "Wait", ReadOnly = true, Idempotent = true)]
     [Description("Wait for a specified duration in seconds.")]
     public static async Task<string> Wait(
-        [Description("Duration in seconds to wait (max 10)")] int duration)
+        [Description("Duration in seconds to wait (max 10)")] int duration,
+        CancellationToken ct = default)
     {
         try
         {
             duration = Math.Clamp(duration, 0, 10);
-            await Task.Delay(TimeSpan.FromSeconds(duration));
+            await Task.Delay(TimeSpan.FromSeconds(duration), ct);
             return $"Waited {duration}s";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled the request; the SDK reports it as cancelled, not as a tool error
         }
         catch (Exception ex)
         {

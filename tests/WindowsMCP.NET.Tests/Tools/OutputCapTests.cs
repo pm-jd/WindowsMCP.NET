@@ -43,7 +43,7 @@ public class OutputCapTests
     public async Task PowerShell_LargeOutput_IsTruncatedWithMarker()
     {
         // 1.2 million chars on one line — well above the 1,000,000 char cap.
-        var result = await SystemTools.PowerShell("'x' * 1200000", timeout: 60);
+        var result = await SystemTools.PowerShell("'x' * 1200000", timeout: 60, ct: TestContext.Current.CancellationToken);
 
         Assert.Contains("[Output truncated at 1,000,000 characters]", result);
         Assert.InRange(result.Length, 1_000_000, 1_000_200);

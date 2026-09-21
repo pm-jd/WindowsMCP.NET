@@ -39,7 +39,8 @@ public static class ScrapeTools
     [Description("Fetch URL and return content as Markdown.")]
     public static async Task<string> Scrape(
         [Description("URL to fetch (http or https)")] string url,
-        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null)
+        [Description("Optional text filter: only return lines containing this string (case-insensitive)")] string? query = null,
+        CancellationToken ct = default)
     {
         try
         {
@@ -49,11 +50,15 @@ public static class ScrapeTools
                 throw new ArgumentException($"Invalid URL: '{url}'. Must be http or https.");
             }
 
-            using var response = await _httpClient.GetAsync(uri);
+            using var response = await _httpClient.GetAsync(uri, ct);
             response.EnsureSuccessStatusCode();
 
-            var html = await response.Content.ReadAsStringAsync();
+            var html = await response.Content.ReadAsStringAsync(ct);
             return ConvertHtml(html, query);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled the request; the SDK reports it as cancelled, not as a tool error
         }
         catch (Exception ex)
         {

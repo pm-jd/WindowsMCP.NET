@@ -24,7 +24,8 @@ public static class NotificationTools
     [Description("Show a Windows toast notification via PowerShell.")]
     public static async Task<string> Notification(
         [Description("Notification title")] string title,
-        [Description("Notification message body")] string message)
+        [Description("Notification message body")] string message,
+        CancellationToken ct = default)
     {
         try
         {
@@ -44,7 +45,8 @@ public static class NotificationTools
             using var proc = new System.Diagnostics.Process { StartInfo = psi };
             proc.Start();
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
             try
             {
                 await proc.WaitForExitAsync(cts.Token);
@@ -52,16 +54,22 @@ public static class NotificationTools
             catch (OperationCanceledException)
             {
                 proc.Kill();
+                if (ct.IsCancellationRequested)
+                    throw;
                 return "Notification timed out.";
             }
 
             if (proc.ExitCode != 0)
             {
-                var err = await proc.StandardError.ReadToEndAsync();
+                var err = await proc.StandardError.ReadToEndAsync(ct);
                 return $"Notification may have failed (exit {proc.ExitCode}): {err.Trim()}";
             }
 
             return $"Notification sent: \"{title}\"";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw; // client cancelled the request; the SDK reports it as cancelled, not as a tool error
         }
         catch (Exception ex)
         {
