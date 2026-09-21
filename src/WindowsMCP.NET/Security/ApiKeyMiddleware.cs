@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace WindowsMcpNet.Security;
 
@@ -22,17 +23,14 @@ public sealed class ApiKeyMiddleware
         }
 
         var authHeader = context.Request.Headers.Authorization.ToString();
-        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        if (!HasBearerScheme(authHeader))
         {
             context.Response.StatusCode = 401;
             await context.Response.WriteAsync("Missing or invalid Authorization header. Expected: Bearer <api-key>");
             return;
         }
 
-        var providedKey = authHeader["Bearer ".Length..].Trim();
-        if (!CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(providedKey),
-            System.Text.Encoding.UTF8.GetBytes(_apiKey)))
+        if (!Matches(authHeader, _apiKey))
         {
             context.Response.StatusCode = 403;
             await context.Response.WriteAsync("Invalid API key.");
@@ -41,4 +39,20 @@ public sealed class ApiKeyMiddleware
 
         await _next(context);
     }
+
+    /// <summary>True when the header is "Bearer &lt;key&gt;" and the key equals <paramref name="apiKey"/> (constant-time compare).</summary>
+    public static bool Matches(string? authorizationHeader, string apiKey)
+    {
+        if (!HasBearerScheme(authorizationHeader))
+            return false;
+
+        var providedKey = authorizationHeader!["Bearer ".Length..].Trim();
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(providedKey),
+            Encoding.UTF8.GetBytes(apiKey));
+    }
+
+    private static bool HasBearerScheme(string? authorizationHeader) =>
+        !string.IsNullOrEmpty(authorizationHeader)
+        && authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
 }

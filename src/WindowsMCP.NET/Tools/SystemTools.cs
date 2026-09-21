@@ -230,9 +230,13 @@ public static class SystemTools
     {
         if (!pid.HasValue)
             throw new ArgumentException("'pid' is required for mode=kill.");
+        if (ProcessGuard.IsProtected(pid.Value, null))
+            throw new InvalidOperationException($"Refusing to kill protected system process (PID={pid.Value}).");
 
         var proc = System.Diagnostics.Process.GetProcessById(pid.Value);
         var procName = proc.ProcessName;
+        if (ProcessGuard.IsProtected(pid.Value, procName))
+            throw new InvalidOperationException($"Refusing to kill protected system process '{procName}' (PID={pid.Value}).");
         if (force)
         {
             proc.Kill(entireProcessTree: true);

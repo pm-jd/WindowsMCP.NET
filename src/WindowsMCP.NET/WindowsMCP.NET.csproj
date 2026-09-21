@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="version.txt" />
+    <InternalsVisibleTo Include="WindowsMCP.NET.Tests" />
   </ItemGroup>
 
 

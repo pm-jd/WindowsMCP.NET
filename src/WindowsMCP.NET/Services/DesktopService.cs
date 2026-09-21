@@ -156,7 +156,14 @@ public sealed class DesktopService
 
         if (process is null) return null;
 
-        process.WaitForInputIdle(3000);
+        try
+        {
+            process.WaitForInputIdle(3000);
+        }
+        catch (InvalidOperationException)
+        {
+            // Console apps and URI launches have no message loop; the launch itself succeeded.
+        }
         await Task.Delay(500, ct);
 
         var windows = ListWindows();

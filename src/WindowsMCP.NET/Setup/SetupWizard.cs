@@ -68,8 +68,8 @@ public sealed class SetupWizard
             config.Port = port;
         }
 
-        // Firewall rule
-        OpenFirewallPort(config.Port);
+        // Firewall rule (scoped to the IP allowlist when one is configured)
+        OpenFirewallPort(config.Port, config.AllowedIps);
 
         // Autostart
         Console.Write("  Start automatically with Windows? [Y/n] ");
@@ -219,23 +219,29 @@ public sealed class SetupWizard
         return "wmcp_" + Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    private static void OpenFirewallPort(int port)
+    private const string FirewallRuleName = "WindowsMCP.NET";
+
+    /// <summary>
+    /// netsh arguments for the inbound rule. With an IP allowlist the rule is scoped via
+    /// <c>remoteip</c> (plain addresses or CIDR), so the firewall enforces the same boundary
+    /// as the application-level check instead of exposing the port to the whole network.
+    /// </summary>
+    public static string BuildFirewallRuleArguments(int port, IEnumerable<string> allowedIps)
+    {
+        var args = $"advfirewall firewall add rule name=\"{FirewallRuleName}\" dir=in action=allow protocol=TCP localport={port}";
+        var scope = string.Join(',', allowedIps);
+        return scope.Length > 0 ? $"{args} remoteip={scope}" : args;
+    }
+
+    private static void OpenFirewallPort(int port, IEnumerable<string> allowedIps)
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = $"advfirewall firewall add rule name=\"WindowsMCP.NET\" dir=in action=allow protocol=TCP localport={port}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            using var process = System.Diagnostics.Process.Start(psi);
-            process?.WaitForExit(5000);
-            if (process?.ExitCode == 0)
-                Console.WriteLine($"  Firewall rule created (TCP port {port}).");
+            // Replace rather than accumulate: a re-run with a new port or allowlist must not leave the old rule behind.
+            RunNetsh($"advfirewall firewall delete rule name=\"{FirewallRuleName}\"");
+            var ips = allowedIps.ToList();
+            if (RunNetsh(BuildFirewallRuleArguments(port, ips)) == 0)
+                Console.WriteLine($"  Firewall rule created (TCP port {port}{(ips.Count > 0 ? ", remote IPs: " + string.Join(", ", ips) : ", any source")}).");
             else
                 Console.Error.WriteLine($"  Warning: Could not create firewall rule for port {port}.");
         }
@@ -243,6 +249,22 @@ public sealed class SetupWizard
         {
             Console.Error.WriteLine($"  Warning: Firewall configuration failed: {ex.Message}");
         }
+    }
+
+    private static int RunNetsh(string arguments)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "netsh",
+            Arguments = arguments,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        using var process = System.Diagnostics.Process.Start(psi);
+        if (process is null) return -1;
+        return process.WaitForExit(5000) ? process.ExitCode : -1;
     }
 
 }

@@ -2,14 +2,17 @@ using WindowsMcpNet.Models;
 
 namespace WindowsMcpNet.Services;
 
+/// <summary>
+/// Owns the current annotated UI tree. Snapshot/Context rebuild it explicitly; label lookups
+/// (Click/Type/Perform) reuse the last tree so numbered labels stay stable between calls.
+/// </summary>
 public sealed class UiTreeService
 {
     private readonly UiAutomationService _uiAutomation;
     private readonly ILogger<UiTreeService> _logger;
 
     private AnnotatedTree? _cache;
-    private readonly TimeSpan _cacheTtl = TimeSpan.FromSeconds(2);
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public UiTreeService(UiAutomationService uiAutomation, ILogger<UiTreeService> logger)
     {
@@ -17,16 +20,11 @@ public sealed class UiTreeService
         _logger = logger;
     }
 
+    /// <summary>Rebuilds the tree from the live desktop and makes it the current one.</summary>
     public AnnotatedTree BuildAnnotatedTree()
     {
         lock (_lock)
         {
-            if (_cache is not null && DateTimeOffset.UtcNow - _cache.Timestamp < _cacheTtl)
-            {
-                _logger.LogDebug("Returning cached UI tree");
-                return _cache;
-            }
-
             _logger.LogDebug("Building fresh UI tree");
             var roots = _uiAutomation.GetDesktopTree();
             var labelMap = new Dictionary<string, UiElementNode>();
@@ -48,7 +46,7 @@ public sealed class UiTreeService
 
     public (int X, int Y)? ResolveLabel(string label)
     {
-        var tree = _cache ?? BuildAnnotatedTree();
+        var tree = Current();
 
         if (!tree.LabelMap.TryGetValue(label, out var node))
             return null;
@@ -58,16 +56,27 @@ public sealed class UiTreeService
 
     public void InvalidateCache()
     {
-        _cache = null;
+        lock (_lock)
+        {
+            _cache = null;
+        }
         _logger.LogDebug("UI tree cache invalidated");
     }
 
     public List<(int X, int Y, string Label)> GetAnnotationPoints()
     {
-        var tree = _cache ?? BuildAnnotatedTree();
+        var tree = Current();
         return tree.LabelMap
             .Select(kvp => (kvp.Value.X + kvp.Value.Width / 2, kvp.Value.Y, kvp.Key))
             .ToList();
+    }
+
+    private AnnotatedTree Current()
+    {
+        lock (_lock)
+        {
+            return _cache ?? BuildAnnotatedTree();
+        }
     }
 
     private static void AssignLabels(List<UiElementNode> nodes, Dictionary<string, UiElementNode> labelMap, ref int counter)

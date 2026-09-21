@@ -89,9 +89,24 @@ public sealed partial class TrayIconManager : IDisposable
             ? $"claude mcp add windows-mcp-dotnet \"{_url}\" --transport http --scope user --header \"Authorization: Bearer {_apiKey}\""
             : _url;
 
+        RunOnStaThread(() => Clipboard.SetText(snippet));
+
+        // The snippet carries the API key and any authenticated agent can read the clipboard
+        // through the Clipboard tool; drop it after a minute unless the user copied something else.
+        _ = Task.Delay(TimeSpan.FromSeconds(60)).ContinueWith(_ =>
+            RunOnStaThread(() =>
+            {
+                if (Clipboard.ContainsText() && Clipboard.GetText() == snippet)
+                    Clipboard.Clear();
+            }));
+    }
+
+    private static void RunOnStaThread(Action action)
+    {
         var thread = new Thread(() =>
         {
-            Clipboard.SetText(snippet);
+            try { action(); }
+            catch { /* clipboard owned by another process; best effort */ }
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();

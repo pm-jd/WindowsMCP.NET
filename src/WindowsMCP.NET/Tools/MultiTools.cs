@@ -9,6 +9,8 @@ namespace WindowsMcpNet.Tools;
 [McpServerToolType]
 public static class MultiTools
 {
+    private const ushort VK_CONTROL = 0x11;
+
     [McpServerTool(Name = "MultiSelect", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Click multiple UI elements while optionally holding Ctrl, useful for multi-selection in lists/trees. " +
                  "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
@@ -25,10 +27,7 @@ public static class MultiTools
                 throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
 
             if (press_ctrl)
-            {
-                var ctrlDown = MakeVkKey(0x11, keyUp: false);
-                User32.SendInput(1, new[] { ctrlDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            }
+                InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: false));
 
             var clicked = new List<string>();
             try
@@ -36,17 +35,14 @@ public static class MultiTools
                 foreach (var (x, y, desc) in targets)
                 {
                     User32.SetCursorPos(x, y);
-                    SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+                    InputFactory.Click(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
                     clicked.Add(desc);
                 }
             }
             finally
             {
                 if (press_ctrl)
-                {
-                    var ctrlUp = MakeVkKey(0x11, keyUp: true);
-                    User32.SendInput(1, new[] { ctrlUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-                }
+                    InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: true));
             }
 
             return $"Multi-selected {clicked.Count} element(s): {string.Join(", ", clicked)}";
@@ -75,20 +71,9 @@ public static class MultiTools
             var results = new List<string>();
             foreach (var (cx, cy, text, desc) in pairs)
             {
-                // Click the field
                 User32.SetCursorPos(cx, cy);
-                SendClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
-
-                // Type the text
-                var typeInputs = new INPUT[text.Length * 2];
-                int idx = 0;
-                foreach (char ch in text)
-                {
-                    typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: false);
-                    typeInputs[idx++] = MakeUnicodeKey(ch, keyUp: true);
-                }
-                User32.SendInput((uint)typeInputs.Length, typeInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-
+                InputFactory.Click(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+                InputFactory.Send(InputFactory.BuildTextInputs(text));
                 results.Add($"{desc}=\"{text}\"");
             }
 
@@ -170,49 +155,5 @@ public static class MultiTools
         }
 
         return pairs;
-    }
-
-    private static void SendClick(uint downFlag, uint upFlag)
-    {
-        var inputs = new INPUT[]
-        {
-            new INPUT { Type = User32.INPUT_MOUSE, U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = downFlag } } },
-            new INPUT { Type = User32.INPUT_MOUSE, U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = upFlag } } },
-        };
-        User32.SendInput(2, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-    }
-
-    private static INPUT MakeVkKey(ushort vk, bool keyUp)
-    {
-        return new INPUT
-        {
-            Type = User32.INPUT_KEYBOARD,
-            U = new INPUT_UNION
-            {
-                ki = new KEYBDINPUT
-                {
-                    wVk = vk,
-                    wScan = 0,
-                    dwFlags = keyUp ? User32.KEYEVENTF_KEYUP : 0,
-                }
-            }
-        };
-    }
-
-    private static INPUT MakeUnicodeKey(char ch, bool keyUp)
-    {
-        return new INPUT
-        {
-            Type = User32.INPUT_KEYBOARD,
-            U = new INPUT_UNION
-            {
-                ki = new KEYBDINPUT
-                {
-                    wVk = 0,
-                    wScan = ch,
-                    dwFlags = User32.KEYEVENTF_UNICODE | (keyUp ? User32.KEYEVENTF_KEYUP : 0),
-                }
-            }
-        };
     }
 }

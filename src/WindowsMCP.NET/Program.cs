@@ -189,9 +189,13 @@ try
         app.UseMiddleware<ApiKeyMiddleware>(config.ApiKey!);
         app.MapMcp();
 
+        // Anonymous callers get liveness only; version, host name, PID and tool count need the API key.
         // Tools registered via WithToolsFromAssembly live in DI as McpServerTool singletons.
-        app.MapGet("/health", (IEnumerable<McpServerTool> tools) =>
+        app.MapGet("/health", (HttpContext http, IEnumerable<McpServerTool> tools) =>
         {
+            if (!ApiKeyMiddleware.Matches(http.Request.Headers.Authorization.ToString(), config.ApiKey!))
+                return Results.Ok(new { status = "healthy" });
+
             var process = System.Diagnostics.Process.GetCurrentProcess();
             return Results.Ok(new
             {

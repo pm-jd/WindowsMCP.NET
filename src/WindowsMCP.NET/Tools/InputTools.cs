@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Native;
 using WindowsMcpNet.Services;
@@ -8,44 +9,42 @@ namespace WindowsMcpNet.Tools;
 [McpServerToolType]
 public static class InputTools
 {
-    // VK code map for Shortcut tool
+    private const ushort VK_CONTROL = 0x11;
+    private const ushort VK_A = 0x41;
+    private const ushort VK_DELETE = 0x2E;
+    private const ushort VK_RETURN = 0x0D;
+    private const ushort VK_OEM_PLUS = 0xBB;
+
+    // Named keys for the Shortcut tool (case-insensitive). Letters and digits map via their char code.
     private static readonly Dictionary<string, ushort> VkMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["ctrl"]      = 0x11,
-        ["control"]   = 0x11,
-        ["alt"]       = 0x12,
-        ["shift"]     = 0x10,
-        ["win"]       = 0x5B,
-        ["tab"]       = 0x09,
-        ["enter"]     = 0x0D,
-        ["return"]    = 0x0D,
-        ["esc"]       = 0x1B,
-        ["escape"]    = 0x1B,
-        ["space"]     = 0x20,
-        ["backspace"] = 0x08,
-        ["delete"]    = 0x2E,
-        ["del"]       = 0x2E,
-        ["up"]        = 0x26,
-        ["down"]      = 0x28,
-        ["left"]      = 0x25,
-        ["right"]     = 0x27,
-        ["home"]      = 0x24,
-        ["end"]       = 0x23,
-        ["pageup"]    = 0x21,
-        ["pagedown"]  = 0x22,
-        ["insert"]    = 0x2D,
-        ["f1"]        = 0x70,
-        ["f2"]        = 0x71,
-        ["f3"]        = 0x72,
-        ["f4"]        = 0x73,
-        ["f5"]        = 0x74,
-        ["f6"]        = 0x75,
-        ["f7"]        = 0x76,
-        ["f8"]        = 0x77,
-        ["f9"]        = 0x78,
-        ["f10"]       = 0x79,
-        ["f11"]       = 0x7A,
-        ["f12"]       = 0x7B,
+        ["ctrl"] = VK_CONTROL, ["control"] = VK_CONTROL,
+        ["alt"] = 0x12, ["shift"] = 0x10,
+        ["win"] = 0x5B, ["lwin"] = 0x5B, ["rwin"] = 0x5C,
+        ["tab"] = 0x09, ["enter"] = VK_RETURN, ["return"] = VK_RETURN,
+        ["esc"] = 0x1B, ["escape"] = 0x1B, ["space"] = 0x20,
+        ["backspace"] = 0x08, ["delete"] = VK_DELETE, ["del"] = VK_DELETE, ["insert"] = 0x2D,
+        ["up"] = 0x26, ["down"] = 0x28, ["left"] = 0x25, ["right"] = 0x27,
+        ["home"] = 0x24, ["end"] = 0x23, ["pageup"] = 0x21, ["pagedown"] = 0x22,
+        ["printscreen"] = 0x2C, ["prtsc"] = 0x2C, ["snapshot"] = 0x2C,
+        ["capslock"] = 0x14, ["numlock"] = 0x90, ["scrolllock"] = 0x91, ["pause"] = 0x13,
+        ["apps"] = 0x5D, ["menu"] = 0x5D,
+        ["+"] = VK_OEM_PLUS, ["plus"] = VK_OEM_PLUS, ["="] = VK_OEM_PLUS,
+        ["-"] = 0xBD, ["minus"] = 0xBD,
+        [","] = 0xBC, ["comma"] = 0xBC,
+        ["."] = 0xBE, ["period"] = 0xBE,
+        ["/"] = 0xBF, ["slash"] = 0xBF,
+        [";"] = 0xBA, ["semicolon"] = 0xBA,
+        ["'"] = 0xDE, ["["] = 0xDB, ["]"] = 0xDD, ["\\"] = 0xDC, ["`"] = 0xC0,
+        ["numpad0"] = 0x60, ["numpad1"] = 0x61, ["numpad2"] = 0x62, ["numpad3"] = 0x63, ["numpad4"] = 0x64,
+        ["numpad5"] = 0x65, ["numpad6"] = 0x66, ["numpad7"] = 0x67, ["numpad8"] = 0x68, ["numpad9"] = 0x69,
+        ["multiply"] = 0x6A, ["add"] = 0x6B, ["subtract"] = 0x6D, ["decimal"] = 0x6E, ["divide"] = 0x6F,
+        ["volumemute"] = 0xAD, ["volumedown"] = 0xAE, ["volumeup"] = 0xAF,
+        ["medianext"] = 0xB0, ["mediaprev"] = 0xB1, ["mediastop"] = 0xB2, ["mediaplay"] = 0xB3,
+        ["f1"] = 0x70, ["f2"] = 0x71, ["f3"] = 0x72, ["f4"] = 0x73, ["f5"] = 0x74, ["f6"] = 0x75,
+        ["f7"] = 0x76, ["f8"] = 0x77, ["f9"] = 0x78, ["f10"] = 0x79, ["f11"] = 0x7A, ["f12"] = 0x7B,
+        ["f13"] = 0x7C, ["f14"] = 0x7D, ["f15"] = 0x7E, ["f16"] = 0x7F, ["f17"] = 0x80, ["f18"] = 0x81,
+        ["f19"] = 0x82, ["f20"] = 0x83, ["f21"] = 0x84, ["f22"] = 0x85, ["f23"] = 0x86, ["f24"] = 0x87,
     };
 
     [McpServerTool(Name = "Click", Destructive = true, OpenWorld = true, ReadOnly = false)]
@@ -73,14 +72,14 @@ public static class InputTools
 
             // Atomic batch: all click events in one SendInput call so Windows sees
             // consecutive timestamps within GetDoubleClickTime() for clicks=2.
-            int actualClicks = Math.Max(1, clicks);
+            var actualClicks = Math.Max(1, clicks);
             var inputs = new INPUT[actualClicks * 2];
-            for (int i = 0; i < actualClicks; i++)
+            for (var i = 0; i < actualClicks; i++)
             {
-                inputs[i * 2]     = MakeMouseInput(downFlag);
-                inputs[i * 2 + 1] = MakeMouseInput(upFlag);
+                inputs[i * 2]     = InputFactory.Mouse(downFlag);
+                inputs[i * 2 + 1] = InputFactory.Mouse(upFlag);
             }
-            User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            InputFactory.Send(inputs);
 
             return $"Clicked {button.Lower()} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
         }
@@ -91,7 +90,7 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Type", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Type text, optionally clicking a target element first.")]
+    [Description("Type text, optionally clicking a target element first. Newlines are sent as Enter, tabs as Tab.")]
     public static string Type(
         UiTreeService uiTreeService,
         [Description("Text to type")] string text,
@@ -105,43 +104,24 @@ public static class InputTools
             if (ResolveTarget(uiTreeService, label, loc) is { } target)
             {
                 User32.SetCursorPos(target.X, target.Y);
-                SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
+                InputFactory.Click(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
             }
 
             if (clear)
             {
-                // Ctrl+A then Delete
-                var clearInputs = new INPUT[]
-                {
-                    MakeVkKey(0x11, keyUp: false),  // Ctrl down
-                    MakeVkKey(0x41, keyUp: false),  // A down
-                    MakeVkKey(0x41, keyUp: true),   // A up
-                    MakeVkKey(0x11, keyUp: true),   // Ctrl up
-                    MakeVkKey(0x2E, keyUp: false),  // Delete down
-                    MakeVkKey(0x2E, keyUp: true),   // Delete up
-                };
-                User32.SendInput((uint)clearInputs.Length, clearInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+                InputFactory.Send(
+                    InputFactory.Key(VK_CONTROL, keyUp: false),
+                    InputFactory.Key(VK_A, keyUp: false),
+                    InputFactory.Key(VK_A, keyUp: true),
+                    InputFactory.Key(VK_CONTROL, keyUp: true),
+                    InputFactory.Key(VK_DELETE, keyUp: false),
+                    InputFactory.Key(VK_DELETE, keyUp: true));
             }
 
-            var inputs = new INPUT[text.Length * 2];
-            int idx = 0;
-            foreach (char ch in text)
-            {
-                inputs[idx++] = MakeUnicodeKey(ch, keyUp: false);
-                inputs[idx++] = MakeUnicodeKey(ch, keyUp: true);
-            }
-
-            User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            InputFactory.Send(InputFactory.BuildTextInputs(text));
 
             if (press_enter)
-            {
-                var enterInputs = new INPUT[]
-                {
-                    MakeVkKey(0x0D, keyUp: false),  // Enter down
-                    MakeVkKey(0x0D, keyUp: true),   // Enter up
-                };
-                User32.SendInput((uint)enterInputs.Length, enterInputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            }
+                InputFactory.Send(InputFactory.Key(VK_RETURN, keyUp: false), InputFactory.Key(VK_RETURN, keyUp: true));
 
             return $"Typed {text.Length} character(s){(press_enter ? " + Enter" : "")}";
         }
@@ -167,29 +147,18 @@ public static class InputTools
             if (cx != 0 || cy != 0)
                 User32.SetCursorPos(cx, cy);
 
-            bool isHorizontal = type == ScrollAxis.Horizontal
+            var isHorizontal = type == ScrollAxis.Horizontal
                 || direction is ScrollDirection.Left or ScrollDirection.Right;
 
-            int delta = isHorizontal
+            var delta = isHorizontal
                 ? (direction == ScrollDirection.Left ? -120 : 120)
                 : (direction == ScrollDirection.Up ? 120 : -120);
             delta *= wheel_times;
 
-            uint scrollFlag = isHorizontal ? User32.MOUSEEVENTF_HWHEEL : User32.MOUSEEVENTF_WHEEL;
+            var input = InputFactory.Mouse(isHorizontal ? User32.MOUSEEVENTF_HWHEEL : User32.MOUSEEVENTF_WHEEL);
+            input.U.mi.mouseData = (uint)delta;
+            InputFactory.Send(input);
 
-            var input = new INPUT
-            {
-                Type = User32.INPUT_MOUSE,
-                U = new INPUT_UNION
-                {
-                    mi = new MOUSEINPUT
-                    {
-                        dwFlags = scrollFlag,
-                        mouseData = (uint)delta,
-                    }
-                }
-            };
-            User32.SendInput(1, new[] { input }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
             return $"Scrolled {direction.Lower()} {wheel_times} notch(es) at ({cx},{cy})";
         }
         catch (Exception ex)
@@ -212,26 +181,12 @@ public static class InputTools
                 ?? throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
 
             if (drag)
-            {
-                var mouseDown = new INPUT
-                {
-                    Type = User32.INPUT_MOUSE,
-                    U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = User32.MOUSEEVENTF_LEFTDOWN } }
-                };
-                User32.SendInput(1, new[] { mouseDown }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            }
+                InputFactory.Send(InputFactory.Mouse(User32.MOUSEEVENTF_LEFTDOWN));
 
             User32.SetCursorPos(cx, cy);
 
             if (drag)
-            {
-                var mouseUp = new INPUT
-                {
-                    Type = User32.INPUT_MOUSE,
-                    U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = User32.MOUSEEVENTF_LEFTUP } }
-                };
-                User32.SendInput(1, new[] { mouseUp }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            }
+                InputFactory.Send(InputFactory.Mouse(User32.MOUSEEVENTF_LEFTUP));
 
             return $"{(drag ? "Dragged" : "Moved")} cursor to ({cx},{cy})";
         }
@@ -242,41 +197,23 @@ public static class InputTools
     }
 
     [McpServerTool(Name = "Shortcut", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Send a keyboard shortcut (e.g. ctrl+c, alt+f4).")]
+    [Description("Send a keyboard shortcut, e.g. 'ctrl+c', 'alt+f4', 'win+printscreen', 'ctrl++' (Ctrl and the plus key).")]
     public static string Shortcut(
-        [Description("Key combination, e.g. 'ctrl+c', 'alt+tab', 'win+d'")] string shortcut)
+        [Description("Key combination joined with '+', e.g. 'ctrl+c', 'alt+tab', 'win+d'")] string shortcut)
     {
         try
         {
-            var parts = shortcut.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var vkCodes = new ushort[parts.Length];
-
-            for (int i = 0; i < parts.Length; i++)
-            {
-                var part = parts[i];
-                if (VkMap.TryGetValue(part, out var vk))
-                {
-                    vkCodes[i] = vk;
-                }
-                else if (part.Length == 1)
-                {
-                    vkCodes[i] = (ushort)char.ToUpperInvariant(part[0]);
-                }
-                else
-                {
-                    throw new ArgumentException($"Unknown key name: '{part}'");
-                }
-            }
+            var vkCodes = ParseShortcut(shortcut);
 
             // Press all keys down, then release all in reverse order
             var inputs = new INPUT[vkCodes.Length * 2];
-            int idx = 0;
+            var idx = 0;
             foreach (var vk in vkCodes)
-                inputs[idx++] = MakeVkKey(vk, keyUp: false);
-            for (int i = vkCodes.Length - 1; i >= 0; i--)
-                inputs[idx++] = MakeVkKey(vkCodes[i], keyUp: true);
+                inputs[idx++] = InputFactory.Key(vk, keyUp: false);
+            for (var i = vkCodes.Length - 1; i >= 0; i--)
+                inputs[idx++] = InputFactory.Key(vkCodes[i], keyUp: true);
 
-            User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
+            InputFactory.Send(inputs);
             return $"Sent shortcut: {shortcut}";
         }
         catch (Exception ex)
@@ -310,6 +247,58 @@ public static class InputTools
     // --- Helpers ---
 
     /// <summary>
+    /// "ctrl+shift+s" to virtual-key codes in press order. '+' separates keys; a '+' directly
+    /// after a separator ("ctrl++") or the names "plus"/"=" mean the plus key itself. Single
+    /// letters and digits map through their character code, everything else through the table.
+    /// </summary>
+    public static ushort[] ParseShortcut(string shortcut)
+    {
+        var parts = new List<string>();
+        var token = new StringBuilder();
+        for (var i = 0; i < shortcut.Length; i++)
+        {
+            var c = shortcut[i];
+            if (c != '+')
+            {
+                token.Append(c);
+                continue;
+            }
+
+            if (token.Length == 0)
+            {
+                // Empty token before a '+': a literal plus key when it follows a separator ("ctrl++").
+                if (i > 0 && shortcut[i - 1] == '+')
+                {
+                    parts.Add("+");
+                    continue;
+                }
+                throw new ArgumentException($"Malformed shortcut '{shortcut}': unexpected '+'.");
+            }
+
+            parts.Add(token.ToString());
+            token.Clear();
+        }
+
+        if (token.Length > 0)
+            parts.Add(token.ToString());
+        else if (parts.Count == 0 || (shortcut.EndsWith('+') && parts[^1] != "+"))
+            throw new ArgumentException($"Malformed shortcut '{shortcut}': missing key after '+'.");
+
+        var codes = new ushort[parts.Count];
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var part = parts[i].Trim();
+            if (VkMap.TryGetValue(part, out var vk))
+                codes[i] = vk;
+            else if (part.Length == 1 && char.IsAsciiLetterOrDigit(part[0]))
+                codes[i] = (ushort)char.ToUpperInvariant(part[0]);
+            else
+                throw new ArgumentException($"Unknown key name: '{part}'");
+        }
+        return codes;
+    }
+
+    /// <summary>
     /// Label wins over coordinates. A label that is not in the current UI tree is an error;
     /// no label and no usable coordinate yields null so callers decide whether that is allowed.
     /// </summary>
@@ -321,51 +310,5 @@ public static class InputTools
                    ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
         }
         return ToolHelpers.ToPoint(loc);
-    }
-
-    private static void SendMouseClick(uint downFlag, uint upFlag)
-    {
-        var inputs = new INPUT[] { MakeMouseInput(downFlag), MakeMouseInput(upFlag) };
-        User32.SendInput(2, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-    }
-
-    private static INPUT MakeMouseInput(uint flags) => new INPUT
-    {
-        Type = User32.INPUT_MOUSE,
-        U = new INPUT_UNION { mi = new MOUSEINPUT { dwFlags = flags } }
-    };
-
-    private static INPUT MakeUnicodeKey(char ch, bool keyUp)
-    {
-        return new INPUT
-        {
-            Type = User32.INPUT_KEYBOARD,
-            U = new INPUT_UNION
-            {
-                ki = new KEYBDINPUT
-                {
-                    wVk = 0,
-                    wScan = ch,
-                    dwFlags = User32.KEYEVENTF_UNICODE | (keyUp ? User32.KEYEVENTF_KEYUP : 0),
-                }
-            }
-        };
-    }
-
-    private static INPUT MakeVkKey(ushort vk, bool keyUp)
-    {
-        return new INPUT
-        {
-            Type = User32.INPUT_KEYBOARD,
-            U = new INPUT_UNION
-            {
-                ki = new KEYBDINPUT
-                {
-                    wVk = vk,
-                    wScan = 0,
-                    dwFlags = keyUp ? User32.KEYEVENTF_KEYUP : 0,
-                }
-            }
-        };
     }
 }
