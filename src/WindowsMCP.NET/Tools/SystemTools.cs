@@ -96,24 +96,24 @@ public static class SystemTools
     [McpServerTool(Name = "Process", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("List running processes (mode=list) or kill a process by PID (mode=kill).")]
     public static string ProcessTool(
-        [Description("Mode: list or kill")] string mode,
+        [Description("Operation: list processes or kill one by PID")] ProcessMode mode,
         [Description("Process ID to kill (required for mode=kill)")] int? pid = null,
         [Description("Filter by name substring (for mode=list)")] string? name = null,
-        [Description("Sort list by: memory (default), cpu, name, pid")] string sort_by = "memory",
+        [Description("Sort order for mode=list")] ProcessSort sort_by = ProcessSort.Memory,
         [Description("Maximum number of processes to return (default 20)")] int limit = 20,
         [Description("Skip first N entries (for mode=list paging)")] int offset = 0,
         [Description("Force kill (SIGKILL / TerminateProcess) instead of graceful close")] bool force = false,
-        [Description("Output format: markdown (default) or json (for mode=list). " +
+        [Description("Output format (json applies to mode=list). " +
                      "json shape: {items:[{pid:int, name:str, memory_bytes:long}], count, offset, limit, sort_by, name_filter, has_more, next_offset}")]
-        string format = "markdown")
+        OutputFormat format = OutputFormat.Markdown)
     {
         try
         {
-            return mode.ToLowerInvariant() switch
+            return mode switch
             {
-                "list" => ListProcesses(name, sort_by, limit, offset, format),
-                "kill" => KillProcess(pid, force),
-                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: list or kill.")
+                ProcessMode.List => ListProcesses(name, sort_by, limit, offset, format),
+                ProcessMode.Kill => KillProcess(pid, force),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
@@ -126,27 +126,27 @@ public static class SystemTools
     [Description("Read, write, delete, or list Windows registry values. " +
                  "mode: get, set, delete, list. path: full key path like HKCU\\Software\\MyApp.")]
     public static string RegistryTool(
-        [Description("Mode: get, set, delete, or list")] string mode,
+        [Description("Operation")] RegistryMode mode,
         [Description("Registry key path, e.g. HKCU\\Software\\MyApp")] string path,
         [Description("Value name (required for get/set/delete)")] string? name = null,
         [Description("Value data to set (for mode=set)")] string? value = null,
-        [Description("Value type for set: String (default), DWord, QWord, Binary, ExpandString")] string type = "String",
+        [Description("Value type for mode=set")] RegistryValueType type = RegistryValueType.String,
         [Description("Max subkeys/values per section (default 200, for mode=list)")] int limit = 0,
         [Description("Skip first N entries per section (for mode=list paging)")] int offset = 0,
-        [Description("Output format: markdown (default) or json (for mode=get/list). json shapes: " +
+        [Description("Output format (json applies to mode=get/list). json shapes: " +
                      "get={key, name, value, kind, exists:bool}; " +
                      "list={key, subkeys:[str], subkeys_total, subkeys_has_more, values:[{name, value, kind}], values_total, values_has_more, offset, limit, next_offset}")]
-        string format = "markdown")
+        OutputFormat format = OutputFormat.Markdown)
     {
         try
         {
-            return mode.ToLowerInvariant() switch
+            return mode switch
             {
-                "get"    => RegistryGet(path, name, format),
-                "set"    => RegistrySet(path, name, value, type),
-                "delete" => RegistryDelete(path, name),
-                "list"   => RegistryList(path, ToolHelpers.ResolveLimit(limit), offset, format),
-                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get, set, delete, or list.")
+                RegistryMode.Get    => RegistryGet(path, name, format),
+                RegistryMode.Set    => RegistrySet(path, name, value, type),
+                RegistryMode.Delete => RegistryDelete(path, name),
+                RegistryMode.List   => RegistryList(path, ToolHelpers.ResolveLimit(limit), offset, format),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
@@ -157,7 +157,7 @@ public static class SystemTools
 
     // --- Process helpers ---
 
-    private static string ListProcesses(string? nameFilter, string sortBy, int limit, int offset, string format)
+    private static string ListProcesses(string? nameFilter, ProcessSort sortBy, int limit, int offset, OutputFormat format)
     {
         var processes = System.Diagnostics.Process.GetProcesses();
         try
@@ -169,17 +169,17 @@ public static class SystemTools
                     catch { return false; }
                 });
 
-            IOrderedEnumerable<System.Diagnostics.Process> sorted = sortBy.ToLowerInvariant() switch
+            IOrderedEnumerable<System.Diagnostics.Process> sorted = sortBy switch
             {
-                "name"   => filtered.OrderBy(p => p.ProcessName),
-                "pid"    => filtered.OrderBy(p => p.Id),
-                "cpu"    => filtered.OrderByDescending(p => { try { return p.TotalProcessorTime.TotalSeconds; } catch { return 0; } }),
-                _        => filtered.OrderByDescending(p => { try { return p.WorkingSet64; } catch { return 0L; } }), // memory
+                ProcessSort.Name => filtered.OrderBy(p => p.ProcessName),
+                ProcessSort.Pid  => filtered.OrderBy(p => p.Id),
+                ProcessSort.Cpu  => filtered.OrderByDescending(p => { try { return p.TotalProcessorTime.TotalSeconds; } catch { return 0; } }),
+                _                => filtered.OrderByDescending(p => { try { return p.WorkingSet64; } catch { return 0L; } }), // memory
             };
 
             var (page, hasMore) = ToolHelpers.Paginate(sorted, offset, limit);
 
-            if (ToolHelpers.IsJson(format))
+            if (format == OutputFormat.Json)
             {
                 var items = page.Select(p =>
                 {
@@ -265,7 +265,7 @@ public static class SystemTools
         return (hive, sub);
     }
 
-    private static string RegistryGet(string key, string? valueName, string format)
+    private static string RegistryGet(string key, string? valueName, OutputFormat format)
     {
         var (hive, sub) = SplitRegistryPath(key);
         using var regKey = hive.OpenSubKey(sub)
@@ -273,7 +273,7 @@ public static class SystemTools
 
         var name = valueName ?? "";
         var val = regKey.GetValue(name);
-        if (ToolHelpers.IsJson(format))
+        if (format == OutputFormat.Json)
         {
             string? kind = null;
             try { kind = val is null ? null : regKey.GetValueKind(name).ToString(); } catch { }
@@ -289,7 +289,7 @@ public static class SystemTools
         return val is null ? "(null)" : val.ToString() ?? "(null)";
     }
 
-    private static string RegistrySet(string key, string? valueName, string? data, string kind)
+    private static string RegistrySet(string key, string? valueName, string? data, RegistryValueType kind)
     {
         if (data is null)
             throw new ArgumentException("'value' is required for mode=set.");
@@ -298,13 +298,13 @@ public static class SystemTools
         using var regKey = hive.CreateSubKey(sub)
             ?? throw new InvalidOperationException($"Cannot create/open registry key: {key}");
 
-        var vkind = kind.ToLowerInvariant() switch
+        var vkind = kind switch
         {
-            "dword"        => RegistryValueKind.DWord,
-            "qword"        => RegistryValueKind.QWord,
-            "binary"       => RegistryValueKind.Binary,
-            "expandstring" => RegistryValueKind.ExpandString,
-            _              => RegistryValueKind.String,
+            RegistryValueType.DWord        => RegistryValueKind.DWord,
+            RegistryValueType.QWord        => RegistryValueKind.QWord,
+            RegistryValueType.Binary       => RegistryValueKind.Binary,
+            RegistryValueType.ExpandString => RegistryValueKind.ExpandString,
+            _                              => RegistryValueKind.String,
         };
 
         object value = vkind switch
@@ -329,7 +329,7 @@ public static class SystemTools
         return $"Deleted {key}\\{valueName ?? "(default)"}";
     }
 
-    private static string RegistryList(string key, int limit, int offset, string format)
+    private static string RegistryList(string key, int limit, int offset, OutputFormat format)
     {
         if (offset < 0) offset = 0;
 
@@ -347,7 +347,7 @@ public static class SystemTools
         bool subkeysHasMore = allSubkeys.Length > offset + subkeys.Length;
         bool valuesHasMore = allValueNames.Length > offset + valueNames.Length;
 
-        if (ToolHelpers.IsJson(format))
+        if (format == OutputFormat.Json)
         {
             var values = valueNames.Select(n =>
             {

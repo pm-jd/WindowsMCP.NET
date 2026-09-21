@@ -14,8 +14,8 @@ public static class MultiTools
                  "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
-        [Description("Array of element label IDs from last Snapshot, e.g. [3, 7, 12]")] JsonElement? labels = null,
-        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] JsonElement? locs = null,
+        [Description("Element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
+        [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true)
     {
         try
@@ -104,36 +104,23 @@ public static class MultiTools
 
     private static List<(int X, int Y, string Desc)> ResolveTargets(
         UiTreeService uiTreeService,
-        JsonElement? labels,
-        JsonElement? locs)
+        int[]? labels,
+        int[][]? locs)
     {
         var targets = new List<(int, int, string)>();
 
-        // labels: array of integer label IDs, e.g. [3, 7, 12]
-        if (labels.HasValue && labels.Value.ValueKind == JsonValueKind.Array)
+        foreach (var label in labels ?? [])
         {
-            foreach (var item in labels.Value.EnumerateArray())
-            {
-                var labelStr = item.ValueKind == JsonValueKind.Number
-                    ? item.GetInt32().ToString()
-                    : item.GetString() ?? string.Empty;
-                if (string.IsNullOrEmpty(labelStr)) continue;
-                var pos = uiTreeService.ResolveLabel(labelStr)
-                          ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
-                targets.Add((pos.X, pos.Y, $"[{labelStr}]"));
-            }
+            var labelStr = label.ToString();
+            var pos = uiTreeService.ResolveLabel(labelStr)
+                      ?? throw new InvalidOperationException($"Label '{labelStr}' not found in UI tree.");
+            targets.Add((pos.X, pos.Y, $"[{labelStr}]"));
         }
 
-        // locs: array of [x, y] arrays, e.g. [[100,200],[300,400]]
-        if (locs.HasValue && locs.Value.ValueKind == JsonValueKind.Array)
+        foreach (var loc in locs ?? [])
         {
-            foreach (var item in locs.Value.EnumerateArray())
-            {
-                if (item.ValueKind != JsonValueKind.Array || item.GetArrayLength() < 2) continue;
-                int x = item[0].GetInt32();
-                int y = item[1].GetInt32();
-                targets.Add((x, y, $"({x},{y})"));
-            }
+            if (ToolHelpers.ToPoint(loc) is { } p)
+                targets.Add((p.X, p.Y, $"({p.X},{p.Y})"));
         }
 
         return targets;
@@ -171,7 +158,9 @@ public static class MultiTools
             foreach (var entry in labels.Value.EnumerateArray())
             {
                 if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() < 2) continue;
-                var labelStr = entry[0].GetString() ?? string.Empty;
+                var labelStr = entry[0].ValueKind == JsonValueKind.Number
+                    ? entry[0].GetInt32().ToString()
+                    : entry[0].GetString() ?? string.Empty;
                 var text = entry[1].GetString() ?? string.Empty;
                 if (string.IsNullOrEmpty(labelStr)) continue;
                 var pos = uiTreeService.ResolveLabel(labelStr)

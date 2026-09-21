@@ -44,8 +44,12 @@ public static class ToolHelpers
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public static bool IsJson(string format) =>
-        format.Equals("json", StringComparison.OrdinalIgnoreCase);
+    /// <summary>[x, y] coordinate array to point; null when missing or too short.</summary>
+    public static (int X, int Y)? ToPoint(int[]? coords) =>
+        coords is { Length: >= 2 } ? (coords[0], coords[1]) : null;
+
+    /// <summary>Lower-case enum name for human-readable tool output ("left", "json").</summary>
+    public static string Lower(this Enum value) => value.ToString().ToLowerInvariant();
 
     public static int ResolveLimit(int limit, int defaultLimit = DefaultListLimit) =>
         limit > 0 ? limit : defaultLimit;

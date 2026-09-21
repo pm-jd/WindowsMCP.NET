@@ -100,15 +100,15 @@ public static class PerformTools
         return step.Action switch
         {
             "click" => InputTools.Click(uiTreeService,
-                loc: step.Get("loc"),
+                loc: step.GetIntArray("loc"),
                 label: step.GetString("label"),
-                button: step.GetString("button") ?? "left",
+                button: step.GetEnum("button", MouseButton.Left),
                 clicks: step.GetInt("clicks") ?? 1),
 
             "type" => InputTools.Type(uiTreeService,
                 text: step.GetString("text") ?? throw new ArgumentException("'text' required for type action"),
                 label: step.GetString("label"),
-                loc: step.Get("loc"),
+                loc: step.GetIntArray("loc"),
                 clear: step.GetBool("clear"),
                 press_enter: step.GetBool("press_enter")),
 
@@ -116,13 +116,14 @@ public static class PerformTools
                 shortcut: step.GetString("shortcut") ?? throw new ArgumentException("'shortcut' required")),
 
             "scroll" => InputTools.Scroll(uiTreeService,
-                direction: step.GetString("direction") ?? "down",
+                direction: step.GetEnum("direction", ScrollDirection.Down),
                 wheel_times: step.GetInt("wheel_times") ?? 3,
-                loc: step.Get("loc"),
-                label: step.GetString("label")),
+                loc: step.GetIntArray("loc"),
+                label: step.GetString("label"),
+                type: step.GetEnum("type", ScrollAxis.Vertical)),
 
             "move" => InputTools.Move(uiTreeService,
-                loc: step.Get("loc"),
+                loc: step.GetIntArray("loc"),
                 label: step.GetString("label"),
                 drag: step.GetBool("drag")),
 
@@ -199,6 +200,18 @@ public static class PerformTools
 
         public JsonElement? Get(string prop) =>
             _raw.TryGetProperty(prop, out var v) ? v : null;
+
+        /// <summary>[x, y] style integer arrays; non-numeric entries are skipped.</summary>
+        public int[]? GetIntArray(string prop) =>
+            _raw.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Array
+                ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => e.GetInt32()).ToArray()
+                : null;
+
+        /// <summary>Enum values go through the enum's own JSON converter (snake_case, case-insensitive).</summary>
+        public TEnum GetEnum<TEnum>(string prop, TEnum fallback) where TEnum : struct, Enum =>
+            _raw.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
+                ? v.Deserialize<TEnum>()
+                : fallback;
     }
 
     public sealed record StepResult(int StepNumber, bool Success, string Message);

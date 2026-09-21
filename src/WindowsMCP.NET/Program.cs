@@ -117,10 +117,7 @@ try
     void RegisterServices(IServiceCollection services)
     {
         services.AddSingleton(config);
-        services.AddSingleton<DesktopService>();
-        services.AddSingleton<ScreenCaptureService>();
-        services.AddSingleton<UiAutomationService>();
-        services.AddSingleton<UiTreeService>();
+        services.AddWindowsMcpServices();
     }
 
     // Clean up log files older than 7 days

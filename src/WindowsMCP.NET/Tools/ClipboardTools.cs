@@ -9,18 +9,18 @@ namespace WindowsMcpNet.Tools;
 public static class ClipboardTools
 {
     [McpServerTool(Name = "Clipboard", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Get or set the Windows clipboard text content. mode: get or set.")]
+    [Description("Get or set the Windows clipboard text content.")]
     public static string Clipboard(
-        [Description("Mode: get or set")] string mode,
+        [Description("Operation")] ClipboardMode mode,
         [Description("Text to place on clipboard (required for mode=set)")] string? text = null)
     {
         try
         {
-            return mode.ToLowerInvariant() switch
+            return mode switch
             {
-                "get" => ClipboardGet(),
-                "set" => ClipboardSet(text),
-                _ => throw new ArgumentException($"Unknown mode '{mode}'. Use: get or set.")
+                ClipboardMode.Get => ClipboardGet(),
+                ClipboardMode.Set => ClipboardSet(text),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)

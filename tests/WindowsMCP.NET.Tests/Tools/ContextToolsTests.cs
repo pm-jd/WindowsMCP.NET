@@ -10,36 +10,46 @@ public class ContextToolsTests
     public void DefaultInclude_ReturnsWindowAndScreen()
     {
         var modules = ContextTools.ParseInclude(null);
-        Assert.Contains("window", modules);
-        Assert.Contains("screen", modules);
-        Assert.Equal(2, modules.Count);
+
+        Assert.Equal([ContextModule.Window, ContextModule.Screen], modules);
     }
 
     [Fact]
-    public void ParseInclude_WithExplicitModules()
+    public void ParseInclude_WithExplicitModules_PreservesOrder()
     {
-        var json = JsonDocument.Parse("""["window", "clipboard", "processes"]""").RootElement;
-        var modules = ContextTools.ParseInclude(json);
-        Assert.Equal(3, modules.Count);
-        Assert.Contains("clipboard", modules);
-        Assert.DoesNotContain("screen", modules);
+        var modules = ContextTools.ParseInclude([ContextModule.Processes, ContextModule.Clipboard, ContextModule.Window]);
+
+        Assert.Equal([ContextModule.Processes, ContextModule.Clipboard, ContextModule.Window], modules);
     }
 
     [Fact]
-    public void ParseInclude_UnknownModule_IsIgnored()
+    public void ParseInclude_Duplicates_AreCollapsed()
     {
-        var json = JsonDocument.Parse("""["window", "bogus"]""").RootElement;
-        var modules = ContextTools.ParseInclude(json);
-        Assert.Single(modules);
-        Assert.Contains("window", modules);
+        var modules = ContextTools.ParseInclude([ContextModule.Window, ContextModule.Window, ContextModule.UiTree]);
+
+        Assert.Equal([ContextModule.Window, ContextModule.UiTree], modules);
     }
 
     [Fact]
     public void ParseInclude_EmptyArray_ReturnsDefault()
     {
-        var json = JsonDocument.Parse("""[]""").RootElement;
-        var modules = ContextTools.ParseInclude(json);
-        Assert.Contains("window", modules);
-        Assert.Contains("screen", modules);
+        var modules = ContextTools.ParseInclude([]);
+
+        Assert.Equal([ContextModule.Window, ContextModule.Screen], modules);
+    }
+
+    [Theory]
+    [InlineData("\"ui_tree\"", ContextModule.UiTree)]
+    [InlineData("\"UiTree\"", ContextModule.UiTree)]
+    [InlineData("\"clipboard\"", ContextModule.Clipboard)]
+    public void ContextModule_DeserialisesSnakeCaseAndIgnoresCase(string json, ContextModule expected)
+    {
+        Assert.Equal(expected, JsonSerializer.Deserialize<ContextModule>(json));
+    }
+
+    [Fact]
+    public void ContextModule_SerialisesAsSnakeCase()
+    {
+        Assert.Equal("\"ui_tree\"", JsonSerializer.Serialize(ContextModule.UiTree));
     }
 }

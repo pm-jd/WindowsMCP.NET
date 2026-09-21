@@ -69,16 +69,6 @@ public class ToolHelpersTests
     }
 
     [Fact]
-    public void IsJson_CaseInsensitive()
-    {
-        Assert.True(ToolHelpers.IsJson("json"));
-        Assert.True(ToolHelpers.IsJson("JSON"));
-        Assert.True(ToolHelpers.IsJson("Json"));
-        Assert.False(ToolHelpers.IsJson("markdown"));
-        Assert.False(ToolHelpers.IsJson(""));
-    }
-
-    [Fact]
     public void ResolveLimit_ZeroOrNegative_UsesDefault()
     {
         Assert.Equal(ToolHelpers.DefaultListLimit, ToolHelpers.ResolveLimit(0));

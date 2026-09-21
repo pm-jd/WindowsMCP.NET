@@ -12,7 +12,7 @@ public class McpServerSetupTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddWindowsMcpServer(version: "1.2.3");
+        services.AddWindowsMcpServices().AddWindowsMcpServer(version: "1.2.3");
         return services.BuildServiceProvider();
     }
 

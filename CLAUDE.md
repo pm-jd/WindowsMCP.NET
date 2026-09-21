@@ -67,7 +67,9 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Foreground without screenshots**: Use `App(mode="ensure", name="notepad")` to focus an app if running, launch if not — one call instead of screenshot+parse workflow
 - **Structured output**: Pass `format="json"` to `App.status`, `FileSystem.list/search/info`, `Process.list`, `Registry.get/list` to get parseable JSON envelopes instead of human-readable text — useful when chaining tool output into agent logic. The exact JSON shape per mode is documented inline in each `format` parameter description so agents can compose calls without round-tripping
 - **Pagination**: List tools (`FileSystem.list/search`, `Process.list`, `Registry.list`) accept `offset`/`limit` and report `has_more`/`next_offset` so agents can page through large result sets
-- **Helpers**: `ToolHelpers.cs` centralizes pagination (`Paginate`), JSON serialization options, and format-detection — reuse instead of duplicating per-tool
+- **Helpers**: `ToolHelpers.cs` centralizes pagination (`Paginate`), JSON serialization options, coordinate parsing (`ToPoint`) and output capping — reuse instead of duplicating per-tool
+- **Enumerated parameters**: `mode`, `format`, `button`, `direction`, `sort_by`, … are C# enums in `Tools/ToolEnums.cs`, so the input schema lists the allowed values. Every tool enum carries `[JsonConverter(typeof(SnakeCaseEnumConverter<T>))]` (snake_case on the wire, case-insensitive member names accepted); a test enforces the attribute. Tool arguments are bound with `McpServerSetup.ToolSerializerOptions`, a copy of the SDK defaults without the global enum converter — options-level converters would otherwise override the attributes
+- **Coordinates** are `int[]` (`[x, y]`), not `JsonElement`, so the schema is `array of integer`; `Perform` steps still arrive as raw JSON and are converted via `ParsedStep.GetIntArray/GetEnum`
 
 ## Project Structure
 

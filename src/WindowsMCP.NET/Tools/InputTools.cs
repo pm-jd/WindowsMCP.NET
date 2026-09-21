@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Text.Json;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Native;
 using WindowsMcpNet.Services;
@@ -53,36 +52,23 @@ public static class InputTools
     [Description("Click at coordinates or a labeled UI element.")]
     public static string Click(
         UiTreeService uiTreeService,
-        [Description("Coordinate as [x, y] (ignored when label is given)")] JsonElement? loc = null,
+        [Description("Coordinate as [x, y] (ignored when label is given)")] int[]? loc = null,
         [Description("UI element label from last Snapshot (e.g. '3')")] string? label = null,
-        [Description("Mouse button: left, right, middle")] string button = "left",
+        [Description("Mouse button")] MouseButton button = MouseButton.Left,
         [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1)
     {
         try
         {
-            int cx, cy;
-            if (label is not null)
-            {
-                var pos = uiTreeService.ResolveLabel(label)
-                          ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
-                (cx, cy) = pos;
-            }
-            else if (ParseCoord(loc) is { } coord)
-            {
-                (cx, cy) = coord;
-            }
-            else
-            {
-                throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
-            }
+            var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
+                ?? throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
 
             User32.SetCursorPos(cx, cy);
 
-            var (downFlag, upFlag) = button.ToLowerInvariant() switch
+            var (downFlag, upFlag) = button switch
             {
-                "right"  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
-                "middle" => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
-                _        => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
+                MouseButton.Right  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
+                MouseButton.Middle => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
+                _                  => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
             };
 
             // Atomic batch: all click events in one SendInput call so Windows sees
@@ -96,7 +82,7 @@ public static class InputTools
             }
             User32.SendInput((uint)inputs.Length, inputs, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
 
-            return $"Clicked {button} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
+            return $"Clicked {button.Lower()} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
         }
         catch (Exception ex)
         {
@@ -110,22 +96,15 @@ public static class InputTools
         UiTreeService uiTreeService,
         [Description("Text to type")] string text,
         [Description("Optional: click this label before typing")] string? label = null,
-        [Description("Coordinate to click before typing as [x, y]")] JsonElement? loc = null,
+        [Description("Coordinate to click before typing as [x, y]")] int[]? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
         [Description("Press Enter after typing")] bool press_enter = false)
     {
         try
         {
-            if (label is not null)
+            if (ResolveTarget(uiTreeService, label, loc) is { } target)
             {
-                var pos = uiTreeService.ResolveLabel(label)
-                          ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
-                User32.SetCursorPos(pos.X, pos.Y);
-                SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
-            }
-            else if (ParseCoord(loc) is { } coord)
-            {
-                User32.SetCursorPos(coord.X, coord.Y);
+                User32.SetCursorPos(target.X, target.Y);
                 SendMouseClick(User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP);
             }
 
@@ -176,42 +155,24 @@ public static class InputTools
     [Description("Scroll mouse wheel at coordinates or labeled element.")]
     public static string Scroll(
         UiTreeService uiTreeService,
-        [Description("Scroll direction: up or down (vertical), left or right (horizontal)")] string direction = "down",
+        [Description("Scroll direction; left/right imply horizontal scrolling")] ScrollDirection direction = ScrollDirection.Down,
         [Description("Number of scroll notches")] int wheel_times = 3,
-        [Description("Coordinate as [x, y]")] JsonElement? loc = null,
+        [Description("Coordinate as [x, y]")] int[]? loc = null,
         [Description("UI element label")] string? label = null,
-        [Description("Scroll axis: vertical (default) or horizontal")] string type = "vertical")
+        [Description("Scroll axis")] ScrollAxis type = ScrollAxis.Vertical)
     {
         try
         {
-            int cx = 0, cy = 0;
-            if (label is not null)
-            {
-                var pos = uiTreeService.ResolveLabel(label)
-                          ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
-                (cx, cy) = (pos.X, pos.Y);
-            }
-            else if (ParseCoord(loc) is { } coord)
-            {
-                (cx, cy) = coord;
-            }
-
+            var (cx, cy) = ResolveTarget(uiTreeService, label, loc) ?? (0, 0);
             if (cx != 0 || cy != 0)
                 User32.SetCursorPos(cx, cy);
 
-            bool isHorizontal = type.Equals("horizontal", StringComparison.OrdinalIgnoreCase)
-                || direction.Equals("left", StringComparison.OrdinalIgnoreCase)
-                || direction.Equals("right", StringComparison.OrdinalIgnoreCase);
+            bool isHorizontal = type == ScrollAxis.Horizontal
+                || direction is ScrollDirection.Left or ScrollDirection.Right;
 
-            int delta;
-            if (isHorizontal)
-            {
-                delta = direction.Equals("left", StringComparison.OrdinalIgnoreCase) ? -120 : 120;
-            }
-            else
-            {
-                delta = direction.Equals("up", StringComparison.OrdinalIgnoreCase) ? 120 : -120;
-            }
+            int delta = isHorizontal
+                ? (direction == ScrollDirection.Left ? -120 : 120)
+                : (direction == ScrollDirection.Up ? 120 : -120);
             delta *= wheel_times;
 
             uint scrollFlag = isHorizontal ? User32.MOUSEEVENTF_HWHEEL : User32.MOUSEEVENTF_WHEEL;
@@ -229,7 +190,7 @@ public static class InputTools
                 }
             };
             User32.SendInput(1, new[] { input }, System.Runtime.InteropServices.Marshal.SizeOf<INPUT>());
-            return $"Scrolled {direction} {wheel_times} notch(es) at ({cx},{cy})";
+            return $"Scrolled {direction.Lower()} {wheel_times} notch(es) at ({cx},{cy})";
         }
         catch (Exception ex)
         {
@@ -241,27 +202,14 @@ public static class InputTools
     [Description("Move cursor to coordinates or label, with optional drag.")]
     public static string Move(
         UiTreeService uiTreeService,
-        [Description("Coordinate as [x, y]")] JsonElement? loc = null,
+        [Description("Coordinate as [x, y]")] int[]? loc = null,
         [Description("UI element label")] string? label = null,
         [Description("Drag: hold mouse button down while moving, release after")] bool drag = false)
     {
         try
         {
-            int cx, cy;
-            if (label is not null)
-            {
-                var pos = uiTreeService.ResolveLabel(label)
-                          ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
-                (cx, cy) = (pos.X, pos.Y);
-            }
-            else if (ParseCoord(loc) is { } coord)
-            {
-                (cx, cy) = coord;
-            }
-            else
-            {
-                throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
-            }
+            var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
+                ?? throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
 
             if (drag)
             {
@@ -362,15 +310,17 @@ public static class InputTools
     // --- Helpers ---
 
     /// <summary>
-    /// Parses a JsonElement that is expected to be a [x, y] integer array.
-    /// Returns null if the element is null/undefined or not a valid 2-element array.
+    /// Label wins over coordinates. A label that is not in the current UI tree is an error;
+    /// no label and no usable coordinate yields null so callers decide whether that is allowed.
     /// </summary>
-    private static (int X, int Y)? ParseCoord(JsonElement? loc)
+    private static (int X, int Y)? ResolveTarget(UiTreeService uiTreeService, string? label, int[]? loc)
     {
-        if (!loc.HasValue || loc.Value.ValueKind != JsonValueKind.Array) return null;
-        var arr = loc.Value;
-        if (arr.GetArrayLength() < 2) return null;
-        return (arr[0].GetInt32(), arr[1].GetInt32());
+        if (label is not null)
+        {
+            return uiTreeService.ResolveLabel(label)
+                   ?? throw new InvalidOperationException($"Label '{label}' not found in UI tree.");
+        }
+        return ToolHelpers.ToPoint(loc);
     }
 
     private static void SendMouseClick(uint downFlag, uint upFlag)

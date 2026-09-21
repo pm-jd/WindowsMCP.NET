@@ -15,33 +15,32 @@ public static class AppTools
                  "status (check if running), switch (focus by window title), resize.")]
     public static async Task<string> App(
         DesktopService desktopService,
-        [Description("Mode: launch, ensure, status, switch, or resize")] string mode = "launch",
+        [Description("Operation")] AppMode mode = AppMode.Launch,
         [Description("App name. For ensure/status: process name (e.g. 'notepad'); " +
                      "falls back to fuzzy window title match. For launch: executable/URI.")]
         string name = "",
-        [Description("Window position as [x, y] (for resize)")] JsonElement? window_loc = null,
-        [Description("Window size as [width, height] (for resize)")] JsonElement? window_size = null,
+        [Description("Window position as [x, y] (for resize)")] int[]? window_loc = null,
+        [Description("Window size as [width, height] (for resize)")] int[]? window_size = null,
         [Description("Optional launch command for mode=ensure when process not found " +
                      "(e.g. full path or URI like 'ms-teams:'). Defaults to `name`.")]
         string? launch_command = null,
-        [Description("Behavior on multiple matches (ensure/status): 'first' (default) or 'error'.")]
-        string ambiguous = "first",
-        [Description("Output format: markdown (default) or json (for mode=status). " +
+        [Description("Behavior on multiple matches (ensure/status): use the first match or report an error.")]
+        AmbiguousPolicy ambiguous = AmbiguousPolicy.First,
+        [Description("Output format (for mode=status). " +
                      "json shape: {running:bool, match_count:int, matches:[{pid:int, process:str, title:str}]}")]
-        string format = "markdown",
+        OutputFormat format = OutputFormat.Markdown,
         CancellationToken ct = default)
     {
         try
         {
-            return mode.ToLowerInvariant() switch
+            return mode switch
             {
-                "launch" => await LaunchApp(desktopService, name, ct),
-                "ensure" => await EnsureApp(desktopService, name, launch_command, ambiguous, ct),
-                "status" => StatusApp(desktopService, name, ambiguous, format),
-                "switch" => SwitchToApp(desktopService, name),
-                "resize" => ResizeApp(desktopService, name, window_loc, window_size),
-                _ => throw new ArgumentException(
-                    $"Unknown mode '{mode}'. Use: launch, ensure, status, switch, or resize.")
+                AppMode.Launch => await LaunchApp(desktopService, name, ct),
+                AppMode.Ensure => await EnsureApp(desktopService, name, launch_command, ambiguous, ct),
+                AppMode.Status => StatusApp(desktopService, name, ambiguous, format),
+                AppMode.Switch => SwitchToApp(desktopService, name),
+                AppMode.Resize => ResizeApp(desktopService, name, window_loc, window_size),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -71,7 +70,7 @@ public static class AppTools
     }
 
     private static string ResizeApp(DesktopService desktopService, string name,
-        JsonElement? window_loc, JsonElement? window_size)
+        int[]? window_loc, int[]? window_size)
     {
         var windows = desktopService.ListWindows();
         var match = windows.FirstOrDefault(w =>
@@ -80,8 +79,8 @@ public static class AppTools
         if (match is null)
             return $"No window matching '{name}' found.";
 
-        var loc = ParseCoord(window_loc);
-        var size = ParseCoord(window_size);
+        var loc = ToolHelpers.ToPoint(window_loc);
+        var size = ToolHelpers.ToPoint(window_size);
 
         int rx = loc.HasValue ? loc.Value.X : match.X;
         int ry = loc.HasValue ? loc.Value.Y : match.Y;
@@ -95,11 +94,10 @@ public static class AppTools
     }
 
     private static async Task<string> EnsureApp(DesktopService desktopService,
-        string name, string? launchCommand, string ambiguous, CancellationToken ct)
+        string name, string? launchCommand, AmbiguousPolicy ambiguous, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("'name' is required for mode=ensure.");
-        ValidateAmbiguous(ambiguous);
 
         var matches = desktopService.FindMatches(name);
 
@@ -111,7 +109,7 @@ public static class AppTools
             return $"Launched '{name}' — window: \"{window.Title}\" PID={window.ProcessId}";
         }
 
-        if (matches.Count > 1 && ambiguous.Equals("error", StringComparison.OrdinalIgnoreCase))
+        if (matches.Count > 1 && ambiguous == AmbiguousPolicy.Error)
             return FormatAmbiguous(matches);
 
         var (target, _) = matches[0];
@@ -121,15 +119,14 @@ public static class AppTools
             : $"Attempted focus on \"{target.Title}\" (PID={target.ProcessId}) — window may not have come to front";
     }
 
-    private static string StatusApp(DesktopService desktopService, string name, string ambiguous, string format)
+    private static string StatusApp(DesktopService desktopService, string name, AmbiguousPolicy ambiguous, OutputFormat format)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("'name' is required for mode=status.");
-        ValidateAmbiguous(ambiguous);
 
         var matches = desktopService.FindMatches(name);
 
-        if (ToolHelpers.IsJson(format))
+        if (format == OutputFormat.Json)
         {
             return JsonSerializer.Serialize(new
             {
@@ -147,18 +144,11 @@ public static class AppTools
         if (matches.Count == 0)
             return "Not running";
 
-        if (matches.Count > 1 && ambiguous.Equals("error", StringComparison.OrdinalIgnoreCase))
+        if (matches.Count > 1 && ambiguous == AmbiguousPolicy.Error)
             return FormatAmbiguous(matches);
 
         var (target, _) = matches[0];
         return $"Running: PID={target.ProcessId}, window=\"{target.Title}\"";
-    }
-
-    private static void ValidateAmbiguous(string ambiguous)
-    {
-        if (!ambiguous.Equals("first", StringComparison.OrdinalIgnoreCase) &&
-            !ambiguous.Equals("error", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("'ambiguous' must be 'first' or 'error'.");
     }
 
     private static string FormatAmbiguous(List<(WindowInfo Window, string ProcessName)> matches)
@@ -166,17 +156,5 @@ public static class AppTools
         var parts = matches.Select(m =>
             $"[PID {m.Window.ProcessId} '{m.ProcessName}' — \"{m.Window.Title}\"]");
         return $"Multiple matches: {string.Join(", ", parts)}. Specify a more specific name.";
-    }
-
-    /// <summary>
-    /// Parses a JsonElement that is expected to be a [x, y] integer array.
-    /// Returns null if the element is null/undefined or not a valid 2-element array.
-    /// </summary>
-    private static (int X, int Y)? ParseCoord(JsonElement? elem)
-    {
-        if (!elem.HasValue || elem.Value.ValueKind != JsonValueKind.Array) return null;
-        var arr = elem.Value;
-        if (arr.GetArrayLength() < 2) return null;
-        return (arr[0].GetInt32(), arr[1].GetInt32());
     }
 }

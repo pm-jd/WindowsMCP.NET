@@ -13,7 +13,7 @@ public static class FileSystemTools
     [McpServerTool(Name = "FileSystem", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("File system operations. mode: read, write, read_base64, write_base64, copy, move, delete, list, search, info.")]
     public static string FileSystem(
-        [Description("Mode: read, write, read_base64, write_base64, copy, move, delete, list, search, info")] string mode,
+        [Description("Operation to perform")] FileSystemMode mode,
         [Description("Primary path (file or directory)")] string path,
         [Description("Destination path (for copy/move)")] string? destination = null,
         [Description("Text content to write (for mode=write), or Base64 data (for mode=write_base64)")] string? content = null,
@@ -25,28 +25,28 @@ public static class FileSystemTools
         [Description("Max items to return (0 = unlimited for read; default 200 for list/search)")] int limit = 0,
         [Description("Overwrite destination if it exists (for copy/move)")] bool overwrite = true,
         [Description("Include hidden files and directories in list/search results")] bool show_hidden = false,
-        [Description("Output format: markdown (default) or json (for list/search/info). json shapes: " +
+        [Description("Output format (json applies to list/search/info). json shapes: " +
                      "list/search={path, pattern, recursive, items:[{type:'file'|'dir', path, size?, modified?}], count, offset, limit, has_more, next_offset}; " +
                      "info file={type:'file', path, size, created, modified, accessed, attributes}; " +
                      "info dir={type:'directory', path, files, subdirs, created, modified, attributes}; " +
                      "info missing={type:'missing', path}")]
-        string format = "markdown")
+        OutputFormat format = OutputFormat.Markdown)
     {
         try
         {
-            return mode.ToLowerInvariant() switch
+            return mode switch
             {
-                "read"   => ReadFile(path, encoding, offset, limit),
-                "write"  => WriteFile(path, content, encoding, append),
-                "copy"   => CopyFile(path, destination, overwrite),
-                "move"   => MoveFile(path, destination, overwrite),
-                "delete" => DeleteFile(path),
-                "list"   => ListDirectory(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
-                "search" => SearchFiles(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
-                "read_base64"  => ReadFileBase64(path),
-                "write_base64" => WriteFileBase64(path, content),
-                "info"   => GetInfo(path, format),
-                _        => $"[ERROR] Unknown mode '{mode}'. Use: read, write, read_base64, write_base64, copy, move, delete, list, search, info."
+                FileSystemMode.Read        => ReadFile(path, encoding, offset, limit),
+                FileSystemMode.Write       => WriteFile(path, content, encoding, append),
+                FileSystemMode.Copy        => CopyFile(path, destination, overwrite),
+                FileSystemMode.Move        => MoveFile(path, destination, overwrite),
+                FileSystemMode.Delete      => DeleteFile(path),
+                FileSystemMode.List        => ListDirectory(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
+                FileSystemMode.Search      => SearchFiles(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
+                FileSystemMode.ReadBase64  => ReadFileBase64(path),
+                FileSystemMode.WriteBase64 => WriteFileBase64(path, content),
+                FileSystemMode.Info        => GetInfo(path, format),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
@@ -55,7 +55,7 @@ public static class FileSystemTools
         }
     }
 
-    private static bool IsJson(string format) => ToolHelpers.IsJson(format);
+    private static bool IsJson(OutputFormat format) => format == OutputFormat.Json;
 
     private static string ReadFile(string path, string enc, int offset, int limit)
     {
@@ -208,7 +208,7 @@ public static class FileSystemTools
     }
 
     private static string ListDirectory(string path, string? pattern, bool recursive,
-        bool showHidden, int offset, int limit, string format)
+        bool showHidden, int offset, int limit, OutputFormat format)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -267,7 +267,7 @@ public static class FileSystemTools
     }
 
     private static string SearchFiles(string path, string? pattern, bool recursive,
-        bool showHidden, int offset, int limit, string format)
+        bool showHidden, int offset, int limit, OutputFormat format)
     {
         if (!Directory.Exists(path))
             throw new DirectoryNotFoundException($"Directory not found: {path}");
@@ -318,7 +318,7 @@ public static class FileSystemTools
         return sb.ToString().TrimEnd();
     }
 
-    private static string GetInfo(string path, string format)
+    private static string GetInfo(string path, OutputFormat format)
     {
         if (File.Exists(path))
         {

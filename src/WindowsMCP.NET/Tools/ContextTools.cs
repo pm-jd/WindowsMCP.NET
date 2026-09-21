@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Services;
@@ -11,18 +10,17 @@ namespace WindowsMcpNet.Tools;
 [McpServerToolType]
 public static class ContextTools
 {
-    private static readonly HashSet<string> ValidModules = ["window", "screen", "ui_tree", "clipboard", "processes"];
-    private static readonly List<string> DefaultModules = ["window", "screen"];
+    private static readonly ContextModule[] DefaultModules = [ContextModule.Window, ContextModule.Screen];
 
     [McpServerTool(Name = "Context", ReadOnly = true, Idempotent = true)]
-    [Description("Get current system state. include: array of modules to return — " +
+    [Description("Get current system state. include: modules to return — " +
                  "window (active window info), screen (screenshot), ui_tree (UI element labels), " +
                  "clipboard (text content), processes (top processes). Default: [window, screen].")]
     public static IList<ContentBlock> Context(
         DesktopService desktopService,
         UiTreeService uiTreeService,
         ScreenCaptureService captureService,
-        [Description("Modules to include: window, screen, ui_tree, clipboard, processes")] JsonElement? include = null)
+        [Description("Modules to include (default: window, screen)")] ContextModule[]? include = null)
     {
         var modules = ParseInclude(include);
         var sb = new StringBuilder();
@@ -34,26 +32,26 @@ public static class ContextTools
             {
                 switch (module)
                 {
-                    case "window":
+                    case ContextModule.Window:
                         AppendWindowInfo(sb, desktopService);
                         break;
-                    case "screen":
+                    case ContextModule.Screen:
                         screenshotPng = captureService.CaptureScreen(null);
                         break;
-                    case "ui_tree":
+                    case ContextModule.UiTree:
                         AppendUiTree(sb, uiTreeService, captureService, ref screenshotPng);
                         break;
-                    case "clipboard":
+                    case ContextModule.Clipboard:
                         AppendClipboard(sb);
                         break;
-                    case "processes":
+                    case ContextModule.Processes:
                         AppendProcesses(sb);
                         break;
                 }
             }
             catch (Exception ex)
             {
-                sb.AppendLine($"-- {module} --");
+                sb.AppendLine($"-- {module.Lower()} --");
                 sb.AppendLine($"[ERROR] {ex.GetType().Name}: {ex.Message}");
                 sb.AppendLine();
             }
@@ -67,24 +65,9 @@ public static class ContextTools
         return result;
     }
 
-    public static List<string> ParseInclude(JsonElement? include)
-    {
-        if (!include.HasValue || include.Value.ValueKind != JsonValueKind.Array)
-            return new List<string>(DefaultModules);
-
-        var arr = include.Value;
-        if (arr.GetArrayLength() == 0)
-            return new List<string>(DefaultModules);
-
-        var result = new List<string>();
-        foreach (var item in arr.EnumerateArray())
-        {
-            var val = item.GetString()?.ToLowerInvariant();
-            if (val is not null && ValidModules.Contains(val))
-                result.Add(val);
-        }
-        return result.Count > 0 ? result : new List<string>(DefaultModules);
-    }
+    /// <summary>Null or empty selects the default modules; duplicates are collapsed, order is preserved.</summary>
+    public static List<ContextModule> ParseInclude(ContextModule[]? include) =>
+        include is { Length: > 0 } ? include.Distinct().ToList() : [.. DefaultModules];
 
     private static void AppendWindowInfo(StringBuilder sb, DesktopService desktopService)
     {
@@ -125,7 +108,7 @@ public static class ContextTools
     private static void AppendClipboard(StringBuilder sb)
     {
         sb.AppendLine("-- Clipboard --");
-        var text = ClipboardTools.Clipboard("get");
+        var text = ClipboardTools.Clipboard(ClipboardMode.Get);
         if (text.Length > 1000)
             text = text[..1000] + $"... ({text.Length} chars total)";
         sb.AppendLine(text);
