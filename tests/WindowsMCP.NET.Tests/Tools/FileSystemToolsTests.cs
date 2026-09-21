@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WindowsMcpNet.Tools;
+using WindowsMcpNet.Tests.TestSupport;
 using Xunit;
 
 namespace WindowsMcpNet.Tests.Tools;
@@ -19,7 +20,7 @@ public class FileSystemToolsTests : IDisposable
     {
         var filePath = Path.Combine(_tempDir, "test.txt");
         FileSystemTools.FileSystem(FileSystemMode.Write, filePath, content: "Hello World");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Read, filePath);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Read, filePath).Text();
         Assert.Equal("Hello World", result);
     }
 
@@ -29,7 +30,7 @@ public class FileSystemToolsTests : IDisposable
         var filePath = Path.Combine(_tempDir, "append.txt");
         FileSystemTools.FileSystem(FileSystemMode.Write, filePath, content: "Line1");
         FileSystemTools.FileSystem(FileSystemMode.Write, filePath, content: "\nLine2", append: true);
-        var result = FileSystemTools.FileSystem(FileSystemMode.Read, filePath);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Read, filePath).Text();
         Assert.Equal("Line1\nLine2", result);
     }
 
@@ -38,7 +39,7 @@ public class FileSystemToolsTests : IDisposable
     {
         File.WriteAllText(Path.Combine(_tempDir, "a.txt"), "");
         Directory.CreateDirectory(Path.Combine(_tempDir, "subdir"));
-        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir);
+        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir).Text();
         Assert.Contains("subdir", result);
         Assert.Contains("a.txt", result);
     }
@@ -68,7 +69,7 @@ public class FileSystemToolsTests : IDisposable
     {
         File.WriteAllText(Path.Combine(_tempDir, "match.cs"), "");
         File.WriteAllText(Path.Combine(_tempDir, "other.txt"), "");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Search, _tempDir, pattern: "*.cs");
+        var result = FileSystemTools.FileSystem(FileSystemMode.Search, _tempDir, pattern: "*.cs").Text();
         Assert.Contains("match.cs", result);
         Assert.DoesNotContain("other.txt", result);
     }
@@ -78,7 +79,7 @@ public class FileSystemToolsTests : IDisposable
     {
         var filePath = Path.Combine(_tempDir, "info.txt");
         File.WriteAllText(filePath, "12345");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Info, filePath);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Info, filePath).Text();
         Assert.Contains("5", result);
         Assert.Contains("info.txt", result);
     }
@@ -92,7 +93,7 @@ public class FileSystemToolsTests : IDisposable
         File.WriteAllText(Path.Combine(srcDir, "sub", "b.txt"), "bbb");
 
         var dstDir = Path.Combine(_tempDir, "dstdir");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Copy, srcDir, destination: dstDir);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Copy, srcDir, destination: dstDir).Text();
 
         Assert.Contains("Copied", result);
         Assert.True(File.Exists(Path.Combine(dstDir, "a.txt")));
@@ -109,7 +110,7 @@ public class FileSystemToolsTests : IDisposable
         File.WriteAllText(Path.Combine(srcDir, "f.txt"), "move me");
 
         var dstDir = Path.Combine(_tempDir, "movedst");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Move, srcDir, destination: dstDir);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Move, srcDir, destination: dstDir).Text();
 
         Assert.Contains("Moved", result);
         Assert.True(File.Exists(Path.Combine(dstDir, "f.txt")));
@@ -119,7 +120,7 @@ public class FileSystemToolsTests : IDisposable
     [Fact]
     public void Read_NonExistentFile_ReturnsError()
     {
-        var result = FileSystemTools.FileSystem(FileSystemMode.Read, Path.Combine(_tempDir, "nope.txt"));
+        var result = FileSystemTools.FileSystem(FileSystemMode.Read, Path.Combine(_tempDir, "nope.txt")).Text();
         Assert.StartsWith("[ERROR]", result);
         Assert.Contains("not found", result, StringComparison.OrdinalIgnoreCase);
     }
@@ -129,7 +130,7 @@ public class FileSystemToolsTests : IDisposable
     {
         var result = FileSystemTools.FileSystem(FileSystemMode.Copy,
             Path.Combine(_tempDir, "nope.txt"),
-            destination: Path.Combine(_tempDir, "dst.txt"));
+            destination: Path.Combine(_tempDir, "dst.txt")).Text();
         Assert.StartsWith("[ERROR]", result);
     }
 
@@ -140,7 +141,7 @@ public class FileSystemToolsTests : IDisposable
         var dst = Path.Combine(_tempDir, "dst.txt");
         File.WriteAllText(src, "a");
         File.WriteAllText(dst, "b");
-        var result = FileSystemTools.FileSystem(FileSystemMode.Copy, src, destination: dst, overwrite: false);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Copy, src, destination: dst, overwrite: false).Text();
         Assert.StartsWith("[ERROR]", result);
         Assert.Contains("exist", result, StringComparison.OrdinalIgnoreCase);
     }
@@ -152,7 +153,7 @@ public class FileSystemToolsTests : IDisposable
         byte[] data = { 0x00, 0xFF, 0x42, 0x89, 0xAB };
         File.WriteAllBytes(filePath, data);
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.ReadBase64, filePath);
+        var result = FileSystemTools.FileSystem(FileSystemMode.ReadBase64, filePath).Text();
         var decoded = Convert.FromBase64String(result);
         Assert.Equal(data, decoded);
     }
@@ -175,7 +176,7 @@ public class FileSystemToolsTests : IDisposable
         var filePath = Path.Combine(_tempDir, "large.bin");
         File.WriteAllBytes(filePath, new byte[2_000_000]);
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.ReadBase64, filePath);
+        var result = FileSystemTools.FileSystem(FileSystemMode.ReadBase64, filePath).Text();
         Assert.StartsWith("[ERROR]", result);
         Assert.Contains("too large", result, StringComparison.OrdinalIgnoreCase);
     }
@@ -188,7 +189,7 @@ public class FileSystemToolsTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDir, "a.txt"), "");
         Directory.CreateDirectory(Path.Combine(_tempDir, "sub"));
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -204,7 +205,7 @@ public class FileSystemToolsTests : IDisposable
         for (int i = 0; i < 5; i++)
             File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 2, offset: 0, format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 2, offset: 0, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -219,7 +220,7 @@ public class FileSystemToolsTests : IDisposable
         for (int i = 0; i < 3; i++)
             File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 10, offset: 2, format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 10, offset: 2, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var items = doc.RootElement.GetProperty("items");
@@ -233,7 +234,7 @@ public class FileSystemToolsTests : IDisposable
         for (int i = 0; i < 5; i++)
             File.WriteAllText(Path.Combine(_tempDir, $"file{i:D2}.txt"), "");
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 2);
+        var result = FileSystemTools.FileSystem(FileSystemMode.List, _tempDir, limit: 2).Text();
         Assert.Contains("has_more=true", result);
         Assert.Contains("offset=2", result);
     }
@@ -245,7 +246,7 @@ public class FileSystemToolsTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDir, "skip.txt"), "");
         Directory.CreateDirectory(Path.Combine(_tempDir, "subdir"));
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.Search, _tempDir, pattern: "*.cs", format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Search, _tempDir, pattern: "*.cs", format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var items = doc.RootElement.GetProperty("items");
@@ -259,7 +260,7 @@ public class FileSystemToolsTests : IDisposable
         var filePath = Path.Combine(_tempDir, "data.txt");
         File.WriteAllText(filePath, "hello");
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.Info, filePath, format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Info, filePath, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         Assert.Equal("file", doc.RootElement.GetProperty("type").GetString());
@@ -272,7 +273,7 @@ public class FileSystemToolsTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDir, "x.txt"), "");
         File.WriteAllText(Path.Combine(_tempDir, "y.txt"), "");
 
-        var result = FileSystemTools.FileSystem(FileSystemMode.Info, _tempDir, format: OutputFormat.Json);
+        var result = FileSystemTools.FileSystem(FileSystemMode.Info, _tempDir, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         Assert.Equal("directory", doc.RootElement.GetProperty("type").GetString());
@@ -283,7 +284,7 @@ public class FileSystemToolsTests : IDisposable
     public void Info_Missing_FormatJson_ReturnsTypeMissing()
     {
         var result = FileSystemTools.FileSystem(FileSystemMode.Info,
-            Path.Combine(_tempDir, "ghost.txt"), format: OutputFormat.Json);
+            Path.Combine(_tempDir, "ghost.txt"), format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         Assert.Equal("missing", doc.RootElement.GetProperty("type").GetString());

@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Microsoft.Extensions.DependencyInjection;
-using ModelContextProtocol.Server;
 using WindowsMcpNet.Server;
+using WindowsMcpNet.Tests.TestSupport;
 using WindowsMcpNet.Tools;
 using Xunit;
 
@@ -12,21 +11,13 @@ namespace WindowsMcpNet.Tests.Tools;
 /// their allowed values, coordinates must be typed arrays, and infrastructure parameters
 /// (services, CancellationToken) must not leak into it.
 /// </summary>
-public class ToolSchemaTests
+[Collection(McpToolsCollection.Name)]
+public class ToolSchemaTests(McpToolsFixture fixture)
 {
-    private static readonly Dictionary<string, JsonElement> Schemas = LoadSchemas();
+    private JsonElement Schema(string tool) => fixture.Tools[tool].ProtocolTool.InputSchema;
 
-    private static Dictionary<string, JsonElement> LoadSchemas()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddWindowsMcpServices().AddWindowsMcpServer(version: "test");
-        using var sp = services.BuildServiceProvider();
-        return sp.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name, t => t.ProtocolTool.InputSchema);
-    }
-
-    private static JsonElement Prop(string tool, string name) =>
-        Schemas[tool].GetProperty("properties").GetProperty(name);
+    private JsonElement Prop(string tool, string name) =>
+        Schema(tool).GetProperty("properties").GetProperty(name);
 
     private static string[] EnumValues(JsonElement prop) =>
         prop.GetProperty("enum").EnumerateArray().Select(e => e.GetString()!).ToArray();
@@ -95,7 +86,7 @@ public class ToolSchemaTests
     [InlineData("App")]
     public void InfrastructureParameters_DoNotLeakIntoSchema(string tool)
     {
-        var names = Schemas[tool].GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
+        var names = Schema(tool).GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
 
         Assert.DoesNotContain("ct", names);
         Assert.DoesNotContain(names, n => n.EndsWith("Service", StringComparison.Ordinal));

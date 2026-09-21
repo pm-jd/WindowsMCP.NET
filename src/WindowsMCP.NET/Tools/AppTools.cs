@@ -1,6 +1,6 @@
 using System.ComponentModel;
-using System.Text.Json;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.Protocol;
 using WindowsMcpNet.Models;
 using WindowsMcpNet.Services;
 
@@ -13,7 +13,7 @@ public static class AppTools
     [Description("Launch, focus, check, or resize a window. " +
                  "mode: launch (start app), ensure (focus if running, else launch), " +
                  "status (check if running), switch (focus by window title), resize.")]
-    public static async Task<string> App(
+    public static async Task<CallToolResult> App(
         DesktopService desktopService,
         [Description("Operation")] AppMode mode = AppMode.Launch,
         [Description("App name. For ensure/status: process name (e.g. 'notepad'); " +
@@ -35,11 +35,11 @@ public static class AppTools
         {
             return mode switch
             {
-                AppMode.Launch => await LaunchApp(desktopService, name, ct),
-                AppMode.Ensure => await EnsureApp(desktopService, name, launch_command, ambiguous, ct),
+                AppMode.Launch => ToolHelpers.TextResult(await LaunchApp(desktopService, name, ct)),
+                AppMode.Ensure => ToolHelpers.TextResult(await EnsureApp(desktopService, name, launch_command, ambiguous, ct)),
                 AppMode.Status => StatusApp(desktopService, name, ambiguous, format),
-                AppMode.Switch => SwitchToApp(desktopService, name),
-                AppMode.Resize => ResizeApp(desktopService, name, window_loc, window_size),
+                AppMode.Switch => ToolHelpers.TextResult(SwitchToApp(desktopService, name)),
+                AppMode.Resize => ToolHelpers.TextResult(ResizeApp(desktopService, name, window_loc, window_size)),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
@@ -49,7 +49,7 @@ public static class AppTools
         }
         catch (Exception ex)
         {
-            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+            return ToolHelpers.ErrorResult(ex);
         }
     }
 
@@ -119,7 +119,7 @@ public static class AppTools
             : $"Attempted focus on \"{target.Title}\" (PID={target.ProcessId}) — window may not have come to front";
     }
 
-    private static string StatusApp(DesktopService desktopService, string name, AmbiguousPolicy ambiguous, OutputFormat format)
+    private static CallToolResult StatusApp(DesktopService desktopService, string name, AmbiguousPolicy ambiguous, OutputFormat format)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("'name' is required for mode=status.");
@@ -128,7 +128,7 @@ public static class AppTools
 
         if (format == OutputFormat.Json)
         {
-            return JsonSerializer.Serialize(new
+            return ToolHelpers.JsonResult(new
             {
                 running = matches.Count > 0,
                 match_count = matches.Count,
@@ -138,17 +138,17 @@ public static class AppTools
                     process = m.ProcessName,
                     title = m.Window.Title,
                 }).ToArray(),
-            }, ToolHelpers.JsonOptions);
+            });
         }
 
         if (matches.Count == 0)
-            return "Not running";
+            return ToolHelpers.TextResult("Not running");
 
         if (matches.Count > 1 && ambiguous == AmbiguousPolicy.Error)
-            return FormatAmbiguous(matches);
+            return ToolHelpers.TextResult(FormatAmbiguous(matches));
 
         var (target, _) = matches[0];
-        return $"Running: PID={target.ProcessId}, window=\"{target.Title}\"";
+        return ToolHelpers.TextResult($"Running: PID={target.ProcessId}, window=\"{target.Title}\"");
     }
 
     private static string FormatAmbiguous(List<(WindowInfo Window, string ProcessName)> matches)

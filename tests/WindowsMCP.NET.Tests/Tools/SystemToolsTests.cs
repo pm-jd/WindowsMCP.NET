@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.Win32;
 using WindowsMcpNet.Tools;
+using WindowsMcpNet.Tests.TestSupport;
 using Xunit;
 
 namespace WindowsMcpNet.Tests.Tools;
@@ -21,7 +22,7 @@ public class SystemToolsTests : IDisposable
     [Fact]
     public void Process_List_FormatJson_HasItemsAndPagination()
     {
-        var result = SystemTools.ProcessTool(ProcessMode.List, limit: 3, offset: 0, format: OutputFormat.Json);
+        var result = SystemTools.ProcessTool(ProcessMode.List, limit: 3, offset: 0, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -35,8 +36,8 @@ public class SystemToolsTests : IDisposable
     [Fact]
     public void Process_List_OffsetSkips()
     {
-        var first = SystemTools.ProcessTool(ProcessMode.List, limit: 2, offset: 0, format: OutputFormat.Json);
-        var second = SystemTools.ProcessTool(ProcessMode.List, limit: 2, offset: 2, format: OutputFormat.Json);
+        var first = SystemTools.ProcessTool(ProcessMode.List, limit: 2, offset: 0, format: OutputFormat.Json).Text();
+        var second = SystemTools.ProcessTool(ProcessMode.List, limit: 2, offset: 2, format: OutputFormat.Json).Text();
 
         using var doc1 = JsonDocument.Parse(first);
         using var doc2 = JsonDocument.Parse(second);
@@ -52,7 +53,7 @@ public class SystemToolsTests : IDisposable
     [Fact]
     public void Process_List_MarkdownDefault_HasFooter()
     {
-        var result = SystemTools.ProcessTool(ProcessMode.List, limit: 5);
+        var result = SystemTools.ProcessTool(ProcessMode.List, limit: 5).Text();
         Assert.Contains("PID", result);
         Assert.Contains("has_more=", result);
     }
@@ -63,7 +64,7 @@ public class SystemToolsTests : IDisposable
     public void Registry_List_HKCUEnvironment_FormatJson()
     {
         // HKCU\Environment is a stable user-level key present on every Windows install.
-        var result = SystemTools.RegistryTool(RegistryMode.List, "HKCU\\Environment", format: OutputFormat.Json);
+        var result = SystemTools.RegistryTool(RegistryMode.List, "HKCU\\Environment", format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -77,7 +78,7 @@ public class SystemToolsTests : IDisposable
     {
         // PATH is set on Environment for every user.
         var result = SystemTools.RegistryTool(RegistryMode.Get, "HKCU\\Environment",
-            name: "PATH", format: OutputFormat.Json);
+            name: "PATH", format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;
@@ -91,7 +92,7 @@ public class SystemToolsTests : IDisposable
     public void Registry_Get_MissingValue_FormatJson_ExistsFalse()
     {
         var result = SystemTools.RegistryTool(RegistryMode.Get, "HKCU\\Environment",
-            name: $"_does_not_exist_{Guid.NewGuid():N}", format: OutputFormat.Json);
+            name: $"_does_not_exist_{Guid.NewGuid():N}", format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         Assert.False(doc.RootElement.GetProperty("exists").GetBoolean());
@@ -107,7 +108,7 @@ public class SystemToolsTests : IDisposable
         {
             Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
             var setResult = SystemTools.RegistryTool(RegistryMode.Set, $"HKCU\\{_testKeyPath}",
-                name: "DWordTest", value: "12345", type: RegistryValueType.DWord);
+                name: "DWordTest", value: "12345", type: RegistryValueType.DWord).Text();
             Assert.StartsWith("Set HKCU", setResult);
 
             // Verify with raw .NET API (independent of our tool):
@@ -132,7 +133,7 @@ public class SystemToolsTests : IDisposable
         }
 
         var result = SystemTools.RegistryTool(RegistryMode.List, $"HKCU\\{_testKeyPath}",
-            limit: 2, offset: 0, format: OutputFormat.Json);
+            limit: 2, offset: 0, format: OutputFormat.Json).Text();
 
         using var doc = JsonDocument.Parse(result);
         var root = doc.RootElement;

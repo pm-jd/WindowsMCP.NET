@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
 
 namespace WindowsMcpNet.Tools;
 
@@ -43,6 +44,31 @@ public static class ToolHelpers
         WriteIndented = true,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
+
+    public static CallToolResult TextResult(string text) =>
+        new() { Content = [new TextContentBlock { Text = text }] };
+
+    /// <summary>
+    /// JSON envelope delivered twice: as indented text for text-only clients and as
+    /// <c>structuredContent</c> (MCP 2025-06-18+) so agents can consume it without re-parsing.
+    /// </summary>
+    public static CallToolResult JsonResult(object envelope)
+    {
+        var element = JsonSerializer.SerializeToElement(envelope, JsonOptions);
+        return new()
+        {
+            Content = [new TextContentBlock { Text = JsonSerializer.Serialize(element, JsonOptions) }],
+            StructuredContent = element,
+        };
+    }
+
+    /// <summary>Tool failure: keeps the human-readable "[ERROR]" text and sets IsError directly.</summary>
+    public static CallToolResult ErrorResult(Exception ex) =>
+        new()
+        {
+            Content = [new TextContentBlock { Text = $"[ERROR] {ex.GetType().Name}: {ex.Message}" }],
+            IsError = true,
+        };
 
     /// <summary>[x, y] coordinate array to point; null when missing or too short.</summary>
     public static (int X, int Y)? ToPoint(int[]? coords) =>

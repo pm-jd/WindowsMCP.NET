@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.Protocol;
 
 namespace WindowsMcpNet.Tools;
 
@@ -95,7 +96,7 @@ public static class SystemTools
 
     [McpServerTool(Name = "Process", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("List running processes (mode=list) or kill a process by PID (mode=kill).")]
-    public static string ProcessTool(
+    public static CallToolResult ProcessTool(
         [Description("Operation: list processes or kill one by PID")] ProcessMode mode,
         [Description("Process ID to kill (required for mode=kill)")] int? pid = null,
         [Description("Filter by name substring (for mode=list)")] string? name = null,
@@ -112,20 +113,20 @@ public static class SystemTools
             return mode switch
             {
                 ProcessMode.List => ListProcesses(name, sort_by, limit, offset, format),
-                ProcessMode.Kill => KillProcess(pid, force),
+                ProcessMode.Kill => ToolHelpers.TextResult(KillProcess(pid, force)),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
         {
-            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+            return ToolHelpers.ErrorResult(ex);
         }
     }
 
     [McpServerTool(Name = "Registry", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Read, write, delete, or list Windows registry values. " +
                  "mode: get, set, delete, list. path: full key path like HKCU\\Software\\MyApp.")]
-    public static string RegistryTool(
+    public static CallToolResult RegistryTool(
         [Description("Operation")] RegistryMode mode,
         [Description("Registry key path, e.g. HKCU\\Software\\MyApp")] string path,
         [Description("Value name (required for get/set/delete)")] string? name = null,
@@ -143,21 +144,21 @@ public static class SystemTools
             return mode switch
             {
                 RegistryMode.Get    => RegistryGet(path, name, format),
-                RegistryMode.Set    => RegistrySet(path, name, value, type),
-                RegistryMode.Delete => RegistryDelete(path, name),
+                RegistryMode.Set    => ToolHelpers.TextResult(RegistrySet(path, name, value, type)),
+                RegistryMode.Delete => ToolHelpers.TextResult(RegistryDelete(path, name)),
                 RegistryMode.List   => RegistryList(path, ToolHelpers.ResolveLimit(limit), offset, format),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
         {
-            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+            return ToolHelpers.ErrorResult(ex);
         }
     }
 
     // --- Process helpers ---
 
-    private static string ListProcesses(string? nameFilter, ProcessSort sortBy, int limit, int offset, OutputFormat format)
+    private static CallToolResult ListProcesses(string? nameFilter, ProcessSort sortBy, int limit, int offset, OutputFormat format)
     {
         var processes = System.Diagnostics.Process.GetProcesses();
         try
@@ -188,7 +189,7 @@ public static class SystemTools
                     return new { pid = p.Id, name = p.ProcessName, memory_bytes = memBytes };
                 }).ToList();
 
-                return JsonSerializer.Serialize(new
+                return ToolHelpers.JsonResult(new
                 {
                     items,
                     count = items.Count,
@@ -198,7 +199,7 @@ public static class SystemTools
                     name_filter = nameFilter,
                     has_more = hasMore,
                     next_offset = hasMore ? offset + items.Count : (int?)null,
-                }, ToolHelpers.JsonOptions);
+                });
             }
 
             var sb = new StringBuilder();
@@ -217,7 +218,7 @@ public static class SystemTools
                 }
             }
             sb.Append('\n').Append(ToolHelpers.FormatPaginationFooter(page.Count, offset, limit, hasMore, "process"));
-            return sb.ToString().TrimEnd();
+            return ToolHelpers.TextResult(sb.ToString().TrimEnd());
         }
         finally
         {
@@ -265,7 +266,7 @@ public static class SystemTools
         return (hive, sub);
     }
 
-    private static string RegistryGet(string key, string? valueName, OutputFormat format)
+    private static CallToolResult RegistryGet(string key, string? valueName, OutputFormat format)
     {
         var (hive, sub) = SplitRegistryPath(key);
         using var regKey = hive.OpenSubKey(sub)
@@ -277,16 +278,16 @@ public static class SystemTools
         {
             string? kind = null;
             try { kind = val is null ? null : regKey.GetValueKind(name).ToString(); } catch { }
-            return JsonSerializer.Serialize(new
+            return ToolHelpers.JsonResult(new
             {
                 key,
                 name = string.IsNullOrEmpty(name) ? "(default)" : name,
                 value = val?.ToString(),
                 kind,
                 exists = val is not null,
-            }, ToolHelpers.JsonOptions);
+            });
         }
-        return val is null ? "(null)" : val.ToString() ?? "(null)";
+        return ToolHelpers.TextResult(val is null ? "(null)" : val.ToString() ?? "(null)");
     }
 
     private static string RegistrySet(string key, string? valueName, string? data, RegistryValueType kind)
@@ -329,7 +330,7 @@ public static class SystemTools
         return $"Deleted {key}\\{valueName ?? "(default)"}";
     }
 
-    private static string RegistryList(string key, int limit, int offset, OutputFormat format)
+    private static CallToolResult RegistryList(string key, int limit, int offset, OutputFormat format)
     {
         if (offset < 0) offset = 0;
 
@@ -362,7 +363,7 @@ public static class SystemTools
                 };
             }).ToList();
 
-            return JsonSerializer.Serialize(new
+            return ToolHelpers.JsonResult(new
             {
                 key,
                 subkeys,
@@ -374,7 +375,7 @@ public static class SystemTools
                 offset,
                 limit,
                 next_offset = (subkeysHasMore || valuesHasMore) ? offset + Math.Max(subkeys.Length, valueNames.Length) : (int?)null,
-            }, ToolHelpers.JsonOptions);
+            });
         }
 
         var sb = new StringBuilder();
@@ -407,6 +408,6 @@ public static class SystemTools
         if (subkeysHasMore || valuesHasMore)
             sb.AppendLine().Append($"Use offset={offset + Math.Max(subkeys.Length, valueNames.Length)} for more.");
 
-        return sb.ToString().TrimEnd();
+        return ToolHelpers.TextResult(sb.ToString().TrimEnd());
     }
 }

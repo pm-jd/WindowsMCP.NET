@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.Protocol;
 
 namespace WindowsMcpNet.Tools;
 
@@ -12,7 +13,7 @@ public static class FileSystemTools
 
     [McpServerTool(Name = "FileSystem", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("File system operations. mode: read, write, read_base64, write_base64, copy, move, delete, list, search, info.")]
-    public static string FileSystem(
+    public static CallToolResult FileSystem(
         [Description("Operation to perform")] FileSystemMode mode,
         [Description("Primary path (file or directory)")] string path,
         [Description("Destination path (for copy/move)")] string? destination = null,
@@ -36,22 +37,22 @@ public static class FileSystemTools
         {
             return mode switch
             {
-                FileSystemMode.Read        => ReadFile(path, encoding, offset, limit),
-                FileSystemMode.Write       => WriteFile(path, content, encoding, append),
-                FileSystemMode.Copy        => CopyFile(path, destination, overwrite),
-                FileSystemMode.Move        => MoveFile(path, destination, overwrite),
-                FileSystemMode.Delete      => DeleteFile(path),
+                FileSystemMode.Read        => ToolHelpers.TextResult(ReadFile(path, encoding, offset, limit)),
+                FileSystemMode.Write       => ToolHelpers.TextResult(WriteFile(path, content, encoding, append)),
+                FileSystemMode.Copy        => ToolHelpers.TextResult(CopyFile(path, destination, overwrite)),
+                FileSystemMode.Move        => ToolHelpers.TextResult(MoveFile(path, destination, overwrite)),
+                FileSystemMode.Delete      => ToolHelpers.TextResult(DeleteFile(path)),
                 FileSystemMode.List        => ListDirectory(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
                 FileSystemMode.Search      => SearchFiles(path, pattern, recursive, show_hidden, offset, ToolHelpers.ResolveLimit(limit), format),
-                FileSystemMode.ReadBase64  => ReadFileBase64(path),
-                FileSystemMode.WriteBase64 => WriteFileBase64(path, content),
+                FileSystemMode.ReadBase64  => ToolHelpers.TextResult(ReadFileBase64(path)),
+                FileSystemMode.WriteBase64 => ToolHelpers.TextResult(WriteFileBase64(path, content)),
                 FileSystemMode.Info        => GetInfo(path, format),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
             };
         }
         catch (Exception ex)
         {
-            return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
+            return ToolHelpers.ErrorResult(ex);
         }
     }
 
@@ -207,7 +208,7 @@ public static class FileSystemTools
         return $"Path not found: {path}";
     }
 
-    private static string ListDirectory(string path, string? pattern, bool recursive,
+    private static CallToolResult ListDirectory(string path, string? pattern, bool recursive,
         bool showHidden, int offset, int limit, OutputFormat format)
     {
         if (!Directory.Exists(path))
@@ -232,7 +233,7 @@ public static class FileSystemTools
                 return new { type = "file", path = e, size = fi.Length, modified = fi.LastWriteTime.ToString("o") };
             }).ToList();
 
-            return JsonSerializer.Serialize(new
+            return ToolHelpers.JsonResult(new
             {
                 path,
                 pattern = pat,
@@ -243,7 +244,7 @@ public static class FileSystemTools
                 limit,
                 has_more = hasMore,
                 next_offset = hasMore ? offset + items.Count : (int?)null,
-            }, ToolHelpers.JsonOptions);
+            });
         }
 
         var sb = new StringBuilder();
@@ -263,10 +264,10 @@ public static class FileSystemTools
         }
 
         sb.Append('\n').Append(ToolHelpers.FormatPaginationFooter(page.Count, offset, limit, hasMore, "item"));
-        return sb.ToString().TrimEnd();
+        return ToolHelpers.TextResult(sb.ToString().TrimEnd());
     }
 
-    private static string SearchFiles(string path, string? pattern, bool recursive,
+    private static CallToolResult SearchFiles(string path, string? pattern, bool recursive,
         bool showHidden, int offset, int limit, OutputFormat format)
     {
         if (!Directory.Exists(path))
@@ -289,7 +290,7 @@ public static class FileSystemTools
                 return new { path = f, size = fi.Length, modified = fi.LastWriteTime.ToString("o") };
             }).ToList();
 
-            return JsonSerializer.Serialize(new
+            return ToolHelpers.JsonResult(new
             {
                 path,
                 pattern = pat,
@@ -300,7 +301,7 @@ public static class FileSystemTools
                 limit,
                 has_more = hasMore,
                 next_offset = hasMore ? offset + items.Count : (int?)null,
-            }, ToolHelpers.JsonOptions);
+            });
         }
 
         var sb = new StringBuilder();
@@ -315,17 +316,17 @@ public static class FileSystemTools
         }
 
         sb.Append('\n').Append(ToolHelpers.FormatPaginationFooter(page.Count, offset, limit, hasMore, "file"));
-        return sb.ToString().TrimEnd();
+        return ToolHelpers.TextResult(sb.ToString().TrimEnd());
     }
 
-    private static string GetInfo(string path, OutputFormat format)
+    private static CallToolResult GetInfo(string path, OutputFormat format)
     {
         if (File.Exists(path))
         {
             var fi = new FileInfo(path);
             if (IsJson(format))
             {
-                return JsonSerializer.Serialize(new
+                return ToolHelpers.JsonResult(new
                 {
                     type = "file",
                     path = fi.FullName,
@@ -334,15 +335,15 @@ public static class FileSystemTools
                     modified = fi.LastWriteTime.ToString("o"),
                     accessed = fi.LastAccessTime.ToString("o"),
                     attributes = fi.Attributes.ToString(),
-                }, ToolHelpers.JsonOptions);
+                });
             }
-            return $"Type:         File\n" +
+            return ToolHelpers.TextResult($"Type:         File\n" +
                    $"Path:         {fi.FullName}\n" +
                    $"Size:         {fi.Length:N0} bytes\n" +
                    $"Created:      {fi.CreationTime:yyyy-MM-dd HH:mm:ss}\n" +
                    $"Modified:     {fi.LastWriteTime:yyyy-MM-dd HH:mm:ss}\n" +
                    $"Accessed:     {fi.LastAccessTime:yyyy-MM-dd HH:mm:ss}\n" +
-                   $"Attributes:   {fi.Attributes}";
+                   $"Attributes:   {fi.Attributes}");
         }
         if (Directory.Exists(path))
         {
@@ -351,7 +352,7 @@ public static class FileSystemTools
             var dirCount  = di.EnumerateDirectories("*", SearchOption.TopDirectoryOnly).Count();
             if (IsJson(format))
             {
-                return JsonSerializer.Serialize(new
+                return ToolHelpers.JsonResult(new
                 {
                     type = "directory",
                     path = di.FullName,
@@ -360,19 +361,19 @@ public static class FileSystemTools
                     created = di.CreationTime.ToString("o"),
                     modified = di.LastWriteTime.ToString("o"),
                     attributes = di.Attributes.ToString(),
-                }, ToolHelpers.JsonOptions);
+                });
             }
-            return $"Type:         Directory\n" +
+            return ToolHelpers.TextResult($"Type:         Directory\n" +
                    $"Path:         {di.FullName}\n" +
                    $"Files:        {fileCount:N0}\n" +
                    $"Subdirs:      {dirCount:N0}\n" +
                    $"Created:      {di.CreationTime:yyyy-MM-dd HH:mm:ss}\n" +
                    $"Modified:     {di.LastWriteTime:yyyy-MM-dd HH:mm:ss}\n" +
-                   $"Attributes:   {di.Attributes}";
+                   $"Attributes:   {di.Attributes}");
         }
         return IsJson(format)
-            ? JsonSerializer.Serialize(new { type = "missing", path }, ToolHelpers.JsonOptions)
-            : $"Path not found: {path}";
+            ? ToolHelpers.JsonResult(new { type = "missing", path })
+            : ToolHelpers.TextResult($"Path not found: {path}");
     }
 
     private static bool IsHidden(string path)
