@@ -140,4 +140,35 @@ public class ProcessWindowMatcherTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void Match_TitleContainsNeedleOnlyAsLongerProductName_RejectedFromFuzzy()
+    {
+        // Explorer's file-properties dialog for Notepad++: process name gives no hint,
+        // and "notepad" appears in the title only as the prefix of "Notepad++".
+        var input = new[]
+        {
+            (new ProcessSnapshot(100, "explorer"), Win(1, "Eigenschaften von Notepad++", 100)),
+            (new ProcessSnapshot(200, "explorer"), Win(2, "notepad2 - Settings", 200)),
+        };
+
+        var result = ProcessWindowMatcher.Match(input, "notepad");
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Match_TitleContainsNeedleAsWholeToken_StillMatchesFuzzy()
+    {
+        var input = new[]
+        {
+            (new ProcessSnapshot(100, "explorer"), Win(1, "Eigenschaften von Notepad++", 100)),
+            (new ProcessSnapshot(200, "someapp"),  Win(2, "Untitled - Notepad", 200)),
+            (new ProcessSnapshot(300, "someapp"),  Win(3, "notepad.exe (running)", 300)),
+        };
+
+        var result = ProcessWindowMatcher.Match(input, "notepad");
+
+        Assert.Equal([(nint)2, (nint)3], result.Select(r => r.Window.Handle));
+    }
 }
