@@ -25,13 +25,14 @@ public class McpServerSetupTests(McpToolsFixture fixture)
     }
 
     [Fact]
-    public void AddWindowsMcpServer_RegistersAllTwentyTools()
+    public void AddWindowsMcpServer_RegistersAllTools()
     {
         var tools = fixture.Tools.Keys.OrderBy(n => n).ToList();
 
-        Assert.Equal(20, tools.Count);
+        Assert.Equal(21, tools.Count);
         Assert.Contains("Context", tools);
         Assert.Contains("Perform", tools);
         Assert.Contains("PowerShell", tools);
+        Assert.Contains("Observe", tools);
     }
 }

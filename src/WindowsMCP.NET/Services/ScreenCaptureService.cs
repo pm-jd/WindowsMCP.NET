@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using WindowsMcpNet.Native;
 
@@ -6,6 +7,56 @@ namespace WindowsMcpNet.Services;
 
 public sealed class ScreenCaptureService
 {
+    /// <summary>Scales <paramref name="source"/> so its longest edge is at most <paramref name="maxEdge"/>,
+    /// preserving aspect ratio. Never upscales (a region already within the cap is returned unchanged)
+    /// and never rounds a non-zero edge down to 0.</summary>
+    public static Size ScaleToFit(Size source, int maxEdge)
+    {
+        var longestEdge = Math.Max(source.Width, source.Height);
+        if (longestEdge <= maxEdge)
+            return source;
+
+        var scale = (double)maxEdge / longestEdge;
+        var width = Math.Max(1, (int)Math.Round(source.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(source.Height * scale));
+        return new Size(width, height);
+    }
+
+    /// <summary>Captures <paramref name="region"/> of the screen via GDI, downscales it (HighQualityBicubic)
+    /// to fit within <paramref name="maxEdge"/> on its longest side, and encodes it as JPEG at
+    /// <paramref name="quality"/> (0-100). Used by the Observe tool's optional screenshot.</summary>
+    public byte[] CaptureRegionJpeg(Rectangle region, int maxEdge = 1568, long quality = 80)
+    {
+        using var captured = new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(captured))
+            graphics.CopyFromScreen(region.Location, Point.Empty, region.Size);
+
+        var targetSize = ScaleToFit(region.Size, maxEdge);
+        using var resized = targetSize == region.Size ? null : Resize(captured, targetSize);
+
+        return EncodeJpeg(resized ?? captured, quality);
+    }
+
+    private static Bitmap Resize(Bitmap source, Size targetSize)
+    {
+        var resized = new Bitmap(targetSize.Width, targetSize.Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(resized);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.DrawImage(source, new Rectangle(Point.Empty, targetSize));
+        return resized;
+    }
+
+    private static byte[] EncodeJpeg(Bitmap bitmap, long quality)
+    {
+        var codec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+        using var parameters = new EncoderParameters(1);
+        parameters.Param[0] = new EncoderParameter(Encoder.Quality, quality);
+
+        using var ms = new MemoryStream();
+        bitmap.Save(ms, codec, parameters);
+        return ms.ToArray();
+    }
+
     /// <summary>Captures one monitor (or the primary) as PNG via GDI+.</summary>
     public byte[] CaptureScreen(int? displayIndex = null)
     {
