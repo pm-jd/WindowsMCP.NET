@@ -61,3 +61,9 @@ public enum AmbiguousPolicy { First, Error }
 
 [JsonConverter(typeof(SnakeCaseEnumConverter<ContextModule>))]
 public enum ContextModule { Window, Screen, UiTree, Clipboard, Processes }
+
+[JsonConverter(typeof(SnakeCaseEnumConverter<ObserveScope>))]
+public enum ObserveScope { Foreground, Process, Desktop }
+
+[JsonConverter(typeof(SnakeCaseEnumConverter<ActionMethod>))]
+public enum ActionMethod { Auto, Pattern, Mouse }
