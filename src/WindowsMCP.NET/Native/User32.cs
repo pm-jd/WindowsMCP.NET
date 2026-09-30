@@ -102,7 +102,19 @@ internal static partial class User32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsIconic(nint hWnd);
 
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial int GetClassNameW(nint hWnd, char[] lpClassName, int nMaxCount);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindow(nint hWnd, uint uCmd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowEnabled(nint hWnd);
+
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
+
+    internal const uint GW_OWNER = 4;
 
     internal const int SW_SHOW = 5;
     internal const int SW_RESTORE = 9;

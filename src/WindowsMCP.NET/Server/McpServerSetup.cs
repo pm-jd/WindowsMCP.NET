@@ -55,6 +55,8 @@ public static class McpServerSetup
         services.AddSingleton<ScreenCaptureService>();
         services.AddSingleton<UiAutomationService>();
         services.AddSingleton<UiTreeService>();
+        services.AddSingleton<ObservationService>();
+        services.AddSingleton<ObservationStore>();
         return services;
     }
 
