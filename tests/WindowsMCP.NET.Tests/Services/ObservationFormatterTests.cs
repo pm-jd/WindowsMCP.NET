@@ -117,4 +117,77 @@ public class ObservationFormatterTests
         Assert.Equal(3, rect[2].GetInt32());
         Assert.Equal(4, rect[3].GetInt32());
     }
+
+    [Fact]
+    public void Markdown_ExtendedId_KeepsSeparator()
+    {
+        var windows = new[] { Window("Main") };
+        var elements = new[] { Element("e1a2b3c", "RadioButton", "20x") };
+        var observation = MakeObservation(windows, elements);
+
+        var markdown = ObservationFormatter.ToMarkdown(observation);
+        var line = Assert.Single(markdown.Split('\n'), l => l.Contains("RadioButton '20x'", StringComparison.Ordinal));
+
+        Assert.StartsWith("e1a2b3c  RadioButton", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Markdown_EmptyValue_Rendered()
+    {
+        var windows = new[] { Window("Main") };
+        var elements = new[] { Element("e1", "Edit", "Field", value: "") };
+        var observation = MakeObservation(windows, elements);
+
+        var markdown = ObservationFormatter.ToMarkdown(observation);
+        Assert.Contains("value=", markdown);
+
+        var envelope = ObservationFormatter.ToJsonEnvelope(observation);
+        var json = ToolHelpers.JsonResult(envelope).StructuredContent!.Value;
+        var elementJson = json.GetProperty("elements")[0];
+
+        Assert.True(elementJson.TryGetProperty("value", out var valueProp));
+        Assert.Equal("", valueProp.GetString());
+    }
+
+    [Fact]
+    public void Markdown_GroupsByWindow_EachElementOnce()
+    {
+        // Two windows with the same (empty) title, as the spike saw for untitled popups: an
+        // element whose Window matches must land in the FIRST such window, never rendered twice.
+        var windows = new[]
+        {
+            Window("FileDropDown"),
+            Window(""),
+            Window(""),
+            Window("MCS - service", foreground: true)
+        };
+        var elements = new[]
+        {
+            Element("e1", "MenuItem", "Save", window: "FileDropDown"),
+            Element("e2", "MenuItem", "Untitled", window: ""),
+            Element("e3", "Button", "Open") // Window == null -> last window
+        };
+        var observation = MakeObservation(windows, elements, focusId: "e3");
+
+        var markdown = ObservationFormatter.ToMarkdown(observation);
+        var lines = markdown.Split('\n');
+        var headingIndices = Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].StartsWith("## ", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(4, headingIndices.Count);
+
+        var saveIndex = Array.FindIndex(lines, l => l.Contains("Save", StringComparison.Ordinal));
+        var untitledIndex = Assert.Single(lines, l => l.Contains("Untitled", StringComparison.Ordinal));
+        var openIndex = Array.FindIndex(lines, l => l.Contains("Open", StringComparison.Ordinal));
+
+        Assert.Equal(headingIndices[0], NearestHeadingIndex(saveIndex));
+        Assert.Equal(headingIndices[1], NearestHeadingIndex(Array.IndexOf(lines, untitledIndex)));
+        Assert.Equal(headingIndices[3], NearestHeadingIndex(openIndex));
+
+        Assert.Equal("focus: e3", lines[headingIndices[0] + 1]);
+        Assert.Equal(1, lines.Count(l => l.StartsWith("focus:", StringComparison.Ordinal)));
+        return;
+
+        int NearestHeadingIndex(int lineIndex) => headingIndices.Last(h => h <= lineIndex);
+    }
 }

@@ -22,9 +22,11 @@ public static class ObservationFormatter
     {
         ArgumentNullException.ThrowIfNull(o);
 
+        var elementsByWindow = GroupElementsByWindow(o);
+
         var sections = new List<string>(o.Windows.Count + 1);
         for (var i = 0; i < o.Windows.Count; i++)
-            sections.Add(BuildWindowBlock(o, i));
+            sections.Add(BuildWindowBlock(o, i, elementsByWindow.GetValueOrDefault(i, [])));
 
         sections.Add(BuildFooterSection(o));
 
@@ -57,7 +59,7 @@ public static class ObservationFormatter
         };
     }
 
-    private static string BuildWindowBlock(Observation o, int windowIndex)
+    private static string BuildWindowBlock(Observation o, int windowIndex, List<ObservedElement> elements)
     {
         var window = o.Windows[windowIndex];
         var lines = new List<string> { BuildHeading(window) };
@@ -65,7 +67,6 @@ public static class ObservationFormatter
         if (windowIndex == 0 && o.FocusId is not null)
             lines.Add($"focus: {o.FocusId}");
 
-        var elements = ElementsForWindow(o, windowIndex);
         if (elements.Count > 0)
         {
             lines.Add(string.Empty);
@@ -75,11 +76,44 @@ public static class ObservationFormatter
         return string.Join("\n", lines);
     }
 
-    private static List<ObservedElement> ElementsForWindow(Observation o, int windowIndex)
+    /// <summary>
+    /// Assigns each element to exactly one window block: the FIRST window whose <see cref="ObservedWindow.Title"/>
+    /// equals the element's <see cref="ObservedElement.Window"/>, or the last window when <c>Window</c>
+    /// is null. Grouping this way up front (rather than matching independently per window) guarantees
+    /// each element renders once even when several windows share the same (e.g. empty) title.
+    /// </summary>
+    private static Dictionary<int, List<ObservedElement>> GroupElementsByWindow(Observation o)
     {
-        var isLastWindow = windowIndex == o.Windows.Count - 1;
-        var title = o.Windows[windowIndex].Title;
-        return o.Elements.Where(e => e.Window is null ? isLastWindow : e.Window == title).ToList();
+        var groups = new Dictionary<int, List<ObservedElement>>();
+        var lastWindowIndex = o.Windows.Count - 1;
+
+        foreach (var e in o.Elements)
+        {
+            var windowIndex = e.Window is null ? lastWindowIndex : FindFirstWindowIndex(o.Windows, e.Window);
+            if (windowIndex < 0)
+                continue;
+
+            if (!groups.TryGetValue(windowIndex, out var list))
+            {
+                list = [];
+                groups[windowIndex] = list;
+            }
+
+            list.Add(e);
+        }
+
+        return groups;
+    }
+
+    private static int FindFirstWindowIndex(IReadOnlyList<ObservedWindow> windows, string title)
+    {
+        for (var i = 0; i < windows.Count; i++)
+        {
+            if (windows[i].Title == title)
+                return i;
+        }
+
+        return -1;
     }
 
     private static string BuildHeading(ObservedWindow w)
@@ -93,13 +127,19 @@ public static class ObservationFormatter
 
     private static string BuildElementLine(ObservedElement e)
     {
+        // Pad to at least 7 (the common case: "e" + 4 hex chars + 2-space separator) but never less
+        // than Id.Length + 2, so a 6-hex-char (collision-extended) id still gets a separator before
+        // the type instead of fusing with it.
+        var idWidth = Math.Max(7, e.Id.Length + 2);
         var sb = new StringBuilder()
-            .Append(e.Id.PadRight(7)).Append(e.Type).Append(" '").Append(e.Name).Append('\'');
+            .Append(e.Id.PadRight(idWidth)).Append(e.Type).Append(" '").Append(e.Name).Append('\'');
 
-        if (!string.IsNullOrEmpty(e.Label)) sb.Append("  label='").Append(e.Label).Append('\'');
-        if (!string.IsNullOrEmpty(e.Panel)) sb.Append("  @").Append(e.Panel);
-        if (!string.IsNullOrEmpty(e.Value)) sb.Append("  value=").Append(e.Value);
-        if (!string.IsNullOrEmpty(e.Toggle)) sb.Append("  toggle=").Append(e.Toggle);
+        // Symmetric with ToElementJson: presence is null-checked, not IsNullOrEmpty, so an empty
+        // (but non-null) string still renders its "key=" prefix in both renderers.
+        if (e.Label is not null) sb.Append("  label='").Append(e.Label).Append('\'');
+        if (e.Panel is not null) sb.Append("  @").Append(e.Panel);
+        if (e.Value is not null) sb.Append("  value=").Append(e.Value);
+        if (e.Toggle is not null) sb.Append("  toggle=").Append(e.Toggle);
         if (e.Selected) sb.Append("  selected");
         if (e.Expand == "Expanded") sb.Append("  expanded");
         if (!e.Enabled) sb.Append("  disabled");
