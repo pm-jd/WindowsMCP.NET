@@ -36,6 +36,16 @@ public sealed class ObservationService : IDisposable
     private readonly UIA3Automation _automation;
     private readonly Lock _lock = new();
 
+    /// <summary>
+    /// Whether a non-root node counts at all — for the cached walk (dropped nodes, and their subtree,
+    /// never enter <see cref="ObservationBuilder"/>'s node list) and for live resolution (<see cref="FindLive"/>
+    /// must count the very same live siblings when matching a <see cref="LocatorStep.Index"/>, or its
+    /// count would drift from the one <see cref="ObservationBuilder"/> assigned when it built the
+    /// locator — e.g. an offscreen or 1px-tall twin of a kept sibling would shift every later index).
+    /// </summary>
+    internal static bool IsCollectible(bool isOffscreen, Rectangle rect) =>
+        !isOffscreen && rect.Width > 1 && rect.Height > 1;
+
     public ObservationService(ILogger<ObservationService> logger)
     {
         _logger = logger;
@@ -296,11 +306,8 @@ public sealed class ObservationService : IDisposable
         ct.ThrowIfCancellationRequested();
 
         var properties = element.Properties;
-        if (depth > 0 && properties.IsOffscreen.ValueOrDefault)
-            return;
-
         var rect = properties.BoundingRectangle.ValueOrDefault;
-        if (depth > 0 && (rect.Width <= 1 || rect.Height <= 1))
+        if (depth > 0 && !IsCollectible(properties.IsOffscreen.ValueOrDefault, rect))
             return;
 
         var index = nodes.Count;
@@ -425,6 +432,10 @@ public sealed class ObservationService : IDisposable
         var matchIndex = 0;
         foreach (var child in current.FindAllChildren(ControlViewCondition()))
         {
+            // A sibling the collector would have dropped (offscreen/too small) was never counted by
+            // ObservationBuilder when it assigned this step's Index — it must not be counted here either.
+            if (!IsLiveCollectible(child))
+                continue;
             if (!MatchesStep(child, step))
                 continue;
 
@@ -446,11 +457,28 @@ public sealed class ObservationService : IDisposable
         var condition = new AndCondition(ControlViewCondition(), _automation.ConditionFactory.ByControlType(controlType));
         foreach (var descendant in root.FindAllDescendants(condition))
         {
-            if (MatchesStep(descendant, step))
+            // Same eligibility rule as the collector — a hidden/tiny twin the collector would have
+            // dropped must not count towards "exactly one candidate" either.
+            if (IsLiveCollectible(descendant) && MatchesStep(descendant, step))
                 results.Add(descendant);
         }
 
         return results;
+    }
+
+    /// <summary>Live counterpart of <see cref="IsCollectible"/> for an already-resolved element; a
+    /// property-read failure (e.g. a genuinely stale element) is treated as not collectible, the same
+    /// fail-safe <see cref="MatchesStep"/> uses.</summary>
+    private static bool IsLiveCollectible(AutomationElement element)
+    {
+        try
+        {
+            return IsCollectible(element.IsOffscreen, element.BoundingRectangle);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>Matches the same (ControlType, AutomationId-else-Name) key <see cref="ObservationBuilder"/>
