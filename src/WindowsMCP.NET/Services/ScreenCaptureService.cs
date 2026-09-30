@@ -40,10 +40,18 @@ public sealed class ScreenCaptureService
     private static Bitmap Resize(Bitmap source, Size targetSize)
     {
         var resized = new Bitmap(targetSize.Width, targetSize.Height, PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(resized);
-        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        graphics.DrawImage(source, new Rectangle(Point.Empty, targetSize));
-        return resized;
+        try
+        {
+            using var graphics = Graphics.FromImage(resized);
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.DrawImage(source, new Rectangle(Point.Empty, targetSize));
+            return resized;
+        }
+        catch
+        {
+            resized.Dispose();
+            throw;
+        }
     }
 
     private static byte[] EncodeJpeg(Bitmap bitmap, long quality)
