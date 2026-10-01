@@ -62,17 +62,10 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
         return false;
     }, false);
 
-    /// <summary>Plain Win32, no UI Automation: UIA's hit-test is unreliable in popups, menus and
-    /// dialogs (and for docking tab items), costs a cross-process call and cannot answer while the
-    /// application is busy. <c>WindowFromPoint</c> names the window a click at <paramref name="p"/>
-    /// would go to; its top-level ancestor must be the window the element was resolved in.</summary>
-    public bool OwnsPoint(Point p) => IsResolvedWindow(
-        User32.GetAncestor(User32.WindowFromPoint(new POINT { X = p.X, Y = p.Y }), User32.GA_ROOT), windowHandle);
-
-    /// <summary>The rule behind <see cref="OwnsPoint"/>: the top-level window found at the point is the
-    /// one the element was resolved in. "No window there" never matches — not even an unknown window.</summary>
-    internal static bool IsResolvedWindow(nint topLevelAtPoint, nint resolvedWindow) =>
-        resolvedWindow != nint.Zero && topLevelAtPoint == resolvedWindow;
+    /// <summary><see cref="WindowHit"/> names the window a click at <paramref name="p"/> would go to;
+    /// its top-level window must be the window the element was resolved in.</summary>
+    public bool OwnsPoint(Point p) =>
+        WindowHit.IsInWindow(WindowHit.TopLevelOf(WindowHit.WindowAt(p)), windowHandle);
 
     public PatternCallResult TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
 

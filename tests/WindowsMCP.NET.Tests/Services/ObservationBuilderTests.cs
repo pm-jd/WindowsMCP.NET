@@ -103,6 +103,31 @@ public class ObservationBuilderTests
     }
 
     [Fact]
+    public void DropDownItemListedUnderTheMainWindowToo_OnlyTheCopyInThePopupsOwnWindowStays()
+    {
+        // WinForms exposes an open drop-down as children of its menu item as well. The collector marks
+        // the main-window copy as not hit-visible (its centre lies in the popup's window, BF1); the
+        // popup's own window is not hit-tested at all.
+        var windows = new[] { Window(0x11, "FileDropDown", className: "Popup"), Window(0x22, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "FileDropDown", hitVisible: null),
+            Node(1, 0, 1, 0, "MenuItem", "ChangeUser", y: 40, hitVisible: null),
+            Node(2, null, 0, 1, "Window", "Main", hitVisible: null),
+            Node(3, 2, 1, 1, "MenuItem", "File", y: 10, hitVisible: true),
+            Node(4, 3, 2, 1, "Menu", "FileDropDown", y: 30, hitVisible: null),
+            Node(5, 4, 3, 1, "MenuItem", "ChangeUser", y: 40, hitVisible: false),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var item = Assert.Single(observation.Elements, e => e.Name == "ChangeUser");
+        Assert.Equal("FileDropDown", item.Window);
+        Assert.Equal((nint)0x11, item.WindowHandle);
+        Assert.Contains(observation.Elements, e => e.Name == "File");
+    }
+
+    [Fact]
     public void PopupElementsComeFirst()
     {
         var windows = new[] { Window(1, "FileDropDown"), Window(2, "Main") };

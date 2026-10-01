@@ -37,6 +37,37 @@ public class ObservationServiceRulesTests
     public void CollectedValue_IsNullForPasswordFields_AndForEmptyValues(bool isPassword, string? raw, string? expected) =>
         Assert.Equal(expected, ObservationService.CollectedValue(isPassword, raw));
 
+    // --- hit-test (BF1): what is drawn in another top-level window is not visible in the main window ---
+    // WinForms lists an open drop-down's items (and an owned dialog's controls) under the main window
+    // too. Those copies resolve in the main window, where a click point is "covered" — so an action on
+    // them falls back to Invoke, the call that blocks. Only the copy in the popup's own window stays.
+
+    [Theory]
+    [InlineData(0x30)]   // a popup, menu or dialog of the same application — or another application
+    [InlineData(0)]      // no window at the node's centre
+    public void IsHitVisible_CentreInAnotherTopLevelWindow_IsNotVisible_AndUiaIsNotAsked(int topLevelAtCentre)
+    {
+        var asked = false;
+
+        var visible = ObservationService.IsHitVisible(topLevelAtCentre, nodeWindow: 0x20, () => asked = true);
+
+        Assert.False(visible);
+        Assert.False(asked); // no cross-process FromPoint for a node that cannot be clicked in its window
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void IsHitVisible_CentreInTheNodesOwnWindow_IsDecidedByTheUiaHitTest(bool uiaHit)
+    {
+        var asked = 0;
+
+        var visible = ObservationService.IsHitVisible(topLevelAtCentre: 0x20, nodeWindow: 0x20, () => { asked++; return uiaHit; });
+
+        Assert.Equal(uiaHit, visible);
+        Assert.Equal(1, asked);
+    }
+
     // --- unreadable windows (AF2): a window that does not answer UIA is reported, at one attempt per process ---
 
     private sealed class Root;
