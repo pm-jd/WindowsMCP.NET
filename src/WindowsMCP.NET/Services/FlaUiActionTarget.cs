@@ -105,12 +105,19 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     /// and data items, toolbar buttons, tabs). The element itself tells the two apart: owned unless
     /// it reports <c>IsOffscreen</c> (<paramref name="isOffscreen"/>).</item>
     /// </list>
-    /// What this does NOT prove — a click can still land on something else when: a windowless element
-    /// is overlapped by another windowless element of the same native window; an element is overlapped
-    /// by a child window of its own native window (it counts as "a child of it"); the native window is
-    /// the top-level window itself (title-bar button, menu item of a popup: every window in it is a
-    /// child of it, so (3) adds nothing to (1)); a windowless element is clipped inside its host while
-    /// its centre stays within the host's rectangle.
+    /// Not protected — the click can still land on something else (the same list is on
+    /// <see cref="IActionTarget.OwnsPoint"/>, in the spec and in CLAUDE.md):
+    /// (a) a windowless element overlapped by another windowless element of the same native window;
+    /// (b) an element overlapped by a child window of its own native window (it counts as "a child of
+    /// it" in (3));
+    /// (c) an element whose native window is the top-level window itself (title-bar buttons, menu items
+    /// of a popup) — every window in it is a child of it, so (3) adds nothing to (1);
+    /// (d) a windowless element clipped inside its host while its centre stays within the host's
+    /// rectangle — (3) applies and IsOffscreen is not asked there, so whatever it reports;
+    /// (e) an element scrolled or overflowed out of its host that does not report IsOffscreen in (4)
+    /// (unsupported, failed read, or false);
+    /// (f) an element whose native window cannot be determined (2) — only the top-level window is
+    /// checked.
     /// </summary>
     internal static bool OwnsWindow(
         nint windowAtPoint, nint topLevelAtPoint, nint resolvedWindow,

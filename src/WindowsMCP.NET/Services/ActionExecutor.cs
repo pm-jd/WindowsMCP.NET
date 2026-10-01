@@ -112,9 +112,16 @@ public interface IActionTarget
     /// not contain the point at all, (2) is replaced by "the element does not report IsOffscreen", and
     /// when it is unknown, (1) is all. So it refuses another control's window lying over the element, a
     /// native window that is clipped away, hidden or disabled at that point, and an element scrolled
-    /// out of its host that says so. It does not notice: another windowless element of the same native
-    /// window lying on top, a child window of the element's own native window lying on top, and any
-    /// overlap inside the window for an element whose native window is the top-level window itself.
+    /// out of its host that says so. Not protected — the click can still land on something else:
+    /// (a) a windowless element overlapped by another windowless element of the same native window;
+    /// (b) an element overlapped by a child window of its own native window;
+    /// (c) an element whose native window is the top-level window itself (title-bar buttons, menu items
+    /// of a popup) — every window in it is a child of it;
+    /// (d) a windowless element clipped inside its host while its centre stays within the host's
+    /// rectangle — IsOffscreen is not asked there, so whatever it reports;
+    /// (e) an element scrolled or overflowed out of its host that does not report IsOffscreen
+    /// (unsupported, failed read, or false);
+    /// (f) an element whose native window cannot be determined — only the top-level window is checked.
     /// </summary>
     bool OwnsPoint(Point p);
 
