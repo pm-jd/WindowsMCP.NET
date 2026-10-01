@@ -63,7 +63,8 @@ public sealed class ActionExecutor(IInputDriver input)
     /// <summary>
     /// Clicks <paramref name="t"/>. <paramref name="method"/> selects the strategy: <c>Auto</c> tries
     /// the pattern for the element's control type first and falls back to a mouse click at the
-    /// element's current centre when the pattern is unsupported, fails, or has no observable effect;
+    /// element's current centre when the pattern is unsupported or fails, or when a SelectionItem
+    /// select had no observable effect (other successful patterns are never repeated with the mouse);
     /// <c>Pattern</c> never falls back (throws when no pattern applies or it fails); <c>Mouse</c> skips
     /// the pattern entirely. <paramref name="signature"/> is the scope signature function used for
     /// before/after comparison; a <see langword="null"/> signature disables verification

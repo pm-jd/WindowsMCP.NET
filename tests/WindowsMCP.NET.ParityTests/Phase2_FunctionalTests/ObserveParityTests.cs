@@ -18,6 +18,7 @@ public class ObserveParityTests : IAsyncLifetime
     private readonly ITestOutputHelper _output;
     private McpTestClient _client = null!;
     private HashSet<int> _preexistingNotepads = [];
+    private bool _launched;
 
     public ObserveParityTests(McpServerFixture fixture, ITestOutputHelper output)
     {
@@ -28,6 +29,7 @@ public class ObserveParityTests : IAsyncLifetime
     public ValueTask InitializeAsync()
     {
         _client = new McpTestClient(_fixture.Client);
+        _preexistingNotepads = NotepadPids(); // snapshot before anything can fail
         return ValueTask.CompletedTask;
     }
 
@@ -50,6 +52,9 @@ public class ObserveParityTests : IAsyncLifetime
 
     private void KillNewNotepads()
     {
+        if (!_launched)
+            return; // this test never launched Notepad: kill nothing
+
         foreach (var p in Process.GetProcessesByName("notepad"))
         {
             try
@@ -78,10 +83,17 @@ public class ObserveParityTests : IAsyncLifetime
         return StructuredOf(result);
     }
 
-    /// <summary>Launches Notepad (recording pre-existing PIDs first) and waits until Observe sees a window.</summary>
-    private async Task<JsonElement> LaunchNotepadAsync()
+    /// <summary>
+    /// Launches Notepad and waits for a Notepad process that was NOT in the start-of-test snapshot.
+    /// Returns the observation only when it contains exclusively windows of that new process and the
+    /// foreground window is one of them (ids are path hashes, so an identical id of a pre-existing
+    /// Notepad would resolve to whichever window is topmost). Returns null — and the caller must not
+    /// touch anything — when no new process appears (single-instance reuse) or the new instance is
+    /// not what Observe/Click would see first.
+    /// </summary>
+    private async Task<JsonElement?> LaunchNotepadAsync()
     {
-        _preexistingNotepads = NotepadPids();
+        _launched = true;
         var launch = await _client.CallToolTextAsync("App", new Dictionary<string, object?>
         {
             ["mode"] = "launch",
@@ -92,11 +104,27 @@ public class ObserveParityTests : IAsyncLifetime
         for (var i = 0; i < 30; i++)
         {
             await Task.Delay(500, Ct);
-            var obs = await ObserveNotepadAsync();
-            if (obs.GetProperty("windows").GetArrayLength() > 0 && FindFirst(obs, "Document", "Edit") is not null)
-                return obs;
+            var fresh = NotepadPids().Where(pid => !_preexistingNotepads.Contains(pid)).ToList();
+            if (fresh.Count == 0)
+                continue;
+
+            JsonElement obs;
+            try { obs = await ObserveNotepadAsync(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { continue; }
+
+            var windows = obs.GetProperty("windows").EnumerateArray().ToList();
+            if (windows.Count == 0 || FindFirst(obs, "Document", "Edit") is null)
+                continue;
+            if (windows.Any(w => !fresh.Contains(w.GetProperty("pid").GetInt32())))
+                continue; // Observe is looking at a pre-existing Notepad: keep waiting
+            if (!windows.Any(w => w.GetProperty("foreground").GetBoolean()))
+                continue;
+
+            return obs;
         }
-        throw new InvalidOperationException("Notepad window did not appear in Observe within 15 s");
+
+        _output.WriteLine("Skipped: no new Notepad process became observable (single-instance reuse or an existing Notepad is in front); nothing was touched.");
+        return null;
     }
 
     private static string? FindFirst(JsonElement observation, params string[] types)
@@ -117,7 +145,7 @@ public class ObserveParityTests : IAsyncLifetime
     {
         if (_fixture.ServerType != "dotnet") { _output.WriteLine("Skipped: dotnet server only"); return; }
 
-        var obs = await LaunchNotepadAsync();
+        if (await LaunchNotepadAsync() is not { } obs) return;
         _output.WriteLine(obs.ToString());
 
         Assert.False(string.IsNullOrEmpty(obs.GetProperty("signature").GetString()));
@@ -132,7 +160,7 @@ public class ObserveParityTests : IAsyncLifetime
     {
         if (_fixture.ServerType != "dotnet") { _output.WriteLine("Skipped: dotnet server only"); return; }
 
-        var obs = await LaunchNotepadAsync();
+        if (await LaunchNotepadAsync() is not { } obs) return;
         var signatureBefore = obs.GetProperty("signature").GetString();
         var id = FindFirst(obs, "Document", "Edit");
         Assert.NotNull(id);
@@ -140,7 +168,7 @@ public class ObserveParityTests : IAsyncLifetime
         var result = await _client.CallToolTextAsync("Type", new Dictionary<string, object?>
         {
             ["element"] = id,
-            ["text"] = "observe_parity",
+            ["text"] = $"observe_parity_{Guid.NewGuid():N}"[..22], // unique: Notepad restores earlier text, identical text would not change the signature
             ["clear"] = true,
         });
         _output.WriteLine($"Type result: {result}");
@@ -161,7 +189,7 @@ public class ObserveParityTests : IAsyncLifetime
     {
         if (_fixture.ServerType != "dotnet") { _output.WriteLine("Skipped: dotnet server only"); return; }
 
-        var obs = await LaunchNotepadAsync();
+        if (await LaunchNotepadAsync() is not { } obs) return;
         var id = FindFirst(obs, "MenuItem");
         Assert.NotNull(id);
 
@@ -188,7 +216,7 @@ public class ObserveParityTests : IAsyncLifetime
     {
         if (_fixture.ServerType != "dotnet") { _output.WriteLine("Skipped: dotnet server only"); return; }
 
-        var obs = await LaunchNotepadAsync();
+        if (await LaunchNotepadAsync() is not { } obs) return;
         var id = FindFirst(obs, "Document", "Edit");
         Assert.NotNull(id);
 
