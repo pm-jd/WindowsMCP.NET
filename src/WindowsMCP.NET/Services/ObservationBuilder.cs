@@ -250,7 +250,9 @@ public static class ObservationBuilder
     /// <summary>
     /// Whether <paramref name="index"/>'s node is dropped together with its subtree: cascades from an
     /// already-dropped parent, or the node itself has <c>HitVisible == false</c> — except a
-    /// <c>TabItem</c> whose parent is a (kept) <c>Tab</c>.
+    /// <c>TabItem</c> whose parent is a (kept) <c>Tab</c>: UIA's hit-test misses docking tab items.
+    /// That exception is about UIA only; a tab item whose centre lies in another top-level window
+    /// (<see cref="ObservedNode.InOtherWindow"/>) is dropped like any other node.
     /// </summary>
     private static bool IsDropped(int index, ObservedNode[] byIndex, bool?[] memo)
     {
@@ -270,7 +272,7 @@ public static class ObservationBuilder
         else if (node.HitVisible == false)
         {
             var parent = byIndex[parentIndex];
-            var exemptTabItem = node.ControlType == "TabItem" && parent.ControlType == "Tab";
+            var exemptTabItem = node.ControlType == "TabItem" && parent.ControlType == "Tab" && !node.InOtherWindow;
             result = !exemptTabItem;
         }
         else

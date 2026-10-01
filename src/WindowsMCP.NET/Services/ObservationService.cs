@@ -472,7 +472,7 @@ public sealed class ObservationService : IDisposable
 
     /// <summary>Hit-tests only the nodes of the bottom-most (main) window of each process — windows
     /// stacked above it (popups, menus, dialogs) are trusted without hit-testing. A node whose centre
-    /// lies in another top-level window is not visible (<see cref="IsHitVisible"/>). Runs after the
+    /// lies in another top-level window is not visible (<see cref="ClassifyHit"/>). Runs after the
     /// collecting <see cref="CacheRequest"/>'s scope has closed, so <c>_automation.FromPoint</c> below
     /// makes a fresh, non-cached query — matching the working reference (mcsprobe). Returns whether the
     /// time budget was exceeded partway through.</summary>
@@ -499,13 +499,27 @@ public sealed class ObservationService : IDisposable
 
             var nodeIndex = i;
             var centre = new Point(node.Rect.X + node.Rect.Width / 2, node.Rect.Y + node.Rect.Height / 2);
-            var visible = IsHitVisible(
+            var hit = ClassifyHit(
                 WindowHit.TopLevelOf(WindowHit.WindowAt(centre)), windows[node.Window].Handle,
                 () => IsUiaHit(node, nodeIndex, centre, nodes, byRuntimeId));
-            nodes[i] = node with { HitVisible = visible };
+            nodes[i] = node with { HitVisible = hit == NodeHit.Visible, InOtherWindow = hit == NodeHit.InOtherWindow };
         }
 
         return false;
+    }
+
+    /// <summary>What the hit-test found for one node of a main window (see <see cref="ClassifyHit"/>).</summary>
+    internal enum NodeHit
+    {
+        /// <summary>The UIA hit-test at the node's centre found the node.</summary>
+        Visible,
+
+        /// <summary>The centre is in the node's own window, but the UIA hit-test found something else
+        /// (hidden docking tab content — or a docking tab item, which UIA's hit-test misses).</summary>
+        Hidden,
+
+        /// <summary>The centre lies in another top-level window: the node is drawn there.</summary>
+        InOtherWindow,
     }
 
     /// <summary>
@@ -513,11 +527,19 @@ public sealed class ObservationService : IDisposable
     /// (<see cref="WindowHit"/>): is the top-level window at that point the node's own window at all?
     /// WinForms lists the items of an open drop-down — and the controls of an owned dialog — under the
     /// main window as well; those copies are drawn in the popup's window, cannot be clicked in the main
-    /// one, and are not visible here (no UIA call for them). The copy in the popup's own window block
-    /// is the one that stays. Only for a point in the node's own window the UIA hit-test decides.
+    /// one, and are <see cref="NodeHit.InOtherWindow"/> (no UIA call for them). The copy in the popup's
+    /// own window block is the one that stays. Only for a point in the node's own window the UIA
+    /// hit-test decides. The two kinds of "not visible" are told apart because
+    /// <see cref="ObservationBuilder"/> keeps a tab item whose UIA hit-test missed, but not one that is
+    /// drawn in another window.
     /// </summary>
-    internal static bool IsHitVisible(nint topLevelAtCentre, nint nodeWindow, Func<bool> uiaHitTest) =>
-        WindowHit.IsInWindow(topLevelAtCentre, nodeWindow) && uiaHitTest();
+    internal static NodeHit ClassifyHit(nint topLevelAtCentre, nint nodeWindow, Func<bool> uiaHitTest)
+    {
+        if (!WindowHit.IsInWindow(topLevelAtCentre, nodeWindow))
+            return NodeHit.InOtherWindow;
+
+        return uiaHitTest() ? NodeHit.Visible : NodeHit.Hidden;
+    }
 
     /// <summary>An element is visible at its own centre point when the live hit-test there resolves to
     /// the node itself, one of its descendants (an inner element intercepted the point), or one of its

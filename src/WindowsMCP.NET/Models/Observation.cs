@@ -22,6 +22,12 @@ public sealed record ObservedNode(int Index, int? Parent, int Depth, int Window,
     /// <summary>The control is a password field (UIA <c>IsPassword</c>). Its value is never collected,
     /// emitted or hashed into the signature.</summary>
     public bool Password { get; init; }
+
+    /// <summary>The hit-test found the node's centre in another top-level window than the one it was
+    /// collected in (Win32 pre-check): it is drawn there — an item of an open drop-down, a control of an
+    /// owned dialog — and listed in that window's own block. Such a node is never visible here; the
+    /// tab-item exemption for UIA hit-tests that miss does not apply to it.</summary>
+    public bool InOtherWindow { get; init; }
 }
 
 /// <summary>An actionable element surfaced to the caller, with the locator needed to act on it later.</summary>

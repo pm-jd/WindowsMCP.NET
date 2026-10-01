@@ -25,11 +25,13 @@ public class ObservationBuilderTests
         int index, int? parent, int depth, int window, string controlType, string name,
         string automationId = "", int x = 0, int y = 0, int w = 10, int h = 10,
         bool enabled = true, bool focused = false, string? value = null, string? toggle = null,
-        bool selected = false, string? expand = null, bool? hitVisible = true, bool password = false) =>
+        bool selected = false, string? expand = null, bool? hitVisible = true, bool password = false,
+        bool inOtherWindow = false) =>
         new(index, parent, depth, window, controlType, name, automationId,
             new Rectangle(x, y, w, h), enabled, focused, value, toggle, selected, expand, hitVisible)
         {
             Password = password,
+            InOtherWindow = inOtherWindow,
         };
 
     [Fact]
@@ -84,6 +86,29 @@ public class ObservationBuilderTests
         var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
 
         Assert.Contains(observation.Elements, e => e.Name == "General" && e.Type == "TabItem");
+    }
+
+    [Fact]
+    public void TabItemOfVisibleTab_DrawnInAnotherTopLevelWindow_IsNotListed()
+    {
+        // The exemption above is for UIA hit-tests that miss docking tabs. It must not rescue a tab item
+        // whose centre lies in another top-level window (the Win32 pre-check): that one is a copy of
+        // something drawn in a popup or dialog, listed there, and not clickable here.
+        var windows = new[] { Window(1, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            Node(1, 0, 1, 0, "Tab", "MainTab", hitVisible: true),
+            Node(2, 1, 2, 0, "TabItem", "General", hitVisible: false),
+            Node(3, 1, 2, 0, "TabItem", "Options", hitVisible: false, inOtherWindow: true),
+            Node(4, 3, 3, 0, "Button", "Apply", hitVisible: null),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Contains(observation.Elements, e => e.Name == "General");       // UIA missed it: still listed
+        Assert.DoesNotContain(observation.Elements, e => e.Name == "Options"); // drawn elsewhere: not listed
+        Assert.DoesNotContain(observation.Elements, e => e.Name == "Apply");   // ... and neither is its subtree
     }
 
     [Fact]

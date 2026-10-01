@@ -45,26 +45,28 @@ public class ObservationServiceRulesTests
     [Theory]
     [InlineData(0x30)]   // a popup, menu or dialog of the same application — or another application
     [InlineData(0)]      // no window at the node's centre
-    public void IsHitVisible_CentreInAnotherTopLevelWindow_IsNotVisible_AndUiaIsNotAsked(int topLevelAtCentre)
+    public void ClassifyHit_CentreInAnotherTopLevelWindow_IsInOtherWindow_AndUiaIsNotAsked(int topLevelAtCentre)
     {
         var asked = false;
 
-        var visible = ObservationService.IsHitVisible(topLevelAtCentre, nodeWindow: 0x20, () => asked = true);
+        var hit = ObservationService.ClassifyHit(topLevelAtCentre, nodeWindow: 0x20, () => asked = true);
 
-        Assert.False(visible);
+        // Not merely "hidden": the reason travels to the builder, where a tab item whose UIA hit-test
+        // missed is kept — one that is drawn in another window is not.
+        Assert.Equal(ObservationService.NodeHit.InOtherWindow, hit);
         Assert.False(asked); // no cross-process FromPoint for a node that cannot be clicked in its window
     }
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void IsHitVisible_CentreInTheNodesOwnWindow_IsDecidedByTheUiaHitTest(bool uiaHit)
+    public void ClassifyHit_CentreInTheNodesOwnWindow_IsDecidedByTheUiaHitTest(bool uiaHit)
     {
         var asked = 0;
 
-        var visible = ObservationService.IsHitVisible(topLevelAtCentre: 0x20, nodeWindow: 0x20, () => { asked++; return uiaHit; });
+        var hit = ObservationService.ClassifyHit(topLevelAtCentre: 0x20, nodeWindow: 0x20, () => { asked++; return uiaHit; });
 
-        Assert.Equal(uiaHit, visible);
+        Assert.Equal(uiaHit ? ObservationService.NodeHit.Visible : ObservationService.NodeHit.Hidden, hit);
         Assert.Equal(1, asked);
     }
 
