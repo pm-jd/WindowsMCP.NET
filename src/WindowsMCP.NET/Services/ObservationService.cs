@@ -14,10 +14,10 @@ namespace WindowsMcpNet.Services;
 /// <summary>
 /// Live UIA collector behind the <c>Observe</c> tool. Resolves the target top-level windows for a
 /// scope, walks one cached subtree per window (see <see cref="ObservationBuilder"/>'s header for the
-/// node-list contract this must satisfy) — a window that does not answer UI Automation is reported as
-/// unreadable instead of being skipped (<see cref="ReadWindow"/>) —, hit-tests visibility for the
-/// bottom-most (main) window of each process, and hands the raw node list to
-/// <see cref="ObservationBuilder"/>. Also resolves a
+/// node-list contract this must satisfy), hit-tests visibility for the bottom-most (main) window of
+/// each process, and hands the raw node list to <see cref="ObservationBuilder"/>. A window that does
+/// not answer UI Automation is reported as unreadable instead of being skipped
+/// (<see cref="ReadWindow"/>). Also resolves a
 /// stored <see cref="ElementLocator"/> back to a live <see cref="AutomationElement"/> for verified
 /// actions (Task 7).
 /// </summary>
