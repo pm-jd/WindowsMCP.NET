@@ -10,7 +10,6 @@ namespace WindowsMcpNet.Tools;
 public static class InputTools
 {
     private const ushort VK_CONTROL = 0x11;
-    private const ushort VK_A = 0x41;
     private const ushort VK_DELETE = 0x2E;
     private const ushort VK_RETURN = 0x0D;
     private const ushort VK_OEM_PLUS = 0xBB;
@@ -61,25 +60,33 @@ public static class InputTools
             var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
                 ?? throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
 
-            User32.SetCursorPos(cx, cy);
-
-            var (downFlag, upFlag) = button switch
-            {
-                MouseButton.Right  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
-                MouseButton.Middle => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
-                _                  => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
-            };
-
-            // Atomic batch: all click events in one SendInput call so Windows sees
-            // consecutive timestamps within GetDoubleClickTime() for clicks=2.
             var actualClicks = Math.Max(1, clicks);
-            var inputs = new INPUT[actualClicks * 2];
-            for (var i = 0; i < actualClicks; i++)
+
+            if (button == MouseButton.Left && actualClicks == 1)
             {
-                inputs[i * 2]     = InputFactory.Mouse(downFlag);
-                inputs[i * 2 + 1] = InputFactory.Mouse(upFlag);
+                InputFactory.LeftClickAt(cx, cy);
             }
-            InputFactory.Send(inputs);
+            else
+            {
+                User32.SetCursorPos(cx, cy);
+
+                var (downFlag, upFlag) = button switch
+                {
+                    MouseButton.Right  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
+                    MouseButton.Middle => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
+                    _                  => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
+                };
+
+                // Atomic batch: all click events in one SendInput call so Windows sees
+                // consecutive timestamps within GetDoubleClickTime() for clicks=2.
+                var inputs = new INPUT[actualClicks * 2];
+                for (var i = 0; i < actualClicks; i++)
+                {
+                    inputs[i * 2]     = InputFactory.Mouse(downFlag);
+                    inputs[i * 2 + 1] = InputFactory.Mouse(upFlag);
+                }
+                InputFactory.Send(inputs);
+            }
 
             return $"Clicked {button.Lower()} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
         }
@@ -108,20 +115,12 @@ public static class InputTools
             }
 
             if (clear)
-            {
-                InputFactory.Send(
-                    InputFactory.Key(VK_CONTROL, keyUp: false),
-                    InputFactory.Key(VK_A, keyUp: false),
-                    InputFactory.Key(VK_A, keyUp: true),
-                    InputFactory.Key(VK_CONTROL, keyUp: true),
-                    InputFactory.Key(VK_DELETE, keyUp: false),
-                    InputFactory.Key(VK_DELETE, keyUp: true));
-            }
+                InputFactory.SelectAllAndDelete();
 
             InputFactory.Send(InputFactory.BuildTextInputs(text));
 
             if (press_enter)
-                InputFactory.Send(InputFactory.Key(VK_RETURN, keyUp: false), InputFactory.Key(VK_RETURN, keyUp: true));
+                InputFactory.PressEnter();
 
             return $"Typed {text.Length} character(s){(press_enter ? " + Enter" : "")}";
         }
