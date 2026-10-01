@@ -74,7 +74,7 @@ Observe(
   - `id`, `type`, `name`, `label` (derived, only when `name` is empty or equals `value`), `panel` (nearest named container ancestor), `window` (only when not the main window)
   - state: `value`, `toggle`, `selected`, `expanded`, `enabled` (only emitted when `false`)
   - `rect` (JSON only)
-  - actionable types: Button, SplitButton, CheckBox, RadioButton, ComboBox, Edit, Spinner, Slider, Hyperlink, MenuItem, TabItem, ListItem, TreeItem, DataItem, HeaderItem
+  - actionable types: Button, SplitButton, CheckBox, RadioButton, ComboBox, Edit, Document, Spinner, Slider, Hyperlink, MenuItem, TabItem, ListItem, TreeItem, DataItem, HeaderItem
 - **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only
 - **signature**: hash over (window handles + titles, and for every emitted element: id, name, value, toggle, selected, expanded, enabled)
 - **truncated**: `true` when `max_elements` or the time budget cut the result

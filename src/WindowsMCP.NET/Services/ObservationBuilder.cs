@@ -21,7 +21,7 @@ public static class ObservationBuilder
 
     private static readonly HashSet<string> ActionableTypes = new(StringComparer.Ordinal)
     {
-        "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Spinner",
+        "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Document", "Spinner",
         "Slider", "Hyperlink", "MenuItem", "TabItem", "ListItem", "TreeItem", "DataItem", "HeaderItem"
     };
 

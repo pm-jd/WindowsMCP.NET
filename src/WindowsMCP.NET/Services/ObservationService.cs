@@ -27,7 +27,7 @@ public sealed class ObservationService : IDisposable
     /// hit-testing any other type would be wasted work since it's dropped from the output anyway.</summary>
     private static readonly HashSet<string> HitTestableTypes = new(StringComparer.Ordinal)
     {
-        "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Spinner",
+        "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Document", "Spinner",
         "Slider", "Hyperlink", "MenuItem", "TabItem", "ListItem", "TreeItem", "DataItem", "HeaderItem",
         "Text", "Group", "Header",
     };

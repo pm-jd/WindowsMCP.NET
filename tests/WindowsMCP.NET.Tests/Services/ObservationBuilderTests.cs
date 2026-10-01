@@ -46,6 +46,21 @@ public class ObservationBuilderTests
     }
 
     [Fact]
+    public void DocumentControl_IsActionable()
+    {
+        var windows = new[] { Window(1, "Notepad") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Notepad", hitVisible: null),
+            Node(1, 0, 1, 0, "Document", "Text editor", hitVisible: true),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Contains(observation.Elements, e => e.Type == "Document");
+    }
+
+    [Fact]
     public void KeepsTabItemOfVisibleTab()
     {
         var windows = new[] { Window(1, "Main") };
