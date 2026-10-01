@@ -23,7 +23,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
     private static readonly ObservationService Svc = new(NullLogger<ObservationService>.Instance);
 
-    private static ActionExecutor SafeExecutor(List<string>? log = null) => new(new FakeInputDriver(log ?? []));
+    private static ActionExecutor SafeExecutor(List<string>? log = null) => new(new FakeInputDriver(log ?? [])) { FocusWaitMs = 0 };
 
     private static UiTreeService Ui => null!;
 
@@ -174,6 +174,38 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         Assert.Equal("method=pattern supports only a single left click", ex.Message);
     }
 
+    [Theory]
+    [InlineData(MouseButton.Right, 1)]
+    [InlineData(MouseButton.Left, 2)]
+    public void ClickResolved_NonSingleLeft_ElementCovered_Throws_NothingClicked(MouseButton button, int clicks)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", Covered = true };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => InputTools.ClickResolved(
+            Resolved(target, "e1 (Button 'X')"), SafeExecutor(log), button, clicks, ActionMethod.Auto, null, 0,
+            (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}")));
+
+        Assert.Equal("the element is covered by another window — nothing was clicked", ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Theory]
+    [InlineData(MouseButton.Right, 1)]
+    [InlineData(MouseButton.Left, 2)]
+    public void ClickResolved_NonSingleLeft_DisabledTarget_Throws_NothingClicked(MouseButton button, int clicks)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", IsEnabled = false };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => InputTools.ClickResolved(
+            Resolved(target, "e1 (Button 'X')"), SafeExecutor(log), button, clicks, ActionMethod.Auto, Sig(log, "A", "B"), 0,
+            (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}")));
+
+        Assert.Equal("Button is disabled — nothing was done", ex.Message);
+        Assert.Empty(log);
+    }
+
     // --- Type success path --------------------------------------------------------------------------
 
     [Fact]
@@ -266,6 +298,97 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
         Assert.Equal("[ERROR] InvalidOperationException: read failed (already edited: e1 (Edit 'A'): not_verified)", result);
     }
+
+    // --- MultiSelect (element path, driven through the seam: no real input) ----------------------------
+
+    private static string RunSelect(List<string> log, bool pressCtrl, params ResolvedElement[] resolved) =>
+        MultiTools.SelectElements(resolved, pressCtrl,
+            down => log.Add(down ? "ctrl:down" : "ctrl:up"),
+            p => log.Add($"click:{p.X},{p.Y}"));
+
+    [Fact]
+    public void SelectElements_ClicksEachCentre_WhileHoldingCtrl()
+    {
+        var log = new List<string>();
+        var first = new FakeActionTarget(log) { ControlType = "ListItem", CurrentRect = new Rectangle(0, 0, 10, 10) };
+        var second = new FakeActionTarget(log) { ControlType = "ListItem", CurrentRect = new Rectangle(20, 0, 10, 10) };
+
+        var result = RunSelect(log, pressCtrl: true, Resolved(first, "e1 (ListItem 'A')"), Resolved(second, "e2 (ListItem 'B')"));
+
+        Assert.Equal("Multi-selected 2 element(s): e1 (ListItem 'A'), e2 (ListItem 'B')", result);
+        Assert.Equal(["ctrl:down", "click:5,5", "click:25,5", "ctrl:up"], log);
+    }
+
+    [Fact]
+    public void SelectElements_WithoutCtrl_OnlyClicks()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "ListItem" };
+
+        RunSelect(log, pressCtrl: false, Resolved(target, "e1"));
+
+        Assert.Equal(["click:5,5"], log);
+    }
+
+    [Fact]
+    public void SelectElements_OneTargetCovered_Throws_BeforeCtrlAndBeforeAnyClick()
+    {
+        var log = new List<string>();
+        var first = new FakeActionTarget(log) { ControlType = "ListItem" };
+        var second = new FakeActionTarget(log) { ControlType = "ListItem", Covered = true };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => RunSelect(log, pressCtrl: true, Resolved(first, "e1"), Resolved(second, "e2")));
+
+        Assert.Equal("the element is covered by another window — nothing was clicked", ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public void SelectElements_OneTargetDisabled_Throws_BeforeCtrlAndBeforeAnyClick()
+    {
+        var log = new List<string>();
+        var first = new FakeActionTarget(log) { ControlType = "ListItem" };
+        var second = new FakeActionTarget(log) { ControlType = "ListItem", IsEnabled = false };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => RunSelect(log, pressCtrl: true, Resolved(first, "e1"), Resolved(second, "e2")));
+
+        Assert.Equal("ListItem is disabled — nothing was done", ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public void SelectElements_TargetCoveredAfterAnEarlierClick_StopsReleasesCtrl_AndListsWhatWasClicked()
+    {
+        var log = new List<string>();
+        var first = new FakeActionTarget(log) { ControlType = "ListItem" };
+        var second = new FakeActionTarget(log) { ControlType = "ListItem", CurrentRect = new Rectangle(20, 0, 10, 10) };
+
+        // The first click opens something (of another application) on top of the second target.
+        var result = MultiTools.SelectElements([Resolved(first, "e1 (ListItem 'A')"), Resolved(second, "e2 (ListItem 'B')")],
+            pressCtrl: true,
+            down => log.Add(down ? "ctrl:down" : "ctrl:up"),
+            p => { log.Add($"click:{p.X},{p.Y}"); second.Covered = true; });
+
+        Assert.Equal("[ERROR] InvalidOperationException: the element is covered by another window — nothing was clicked " +
+                     "(already clicked: e1 (ListItem 'A'))", result);
+        Assert.Equal(["ctrl:down", "click:5,5", "ctrl:up"], log);
+    }
+
+    // --- modal dialogs (F2) ---------------------------------------------------------------------------
+
+    [Fact]
+    public void EnsureWindowNotBlocked_DisabledWindow_Throws_NamingTheElementAndTheWayOut()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ElementTargets.EnsureWindowNotBlocked("e7q2k", windowEnabled: false));
+
+        Assert.Equal("element e7q2k is in a window blocked by a modal dialog — call Observe and handle the dialog first", ex.Message);
+    }
+
+    [Fact]
+    public void EnsureWindowNotBlocked_EnabledWindow_Passes() =>
+        ElementTargets.EnsureWindowNotBlocked("e7q2k", windowEnabled: true);
 
     // --- helpers ---------------------------------------------------------------------------------------
 

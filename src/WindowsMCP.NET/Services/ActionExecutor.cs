@@ -1,11 +1,12 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Text.Json;
 using WindowsMcpNet.Tools;
 
 namespace WindowsMcpNet.Services;
 
-/// <summary>How a verified action's effect compares the pre/post scope signature (or the read-back
-/// value for <see cref="ActionExecutor.Type"/>). Wire values are produced by <see cref="ToWire"/>.</summary>
+/// <summary>How a verified action's effect compares the pre/post signature of the element's process (or
+/// the read-back value for <see cref="ActionExecutor.Type"/>). Wire values are produced by <see cref="ActionEffectExtensions.ToWire"/>.</summary>
 public enum ActionEffect { Changed, Unchanged, ValueVerified, ValueMismatch, NotVerified }
 
 /// <summary>Serialises an <see cref="ActionEffect"/> the same way <see cref="SnakeCaseEnumConverter{TEnum}"/>
@@ -21,22 +22,55 @@ public static class ActionEffectExtensions
 public sealed record ActionOutcome(string Via, ActionEffect Effect);
 
 /// <summary>
-/// Seam over a live UI element that <see cref="ActionExecutor"/> acts on: pattern invocations
-/// (<c>Try*</c>, each swallowing unsupported-pattern/COM failures into <see langword="false"/>),
-/// value read/write, focus and the element's current geometry. <see cref="FlaUiActionTarget"/> is the
-/// production implementation; tests use a hand-written fake.
+/// Seam over a live UI element that <see cref="ActionExecutor"/> acts on. <see cref="FlaUiActionTarget"/>
+/// is the production implementation; tests use a hand-written fake.
+/// <para>
+/// Contract for implementations: nothing that can be read AFTER an action was sent may throw — a
+/// vanished element must not turn an executed action into an error. <see cref="IsEnabled"/> (only ever
+/// read before acting) and <see cref="CurrentRect"/> throw <see cref="ElementNotFoundException"/> when
+/// the element is gone; the executor guards every <see cref="CurrentRect"/> read that follows an action.
+/// </para>
 /// </summary>
 public interface IActionTarget
 {
     string ControlType { get; }
+
+    /// <summary>False only when the element reports itself disabled (an element that cannot report it
+    /// counts as enabled).</summary>
+    bool IsEnabled { get; }
+
     bool HasChildren { get; }
     Rectangle CurrentRect { get; }
+
+    /// <summary>True when the element itself or one of its descendants holds the keyboard focus (a
+    /// ComboBox's inner Edit counts); false when that cannot be determined.</summary>
+    bool HasKeyboardFocus { get; }
+
+    /// <summary>True when the UI element at screen point <paramref name="p"/> belongs to the same
+    /// process as this element — i.e. no window of another application covers that point. False when
+    /// that cannot be determined.</summary>
+    bool OwnsPoint(Point p);
+
+    /// <summary>Pattern calls: <see langword="false"/> ONLY when the element does not support the
+    /// pattern (nothing was sent). <see langword="true"/> means the call was dispatched — even when it
+    /// threw or did not return in time, because the action may have run; the caller verifies.</summary>
     bool TryInvoke();
+
+    /// <inheritdoc cref="TryInvoke"/>
     bool TryExpandCollapse();
+
+    /// <inheritdoc cref="TryInvoke"/>
     bool TryToggle();
+
+    /// <inheritdoc cref="TryInvoke"/>
     bool TrySelect();
+
     bool CanSetValue { get; }
+
+    /// <summary><see langword="false"/> only when the value cannot be written (no ValuePattern, or
+    /// read-only); otherwise the write was dispatched and the read-back decides.</summary>
     bool TrySetValue(string value);
+
     string? ReadValue();
     bool TryFocus();
 }
@@ -52,44 +86,86 @@ public interface IInputDriver
 }
 
 /// <summary>
-/// Pattern-first action execution for element-id based Click/Type (Task 7): tries the UIA pattern
-/// matching the element's control type, falls back to the mouse/keyboard <see cref="IInputDriver"/>
-/// path when no pattern applies or the pattern had no observable effect, and reports which mechanism
-/// acted plus the verified <see cref="ActionEffect"/> by comparing a caller-supplied scope signature
-/// (or, for <see cref="Type"/>, the element's own read-back value when available) before and after.
+/// The checks every element action passes before real input is sent — shared by <see cref="ActionExecutor"/>
+/// and the element paths of the tools (non-left/multi clicks, MultiSelect) so there is exactly one
+/// definition of "where to click" and "may we click there". The rule behind them: input on the element
+/// path never reaches anything but the resolved target; when in doubt the action is refused and
+/// nothing is done.
+/// </summary>
+internal static class ActionGuards
+{
+    /// <summary>Refuses a disabled target: a pattern call would be ignored or act on stale state, and
+    /// mouse/keyboard input on a disabled control is delivered to whatever is behind it.</summary>
+    public static void EnsureEnabled(IActionTarget t)
+    {
+        if (!t.IsEnabled)
+            throw new InvalidOperationException($"{t.ControlType} is disabled — nothing was done");
+    }
+
+    /// <summary>
+    /// The screen point a mouse click on <paramref name="t"/> goes to: the centre of its CURRENT
+    /// rectangle — verified to belong to the target's own process, so a window of another application
+    /// lying on top is never clicked. Throws (and nothing is clicked) when the element is gone
+    /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered.
+    /// </summary>
+    public static Point ClickPoint(IActionTarget t)
+    {
+        var rect = t.CurrentRect;
+        if (rect.Width <= 0 || rect.Height <= 0)
+            throw new InvalidOperationException("the element has no visible area — nothing was clicked");
+
+        var centre = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+        if (!t.OwnsPoint(centre))
+            throw new InvalidOperationException("the element is covered by another window — nothing was clicked");
+
+        return centre;
+    }
+}
+
+/// <summary>
+/// Pattern-first action execution for element-id based Click/Type: tries the UIA pattern matching the
+/// element's control type, uses the mouse/keyboard <see cref="IInputDriver"/> path when the element has
+/// no such pattern, and reports which mechanism acted plus the verified <see cref="ActionEffect"/> by
+/// comparing a caller-supplied signature (or, for <see cref="Type"/>, the element's own read-back value
+/// when available) before and after.
+/// <para>
+/// Two rules hold on every path: input never reaches anything but the resolved target (disabled
+/// targets, covered click points and unconfirmed keyboard focus are refused before anything is sent),
+/// and no action is performed twice (a dispatched pattern call is never repeated with the mouse, except
+/// the idempotent SelectionItem select that visibly changed nothing).
+/// </para>
 /// </summary>
 public sealed class ActionExecutor(IInputDriver input)
 {
+    private const int FocusPollMs = 25;
+
+    /// <summary>How long to wait for the keyboard focus to arrive on the target after SetFocus or the
+    /// click-to-focus (both are asynchronous for the target application). Tests set 0.</summary>
+    internal int FocusWaitMs { get; init; } = 500;
+
     /// <summary>
     /// Clicks <paramref name="t"/>. <paramref name="method"/> selects the strategy: <c>Auto</c> tries
-    /// the pattern for the element's control type first and falls back to a mouse click at the
-    /// element's current centre when the pattern is unsupported or fails, or when a SelectionItem
-    /// select had no observable effect (other successful patterns are never repeated with the mouse);
-    /// <c>Pattern</c> never falls back (throws when no pattern applies or it fails); <c>Mouse</c> skips
-    /// the pattern entirely. <paramref name="signature"/> is the scope signature function used for
-    /// before/after comparison; a <see langword="null"/> signature disables verification
-    /// (<see cref="ActionEffect.NotVerified"/>) without changing the action taken.
+    /// the pattern for the element's control type first and uses a mouse click at the element's current
+    /// centre when the element does not support that pattern, or when a SelectionItem select had no
+    /// observable effect (any other dispatched pattern call is never repeated with the mouse — not even
+    /// when it threw or timed out, because it may have run); <c>Pattern</c> never uses the mouse (throws
+    /// when no pattern applies); <c>Mouse</c> skips the pattern entirely. <paramref name="signature"/> is
+    /// the signature function used for before/after comparison; a <see langword="null"/> signature
+    /// disables verification (<see cref="ActionEffect.NotVerified"/>) without changing the action taken.
+    /// Throws before anything is done when the target is disabled, and before any mouse input when the
+    /// click point is covered by another application's window.
     /// </summary>
     public ActionOutcome Click(IActionTarget t, ActionMethod method, Func<string>? signature, int settleMs)
     {
         ArgumentNullException.ThrowIfNull(t);
+        ActionGuards.EnsureEnabled(t);
 
         var before = signature?.Invoke();
 
-        if (method == ActionMethod.Pattern)
+        if (method != ActionMethod.Mouse)
         {
-            var (success, via) = TryPattern(t);
-            if (!success)
-                throw new InvalidOperationException($"no usable UIA pattern for {t.ControlType}");
-
-            Settle(settleMs);
-            return new ActionOutcome(via, CompareEffect(signature, before));
-        }
-
-        if (method == ActionMethod.Auto)
-        {
-            var (success, via) = TryPattern(t);
-            if (success)
+            var (dispatched, via) = TryPattern(t);
+            if (dispatched)
             {
                 Settle(settleMs);
 
@@ -99,29 +175,45 @@ public sealed class ActionExecutor(IInputDriver input)
                 if (signature() != before)
                     return new ActionOutcome(via, ActionEffect.Changed);
 
-                // Unchanged: only SelectionItem (idempotent Select) may retry with the mouse. A second
-                // Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
-                if (via != "SelectionItem")
+                // Unchanged: only SelectionItem (idempotent Select) may be retried with the mouse. A
+                // second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
+                if (method == ActionMethod.Pattern || via != "SelectionItem")
                     return new ActionOutcome(via, ActionEffect.Unchanged);
+
+                // The Select has been sent, so from here on nothing may turn into an error: when the
+                // element can no longer be clicked safely (gone, or covered), the Select stands.
+                if (TryClickPoint(t) is not { } retryPoint)
+                    return new ActionOutcome(via, ActionEffect.Unchanged);
+
+                input.LeftClick(retryPoint);
+                Settle(settleMs);
+                return new ActionOutcome("mouse", CompareEffect(signature, before));
             }
+
+            if (method == ActionMethod.Pattern)
+                throw new InvalidOperationException($"no usable UIA pattern for {t.ControlType}");
         }
 
-        input.LeftClick(Centre(t.CurrentRect));
+        input.LeftClick(ActionGuards.ClickPoint(t));
         Settle(settleMs);
         return new ActionOutcome("mouse", CompareEffect(signature, before));
     }
 
     /// <summary>
     /// Types into <paramref name="t"/>. Prefers <c>ValuePattern.SetValue</c> when the target supports
-    /// writing a value; otherwise focuses the element (mouse click on focus failure) and sends the
-    /// keyboard path. Verification prefers reading the value back (trimmed equality against the
-    /// expected text) and falls back to the scope <paramref name="signature"/> comparison only when no
-    /// read-back is available; a <see langword="null"/> signature disables verification.
+    /// writing a value; otherwise gives the element the keyboard focus (SetFocus, one mouse click when
+    /// that does not bring the focus) and sends the keyboard path. Keys — the text, and Enter after a
+    /// SetValue — are only ever sent once the target (or one of its descendants) is confirmed to hold
+    /// the keyboard focus; otherwise this throws and no key is sent. Verification prefers reading the
+    /// value back (trimmed equality against the expected text) and falls back to the
+    /// <paramref name="signature"/> comparison only when no read-back is available; a
+    /// <see langword="null"/> signature disables verification.
     /// </summary>
     public ActionOutcome Type(IActionTarget t, string text, bool clear, bool pressEnter, Func<string>? signature, int settleMs)
     {
         ArgumentNullException.ThrowIfNull(t);
         ArgumentNullException.ThrowIfNull(text);
+        ActionGuards.EnsureEnabled(t);
 
         var previous = t.ReadValue();
         var before = signature?.Invoke();
@@ -130,19 +222,23 @@ public sealed class ActionExecutor(IInputDriver input)
         string via;
         if (t.CanSetValue && t.TrySetValue(expected))
         {
+            via = "ValuePattern";
             if (pressEnter)
             {
-                // SetValue does not move focus; make sure Enter reaches the target.
-                if (!t.TryFocus())
-                    input.LeftClick(Centre(t.CurrentRect));
+                // SetValue does not move the focus. The value is already set, so a click point that is
+                // gone or covered is not an error of its own here — it just means "no focus".
+                if (!GiveFocus(t, TryClickPoint))
+                    throw new InvalidOperationException("value was set, but the element could not be focused — Enter was not sent");
+
                 input.PressEnter();
             }
-            via = "ValuePattern";
         }
         else
         {
-            if (!t.TryFocus())
-                input.LeftClick(Centre(t.CurrentRect));
+            // Nothing has been sent yet: a covered or vanished element refuses with its own error.
+            if (!GiveFocus(t, static target => ActionGuards.ClickPoint(target)))
+                throw new InvalidOperationException("could not give keyboard focus to the element — nothing was typed");
+
             input.TypeText(text, clear, pressEnter);
             via = "keyboard";
         }
@@ -166,8 +262,9 @@ public sealed class ActionExecutor(IInputDriver input)
 
     /// <summary>
     /// Performs a caller-supplied mouse action (e.g. a right/double click) between the before/after
-    /// scope signature reads, with the same settle and compare logic as <see cref="Click"/>, and reports
+    /// signature reads, with the same settle and compare logic as <see cref="Click"/>, and reports
     /// it as <c>mouse</c>. A <see langword="null"/> signature yields <see cref="ActionEffect.NotVerified"/>.
+    /// The caller's action is responsible for <see cref="ActionGuards.ClickPoint"/>.
     /// </summary>
     public ActionOutcome MouseAction(Action act, Func<string>? signature, int settleMs)
     {
@@ -180,9 +277,9 @@ public sealed class ActionExecutor(IInputDriver input)
     }
 
     /// <summary>Click pattern table (spec §3): the UIA pattern tried first for a control type, and the
-    /// <see cref="ActionOutcome.Via"/> name it reports. Returns <c>(false, "")</c>, without invoking any
-    /// pattern, for control types with no click pattern.</summary>
-    private static (bool Success, string Via) TryPattern(IActionTarget t) => t.ControlType switch
+    /// <see cref="ActionOutcome.Via"/> name it reports. <c>Dispatched</c> is false — and nothing was
+    /// sent — for control types with no click pattern and for elements that do not support theirs.</summary>
+    private static (bool Dispatched, string Via) TryPattern(IActionTarget t) => t.ControlType switch
     {
         "Button" or "SplitButton" or "Hyperlink" => (t.TryInvoke(), "Invoke"),
         "MenuItem" => t.HasChildren ? (t.TryExpandCollapse(), "ExpandCollapse") : (t.TryInvoke(), "Invoke"),
@@ -192,6 +289,51 @@ public sealed class ActionExecutor(IInputDriver input)
         _ => (false, ""),
     };
 
+    /// <summary>
+    /// Brings the keyboard focus to <paramref name="t"/>: SetFocus first; when that fails or the focus
+    /// does not arrive, one click at <paramref name="clickPoint"/> (no click when it yields null).
+    /// True only once the target is confirmed to hold the keyboard focus — the precondition for any key.
+    /// </summary>
+    private bool GiveFocus(IActionTarget t, Func<IActionTarget, Point?> clickPoint)
+    {
+        if (t.TryFocus() && WaitForFocus(t))
+            return true;
+
+        if (clickPoint(t) is not { } point)
+            return false;
+
+        input.LeftClick(point);
+        return WaitForFocus(t);
+    }
+
+    private bool WaitForFocus(IActionTarget t)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (true)
+        {
+            if (t.HasKeyboardFocus)
+                return true;
+            if (stopwatch.ElapsedMilliseconds >= FocusWaitMs)
+                return false;
+
+            Thread.Sleep(FocusPollMs);
+        }
+    }
+
+    /// <summary><see cref="ActionGuards.ClickPoint"/> for the moments AFTER an action was sent: no
+    /// click point (element gone, no area, covered) is an answer there, not an error.</summary>
+    private static Point? TryClickPoint(IActionTarget t)
+    {
+        try
+        {
+            return ActionGuards.ClickPoint(t);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ElementNotFoundException)
+        {
+            return null;
+        }
+    }
+
     private static ActionEffect CompareEffect(Func<string>? signature, string? before)
     {
         if (signature is null)
@@ -199,8 +341,6 @@ public sealed class ActionExecutor(IInputDriver input)
 
         return signature() == before ? ActionEffect.Unchanged : ActionEffect.Changed;
     }
-
-    private static Point Centre(Rectangle r) => new(r.X + r.Width / 2, r.Y + r.Height / 2);
 
     private static void Settle(int settleMs)
     {

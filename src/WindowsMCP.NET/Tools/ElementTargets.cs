@@ -12,27 +12,51 @@ internal sealed record ResolvedElement(IActionTarget Target, string Describe, El
 /// <summary>Shared id to live element resolution for the element-id paths of Click/Type/MultiSelect/MultiEdit.</summary>
 internal static class ElementTargets
 {
+    /// <summary>
+    /// Resolves <paramref name="id"/> to a live target. Everything here happens before any action, so
+    /// every failure means "nothing was done": an unknown, stale or vanished element is an
+    /// <see cref="ElementNotFoundException"/>; an element whose window is disabled by a modal dialog is
+    /// refused (see <see cref="EnsureWindowNotBlocked"/>).
+    /// </summary>
     public static ResolvedElement Resolve(string id, ObservationStore store, ObservationService svc)
     {
         var stored = store.Get(id);
         var (element, hwnd) = svc.FindLive(stored) ?? throw new ElementNotFoundException(id);
-        var locator = stored.Locator;
+        EnsureWindowNotBlocked(id, User32.IsWindowEnabled(hwnd));
 
         User32.GetWindowThreadProcessId(hwnd, out var windowPid);
-        var pid = (int)windowPid;
 
-        string describe;
+        string controlType, name;
+        int elementPid;
         try
         {
             var properties = element.Properties;
-            describe = $"{id} ({properties.ControlType.ValueOrDefault} '{properties.Name.ValueOrDefault}')";
+            controlType = properties.ControlType.ValueOrDefault.ToString();
+            name = properties.Name.ValueOrDefault ?? "";
+            // Usually the window's process; differs for content hosted from another process, where the
+            // element's own process is what a hit-test at its position reports.
+            elementPid = properties.ProcessId.TryGetValue(out var processId) ? processId : (int)windowPid;
         }
         catch (Exception)
         {
-            describe = id;
+            throw new ElementNotFoundException(id);
         }
 
-        return new ResolvedElement(new FlaUiActionTarget(element), describe, locator, pid, hwnd);
+        return new ResolvedElement(
+            new FlaUiActionTarget(element, id, controlType, elementPid),
+            $"{id} ({controlType} '{name}')", stored.Locator, (int)windowPid, hwnd);
+    }
+
+    /// <summary>
+    /// A window that owns an open modal dialog is disabled: the user cannot reach its controls, but UIA
+    /// patterns (Invoke, SetValue) would still act on them behind the dialog. The element path refuses
+    /// that — the agent has to deal with the dialog first.
+    /// </summary>
+    internal static void EnsureWindowNotBlocked(string id, bool windowEnabled)
+    {
+        if (!windowEnabled)
+            throw new InvalidOperationException(
+                $"element {id} is in a window blocked by a modal dialog — call Observe and handle the dialog first");
     }
 
     /// <summary>Verification signature scoped to the process instance (pid) that owns the window the

@@ -2,30 +2,72 @@ using System.Drawing;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Patterns;
 
 namespace WindowsMcpNet.Services;
 
 /// <summary>
-/// Live <see cref="IActionTarget"/> over a FlaUI <see cref="AutomationElement"/>. Each <c>Try*</c>
-/// method looks up the matching UIA pattern and swallows any exception (pattern unsupported, element
-/// gone, COM failure) into a <see langword="false"/> return, so <see cref="ActionExecutor"/> can fall
-/// back to the mouse/keyboard path without special-casing FlaUI errors.
+/// Live <see cref="IActionTarget"/> over a FlaUI <see cref="AutomationElement"/>.
+/// <para>
+/// Which members may throw is part of the contract (see <see cref="IActionTarget"/>): only the two
+/// reads that happen BEFORE an action — <see cref="IsEnabled"/> and <see cref="CurrentRect"/> — and
+/// then as <see cref="ElementNotFoundException"/> for <paramref name="id"/>, with nothing done. Every
+/// other member swallows a vanished element or a COM failure into its neutral answer (false / null),
+/// because it can be read after an action was sent and must not turn that action into an error.
+/// </para>
 /// </summary>
-public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
+/// <param name="el">The resolved live element.</param>
+/// <param name="id">The element id it was resolved from (for <see cref="ElementNotFoundException"/>).</param>
+/// <param name="controlType">The element's control type, read once when it was resolved.</param>
+/// <param name="processId">The process the element belongs to, read once when it was resolved.</param>
+public sealed class FlaUiActionTarget(AutomationElement el, string id, string controlType, int processId) : IActionTarget
 {
-    public string ControlType => el.ControlType.ToString();
+    /// <summary>Upper bound for the walk from the focused element up to the target (a UI tree is never
+    /// this deep; the bound only makes a misbehaving provider terminate).</summary>
+    private const int MaxFocusWalkDepth = 64;
+
+    public string ControlType => controlType;
+
+    /// <summary>Read only before acting. An element that does not report IsEnabled counts as enabled;
+    /// one that reports <c>false</c> is refused by the executor.</summary>
+    public bool IsEnabled => ReadOrGone(() => !el.Properties.IsEnabled.TryGetValue(out var enabled) || enabled);
 
     /// <summary>At least one control-view child — the same "IsControlElement" view
     /// <see cref="ObservationService"/> walks, so this agrees with what an <c>Observe</c> call
     /// would have reported as this element's children.</summary>
     public bool HasChildren => Guard(() => el.FindAllChildren(ControlViewCondition()).Length > 0, false);
 
-    public Rectangle CurrentRect => el.BoundingRectangle;
+    /// <summary>The element's rectangle right now. Throws <see cref="ElementNotFoundException"/> when
+    /// the element is gone; the executor catches that wherever an action was already sent.</summary>
+    public Rectangle CurrentRect => ReadOrGone(() => el.Properties.BoundingRectangle.ValueOrDefault);
 
-    public bool TryInvoke() => TryPattern(el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
+    /// <summary>Walks from the system's focused element up its control-view parents to this element.</summary>
+    public bool HasKeyboardFocus => Guard(() =>
+    {
+        var automation = el.Automation;
+        var walker = automation.TreeWalkerFactory.GetControlViewWalker();
+        var current = automation.FocusedElement();
+        for (var depth = 0; current is not null && depth < MaxFocusWalkDepth; depth++)
+        {
+            if (current.Equals(el))
+                return true;
+
+            current = walker.GetParent(current);
+        }
+
+        return false;
+    }, false);
+
+    public bool OwnsPoint(Point p) => Guard(() =>
+    {
+        var hit = el.Automation.FromPoint(p);
+        return hit is not null && hit.Properties.ProcessId.ValueOrDefault == processId;
+    }, false);
+
+    public bool TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
 
     /// <summary>Expands the element, or collapses it when it is already expanded.</summary>
-    public bool TryExpandCollapse() => TryPattern(el.Patterns.ExpandCollapse.PatternOrDefault, p =>
+    public bool TryExpandCollapse() => Attempt(() => el.Patterns.ExpandCollapse.PatternOrDefault, p =>
     {
         if (p.ExpandCollapseState.ValueOrDefault == ExpandCollapseState.Expanded)
             p.Collapse();
@@ -33,17 +75,13 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
             p.Expand();
     });
 
-    public bool TryToggle() => TryPattern(el.Patterns.Toggle.PatternOrDefault, p => p.Toggle());
+    public bool TryToggle() => Attempt(() => el.Patterns.Toggle.PatternOrDefault, p => p.Toggle());
 
-    public bool TrySelect() => TryPattern(el.Patterns.SelectionItem.PatternOrDefault, p => p.Select());
+    public bool TrySelect() => Attempt(() => el.Patterns.SelectionItem.PatternOrDefault, p => p.Select());
 
-    public bool CanSetValue => Guard(() =>
-    {
-        var pattern = el.Patterns.Value.PatternOrDefault;
-        return pattern is not null && !pattern.IsReadOnly.ValueOrDefault;
-    }, false);
+    public bool CanSetValue => Guard(() => WritableValuePattern() is not null, false);
 
-    public bool TrySetValue(string value) => TryPattern(el.Patterns.Value.PatternOrDefault, p => p.SetValue(value));
+    public bool TrySetValue(string value) => Attempt(WritableValuePattern, p => p.SetValue(value));
 
     public string? ReadValue() => Guard(() => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault, null);
 
@@ -60,8 +98,18 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
         }
     }
 
+    private IValuePattern? WritableValuePattern()
+    {
+        var pattern = el.Patterns.Value.PatternOrDefault;
+        return pattern is not null && !pattern.IsReadOnly.ValueOrDefault ? pattern : null;
+    }
+
+    /// <summary>See <see cref="PatternCall.Attempt"/>: false only when the pattern is not available.</summary>
+    private static bool Attempt<TPattern>(Func<TPattern?> getPattern, Action<TPattern> call) where TPattern : class =>
+        PatternCall.Attempt(getPattern, call, PatternCall.DefaultLimit);
+
     /// <summary>Live reads can throw once the element has vanished (e.g. after the action closed its
-    /// window); the action itself already happened, so a failed read-back must not turn into an error.</summary>
+    /// window); the action itself already happened, so a failed read must not turn into an error.</summary>
     private static T Guard<T>(Func<T> read, T fallback)
     {
         try
@@ -74,19 +122,16 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
         }
     }
 
-    private static bool TryPattern<TPattern>(TPattern? pattern, Action<TPattern> act) where TPattern : class
+    /// <summary>For the reads that precede an action: a dead element is reported as exactly that.</summary>
+    private T ReadOrGone<T>(Func<T> read)
     {
-        if (pattern is null)
-            return false;
-
         try
         {
-            act(pattern);
-            return true;
+            return read();
         }
         catch (Exception)
         {
-            return false;
+            throw new ElementNotFoundException(id);
         }
     }
 

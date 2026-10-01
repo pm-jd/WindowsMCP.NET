@@ -109,7 +109,9 @@ public static class InputTools
     }
 
     /// <summary>Post-resolve part of the element click: single left click goes through the executor
-    /// (pattern-first); anything else is a mouse click at the rect centre reported via <c>mouse</c>.</summary>
+    /// (pattern-first); anything else is a mouse click at the rect centre reported via <c>mouse</c> —
+    /// behind the same guards as the executor's mouse path (target enabled, click point not covered by
+    /// another application's window), checked right before the click.</summary>
     internal static (string Text, ActionOutcome Outcome) ClickResolved(
         ResolvedElement resolved, ActionExecutor executor, MouseButton button, int clicks, ActionMethod method,
         Func<string>? signature, int settleMs, Action<int, int, MouseButton, int> mouseClick)
@@ -125,9 +127,12 @@ public static class InputTools
         }
         else
         {
-            var rect = resolved.Target.CurrentRect;
-            var (x, y) = (rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
-            outcome = executor.MouseAction(() => mouseClick(x, y, button, clicks), signature, settleMs);
+            ActionGuards.EnsureEnabled(resolved.Target);
+            outcome = executor.MouseAction(() =>
+            {
+                var point = ActionGuards.ClickPoint(resolved.Target);
+                mouseClick(point.X, point.Y, button, clicks);
+            }, signature, settleMs);
         }
 
         return ($"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}", outcome);

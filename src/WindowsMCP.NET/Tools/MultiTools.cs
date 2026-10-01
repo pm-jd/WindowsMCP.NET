@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Drawing;
 using System.Text.Json;
 using ModelContextProtocol.Server;
 using WindowsMcpNet.Native;
@@ -26,9 +27,17 @@ public static class MultiTools
     {
         try
         {
-            var targets = elements is { Length: > 0 }
-                ? ResolveElementTargets(elements, observationStore, observationService)
-                : ResolveTargets(uiTreeService, labels, locs);
+            if (elements is { Length: > 0 })
+            {
+                var resolved = elements
+                    .Select(id => ElementTargets.Resolve(id, observationStore, observationService))
+                    .ToList();
+                return SelectElements(resolved, press_ctrl,
+                    down => InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: !down)),
+                    point => InputFactory.LeftClickAt(point.X, point.Y));
+            }
+
+            var targets = ResolveTargets(uiTreeService, labels, locs);
             if (targets.Count == 0)
                 throw new ArgumentException("No targets specified. Provide 'labels', 'locs' or 'elements'.");
 
@@ -106,17 +115,45 @@ public static class MultiTools
 
     // --- Helpers ---
 
-    private static List<(int X, int Y, string Desc)> ResolveElementTargets(
-        string[] elements, ObservationStore store, ObservationService svc)
+    /// <summary>
+    /// Element path of MultiSelect (after all ids were resolved). EVERY target is checked — enabled, on
+    /// screen, click point not covered by another application's window — before Ctrl goes down or
+    /// anything is clicked, so a target that cannot be clicked leaves the UI untouched. Each click point
+    /// is taken and checked again right before its click (an earlier click may have moved or covered the
+    /// element); a failure then stops the run, releases Ctrl and reports what was already clicked.
+    /// </summary>
+    internal static string SelectElements(
+        IReadOnlyList<ResolvedElement> resolved, bool pressCtrl, Action<bool> holdCtrl, Action<Point> click)
     {
-        var targets = new List<(int, int, string)>();
-        foreach (var id in elements)
+        foreach (var element in resolved)
         {
-            var resolved = ElementTargets.Resolve(id, store, svc);
-            var rect = resolved.Target.CurrentRect;
-            targets.Add((rect.X + rect.Width / 2, rect.Y + rect.Height / 2, resolved.Describe));
+            ActionGuards.EnsureEnabled(element.Target);
+            ActionGuards.ClickPoint(element.Target);
         }
-        return targets;
+
+        if (pressCtrl)
+            holdCtrl(true);
+
+        var clicked = new List<string>();
+        try
+        {
+            foreach (var element in resolved)
+            {
+                click(ActionGuards.ClickPoint(element.Target));
+                clicked.Add(element.Describe);
+            }
+        }
+        catch (Exception ex) when (clicked.Count > 0 && ex is not OperationCanceledException)
+        {
+            return $"[ERROR] {ex.GetType().Name}: {ex.Message} (already clicked: {string.Join(", ", clicked)})";
+        }
+        finally
+        {
+            if (pressCtrl)
+                holdCtrl(false);
+        }
+
+        return $"Multi-selected {clicked.Count} element(s): {string.Join(", ", clicked)}";
     }
 
     /// <summary>Parses <c>[[id, text], ...]</c>, resolves ALL ids before the first edit (so a stale id

@@ -135,6 +135,16 @@ RuntimeIds are not used for identity: WinForms proxies regenerate them. Known li
 
 New optional parameter `element: string?` on `Click`, `Type` and on every `Perform` step; `MultiSelect` and `MultiEdit` accept element ids wherever they accept labels today (exact parameter shape follows their current signatures). Precedence: `element` > `label` > `loc`. New parameter `method: ActionMethod = auto` (`auto | pattern | mouse`).
 
+### Guards — input never reaches anything but the resolved target
+
+Two rules hold on every element path: **input is never sent to anything but the resolved target, and no action is performed twice.** When in doubt the action is refused with an actionable `[ERROR]` and nothing is done. Checked before anything is sent:
+
+- **Modal dialog**: when the top-level window the element was resolved in (§2) is disabled — it owns an open modal dialog — resolution fails with `InvalidOperationException: element e7Q2 is in a window blocked by a modal dialog — call Observe and handle the dialog first`. UIA patterns (`Invoke`, `SetValue`) would otherwise act behind the dialog.
+- **Disabled target**: `Click` and `Type` refuse an element that reports `IsEnabled = false` with `InvalidOperationException: Button is disabled — nothing was done` (an element that does not report the property counts as enabled). The same check guards the mouse-only element paths (non-left/multi clicks, `MultiSelect`).
+- **Covered click point**: before **any** mouse input on the element path — mouse method and fallback, click-to-focus, non-left/multi clicks, `MultiSelect` — the UIA element at the click point (centre of the element's current rectangle) must belong to the target's process; otherwise `InvalidOperationException: the element is covered by another window — nothing was clicked`. `MultiSelect` checks **all** targets before it presses Ctrl, and each one again right before its click (a failure then stops the run, releases Ctrl and lists what was already clicked).
+- **Keyboard focus**: keys are only sent once the target — or one of its descendants; a ComboBox's inner Edit counts — is confirmed to hold the keyboard focus (see Type).
+- **Live reads**: a read that fails *before* the action (the element vanished) ends in `ElementNotFound` with nothing done. No read *after* an action was sent (read-back, rectangle, focus, hit-test, signature) can turn the executed action into an error.
+
 ### Click (`method=auto`)
 
 | Element type | Pattern tried first |
@@ -144,12 +154,14 @@ New optional parameter `element: string?` on `Click`, `Type` and on every `Perfo
 | CheckBox | Toggle |
 | RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select |
 
-Then verify (§4). The mouse fallback (click the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the pattern is unsupported or its call fails, and — because `Select` is idempotent — when a `SelectionItem` call reports success but nothing changed (the docking-tab case from the spike). After a successful `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never falls back; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
+Then verify (§4). The mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` call was made but nothing changed (the docking-tab case from the spike; if the element can no longer be clicked safely at that point, the result stays `via SelectionItem — effect: unchanged`).
+
+A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never uses the mouse (error only when the element has no usable pattern); `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
 
 ### Type
 
-1. If `ValuePattern` is supported and not read-only: `SetValue(clear ? text : current + text)`; `press_enter` sends Enter afterwards via keyboard. The target is focused first (`SetFocus`, mouse click on failure) so Enter reaches it.
-2. Otherwise: focus the element (`SetFocus`, mouse click on failure), then the existing keyboard path (`clear` → Ctrl+A, Delete).
+1. If `ValuePattern` is supported and not read-only: `SetValue(clear ? text : current + text)`. As with Click, a `SetValue` that throws or does not return within 2 s counts as attempted — the read-back decides, the keyboard path is not used on top. `press_enter` sends Enter afterwards via keyboard: the target is focused first (`SetFocus`; one mouse click when that does not bring the focus), and when the focus cannot be confirmed the call fails with `value was set, but the element could not be focused — Enter was not sent`.
+2. Otherwise: focus the element (`SetFocus`; one mouse click when that does not bring the focus — subject to the covered-click-point guard), **confirm that it holds the keyboard focus**, then the existing keyboard path (`clear` → Ctrl+A, Delete). Without confirmed focus nothing is typed: `could not give keyboard focus to the element — nothing was typed`.
 3. Read back `ValuePattern.Value` (when available): equal after trimming → `value_verified`, else `value_mismatch` (reported, not thrown). `\n`/`\t` handling stays as today for the keyboard path.
 
 ### Result text
