@@ -25,7 +25,7 @@ public class PerformProgressTests
         var steps = JsonDocument.Parse("""[{"action":"wait","duration":0},{"action":"wait","duration":0},{"action":"wait","duration":0}]""").RootElement;
         var recorder = new Recorder();
 
-        await PerformTools.Perform(null!, null!, steps, snapshot_after: false, delay_between_ms: 0,
+        await PerformTools.Perform(null!, null!, null!, null!, null!, steps, snapshot_after: false, delay_between_ms: 0,
             progress: recorder, ct: TestContext.Current.CancellationToken);
 
         Assert.Equal([1f, 2f, 3f], recorder.Items.Select(i => i.Progress));
@@ -38,7 +38,7 @@ public class PerformProgressTests
     {
         var steps = JsonDocument.Parse("""[{"action":"wait","duration":0}]""").RootElement;
 
-        var result = await PerformTools.Perform(null!, null!, steps, snapshot_after: false,
+        var result = await PerformTools.Perform(null!, null!, null!, null!, null!, steps, snapshot_after: false,
             ct: TestContext.Current.CancellationToken);
 
         Assert.Contains(result.OfType<TextContentBlock>(), t => t.Text.Contains("Completed. 1/1 succeeded."));

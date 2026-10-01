@@ -20,6 +20,9 @@ public static class PerformTools
                  "Returns step-by-step results with optional screenshot.")]
     public static async Task<IList<ContentBlock>> Perform(
         UiTreeService uiTreeService,
+        ObservationService observationService,
+        ObservationStore observationStore,
+        ActionExecutor executor,
         ScreenCaptureService captureService,
         [Description("Array of action steps: [{action, ...params}]")] JsonElement steps,
         [Description("Stop executing on first error")] bool stop_on_error = true,
@@ -39,7 +42,7 @@ public static class PerformTools
         {
             var step = parsed[i];
             var stepNum = i + 1;
-            var stepResult = await RunStep(step, stepNum, uiTreeService, ct);
+            var stepResult = await RunStep(step, stepNum, uiTreeService, observationService, observationStore, executor, ct);
             results.Add(stepResult);
 
             // One notification per step (bound to the request's progressToken by the SDK; a
@@ -77,7 +80,8 @@ public static class PerformTools
         return content;
     }
 
-    private static async Task<StepResult> RunStep(ParsedStep step, int stepNum, UiTreeService uiTreeService, CancellationToken ct)
+    private static async Task<StepResult> RunStep(ParsedStep step, int stepNum, UiTreeService uiTreeService,
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor, CancellationToken ct)
     {
         if (step.IsUnknown)
             return new StepResult(stepNum, false, $"Unknown action '{step.Action}'");
@@ -88,7 +92,7 @@ public static class PerformTools
             if (step.GetBool("if_exists") && step.GetString("label") is { } label && uiTreeService.ResolveLabel(label) is null)
                 return new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)");
 
-            return new StepResult(stepNum, true, await ExecuteStep(step, uiTreeService, ct));
+            return new StepResult(stepNum, true, await ExecuteStep(step, uiTreeService, observationService, observationStore, executor, ct));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -100,22 +104,25 @@ public static class PerformTools
         }
     }
 
-    private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService, CancellationToken ct)
+    private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService,
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor, CancellationToken ct)
     {
         return step.Action switch
         {
-            "click" => InputTools.Click(uiTreeService,
+            "click" => InputTools.Click(uiTreeService, observationService, observationStore, executor,
                 loc: step.GetIntArray("loc"),
                 label: step.GetString("label"),
                 button: step.GetEnum("button", MouseButton.Left),
-                clicks: step.GetInt("clicks") ?? 1),
+                clicks: step.GetInt("clicks") ?? 1,
+                ct: ct),
 
-            "type" => InputTools.Type(uiTreeService,
+            "type" => InputTools.Type(uiTreeService, observationService, observationStore, executor,
                 text: step.GetString("text") ?? throw new ArgumentException("'text' required for type action"),
                 label: step.GetString("label"),
                 loc: step.GetIntArray("loc"),
                 clear: step.GetBool("clear"),
-                press_enter: step.GetBool("press_enter")),
+                press_enter: step.GetBool("press_enter"),
+                ct: ct),
 
             "shortcut" => InputTools.Shortcut(
                 shortcut: step.GetString("shortcut") ?? throw new ArgumentException("'shortcut' required")),

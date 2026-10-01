@@ -463,6 +463,29 @@ public class ActionExecutorTests
         Assert.Equal(["SetValue", "Focus", "LeftClick:15,5", "PressEnter"], log);
     }
 
+    // --- MouseAction -----------------------------------------------------------------------------
+
+    [Fact]
+    public void MouseAction_RunsActionAndReportsChanged()
+    {
+        var log = new List<string>();
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.MouseAction(() => log.Add("act"), SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("mouse", ActionEffect.Changed), outcome);
+        Assert.Equal(["act"], log);
+    }
+
+    [Fact]
+    public void MouseAction_SameSignature_Unchanged_NullSignature_NotVerified()
+    {
+        var executor = new ActionExecutor(new FakeInputDriver([]));
+
+        Assert.Equal(ActionEffect.Unchanged, executor.MouseAction(() => { }, SignatureSequence("A", "A"), 0).Effect);
+        Assert.Equal(ActionEffect.NotVerified, executor.MouseAction(() => { }, null, 0).Effect);
+    }
+
     // --- ToWire ----------------------------------------------------------------------------------
 
     [Theory]

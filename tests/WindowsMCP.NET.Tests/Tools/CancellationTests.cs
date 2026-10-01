@@ -52,7 +52,7 @@ public class CancellationTests
         var sw = Stopwatch.StartNew();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => PerformTools.Perform(null!, null!, steps, snapshot_after: false, ct: cts.Token));
+            () => PerformTools.Perform(null!, null!, null!, null!, null!, steps, snapshot_after: false, ct: cts.Token));
 
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"took {sw.Elapsed}");
     }

@@ -58,6 +58,8 @@ public static class McpServerSetup
         services.AddSingleton<UiTreeService>();
         services.AddSingleton<ObservationService>();
         services.AddSingleton<ObservationStore>();
+        services.AddSingleton<IInputDriver, InputDriver>();
+        services.AddSingleton<ActionExecutor>();
         return services;
     }
 

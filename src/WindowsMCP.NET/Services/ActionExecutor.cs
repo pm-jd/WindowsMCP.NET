@@ -163,6 +163,21 @@ public sealed class ActionExecutor(IInputDriver input)
         return new ActionOutcome(via, CompareEffect(signature, before));
     }
 
+    /// <summary>
+    /// Performs a caller-supplied mouse action (e.g. a right/double click) between the before/after
+    /// scope signature reads, with the same settle and compare logic as <see cref="Click"/>, and reports
+    /// it as <c>mouse</c>. A <see langword="null"/> signature yields <see cref="ActionEffect.NotVerified"/>.
+    /// </summary>
+    public ActionOutcome MouseAction(Action act, Func<string>? signature, int settleMs)
+    {
+        ArgumentNullException.ThrowIfNull(act);
+
+        var before = signature?.Invoke();
+        act();
+        Settle(settleMs);
+        return new ActionOutcome("mouse", CompareEffect(signature, before));
+    }
+
     /// <summary>Click pattern table (spec §3): the UIA pattern tried first for a control type, and the
     /// <see cref="ActionOutcome.Via"/> name it reports. Returns <c>(false, "")</c>, without invoking any
     /// pattern, for control types with no click pattern.</summary>

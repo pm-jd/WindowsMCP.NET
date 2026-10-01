@@ -16,15 +16,20 @@ public static class MultiTools
                  "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
+        ObservationService observationService,
+        ObservationStore observationStore,
         [Description("Element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
         [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
-        [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true)
+        [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true,
+        [Description("Element ids from the last Observe, e.g. ['e7q2k','e3x9a']; takes precedence over labels and locs; each is resolved against the live UI and clicked at the centre of its current rectangle")] string[]? elements = null)
     {
         try
         {
-            var targets = ResolveTargets(uiTreeService, labels, locs);
+            var targets = elements is { Length: > 0 }
+                ? ResolveElementTargets(elements, observationStore, observationService)
+                : ResolveTargets(uiTreeService, labels, locs);
             if (targets.Count == 0)
-                throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
+                throw new ArgumentException("No targets specified. Provide 'labels', 'locs' or 'elements'.");
 
             if (press_ctrl)
                 InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: false));
@@ -59,11 +64,18 @@ public static class MultiTools
                  "or label-text pairs via labels ([[label,text],[label,text],...]).")]
     public static string MultiEdit(
         UiTreeService uiTreeService,
+        ObservationService observationService,
+        ObservationStore observationStore,
+        ActionExecutor executor,
         [Description("Array of [x, y, text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']]")] JsonElement? locs = null,
-        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] JsonElement? labels = null)
+        [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] JsonElement? labels = null,
+        [Description("Array of [elementId, text] pairs from the last Observe, e.g. [['e7q2k','John'],['e3x9a','Doe']]; takes precedence over locs and labels; each field is set via its value where possible and read back")] JsonElement? elements = null)
     {
         try
         {
+            if (elements.HasValue)
+                return EditElements(elements.Value, observationService, observationStore, executor);
+
             var pairs = BuildEditPairs(uiTreeService, locs, labels);
             if (pairs.Count == 0)
                 throw new ArgumentException("No fields specified. Provide 'locs' or 'labels'.");
@@ -86,6 +98,50 @@ public static class MultiTools
     }
 
     // --- Helpers ---
+
+    private static List<(int X, int Y, string Desc)> ResolveElementTargets(
+        string[] elements, ObservationStore store, ObservationService svc)
+    {
+        var targets = new List<(int, int, string)>();
+        foreach (var id in elements)
+        {
+            var resolved = ElementTargets.Resolve(id, store, svc);
+            var rect = resolved.Target.CurrentRect;
+            targets.Add((rect.X + rect.Width / 2, rect.Y + rect.Height / 2, resolved.Describe));
+        }
+        return targets;
+    }
+
+    private static string EditElements(
+        JsonElement elements, ObservationService svc, ObservationStore store, ActionExecutor executor)
+    {
+        if (elements.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("'elements' must be an array of [elementId, text] pairs.");
+
+        var entries = new List<(string Id, string Text)>();
+        foreach (var entry in elements.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Array || entry.GetArrayLength() != 2
+                || entry[0].ValueKind != JsonValueKind.String || entry[1].ValueKind != JsonValueKind.String)
+                throw new ArgumentException("Each 'elements' entry must be an array of exactly two strings: [elementId, text].");
+
+            entries.Add((entry[0].GetString()!, entry[1].GetString()!));
+        }
+
+        if (entries.Count == 0)
+            throw new ArgumentException("No fields specified. Provide 'locs', 'labels' or 'elements'.");
+
+        var results = new List<string>();
+        foreach (var (id, text) in entries)
+        {
+            var resolved = ElementTargets.Resolve(id, store, svc);
+            var signature = ElementTargets.SignatureFor(resolved, svc, CancellationToken.None);
+            var outcome = executor.Type(resolved.Target, text, clear: true, pressEnter: false, signature, 300);
+            results.Add($"{resolved.Describe}: {outcome.Effect.ToWire()}");
+        }
+
+        return $"Edited {results.Count} field(s): {string.Join(", ", results)}";
+    }
 
     private static List<(int X, int Y, string Desc)> ResolveTargets(
         UiTreeService uiTreeService,

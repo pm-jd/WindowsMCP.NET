@@ -47,46 +47,51 @@ public static class InputTools
     };
 
     [McpServerTool(Name = "Click", Destructive = true, OpenWorld = true, ReadOnly = false)]
-    [Description("Click at coordinates or a labeled UI element.")]
+    [Description("Click at coordinates, a labeled UI element, or an element id from Observe.")]
     public static string Click(
         UiTreeService uiTreeService,
+        ObservationService observationService,
+        ObservationStore observationStore,
+        ActionExecutor executor,
         [Description("Coordinate as [x, y] (ignored when label is given)")] int[]? loc = null,
         [Description("UI element label from last Snapshot (e.g. '3')")] string? label = null,
         [Description("Mouse button")] MouseButton button = MouseButton.Left,
-        [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1)
+        [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1,
+        [Description("Element id from the last Observe (e.g. 'e7q2k'); takes precedence over label and loc; resolved against the live UI")] string? element = null,
+        [Description("Element path only: auto tries the UIA pattern for the control type and falls back to the mouse, pattern never uses the mouse, mouse always does")] ActionMethod method = ActionMethod.Auto,
+        [Description("Element path only: compare the process's UI before and after and report the effect (default true)")] bool? verify = null,
+        [Description("Element path only: milliseconds to wait before the verification read (0-2000)")] int settle_ms = 300,
+        CancellationToken ct = default)
     {
         try
         {
+            var actualClicks = Math.Max(1, clicks);
+
+            if (element is not null)
+            {
+                var resolved = ElementTargets.Resolve(element, observationStore, observationService);
+                var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
+                var settle = Math.Clamp(settle_ms, 0, 2000);
+
+                ActionOutcome outcome;
+                if (button == MouseButton.Left && actualClicks == 1)
+                {
+                    outcome = executor.Click(resolved.Target, method, signature, settle);
+                }
+                else
+                {
+                    var rect = resolved.Target.CurrentRect;
+                    var (ex, ey) = (rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+                    outcome = executor.MouseAction(() => MouseClickAt(ex, ey, button, actualClicks), signature, settle);
+                }
+
+                return $"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+            }
+
             var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
                 ?? throw new ArgumentException("Either 'label' or 'loc' ([x, y]) must be provided.");
 
-            var actualClicks = Math.Max(1, clicks);
-
-            if (button == MouseButton.Left && actualClicks == 1)
-            {
-                InputFactory.LeftClickAt(cx, cy);
-            }
-            else
-            {
-                User32.SetCursorPos(cx, cy);
-
-                var (downFlag, upFlag) = button switch
-                {
-                    MouseButton.Right  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
-                    MouseButton.Middle => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
-                    _                  => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
-                };
-
-                // Atomic batch: all click events in one SendInput call so Windows sees
-                // consecutive timestamps within GetDoubleClickTime() for clicks=2.
-                var inputs = new INPUT[actualClicks * 2];
-                for (var i = 0; i < actualClicks; i++)
-                {
-                    inputs[i * 2]     = InputFactory.Mouse(downFlag);
-                    inputs[i * 2 + 1] = InputFactory.Mouse(upFlag);
-                }
-                InputFactory.Send(inputs);
-            }
+            MouseClickAt(cx, cy, button, actualClicks);
 
             return $"Clicked {button.Lower()} at ({cx},{cy}){(actualClicks > 1 ? $" ({actualClicks}x)" : "")}";
         }
@@ -96,18 +101,63 @@ public static class InputTools
         }
     }
 
+    private static void MouseClickAt(int cx, int cy, MouseButton button, int actualClicks)
+    {
+        if (button == MouseButton.Left && actualClicks == 1)
+        {
+            InputFactory.LeftClickAt(cx, cy);
+            return;
+        }
+
+        User32.SetCursorPos(cx, cy);
+
+        var (downFlag, upFlag) = button switch
+        {
+            MouseButton.Right  => (User32.MOUSEEVENTF_RIGHTDOWN, User32.MOUSEEVENTF_RIGHTUP),
+            MouseButton.Middle => (User32.MOUSEEVENTF_MIDDLEDOWN, User32.MOUSEEVENTF_MIDDLEUP),
+            _                  => (User32.MOUSEEVENTF_LEFTDOWN, User32.MOUSEEVENTF_LEFTUP),
+        };
+
+        // Atomic batch: all click events in one SendInput call so Windows sees
+        // consecutive timestamps within GetDoubleClickTime() for clicks=2.
+        var inputs = new INPUT[actualClicks * 2];
+        for (var i = 0; i < actualClicks; i++)
+        {
+            inputs[i * 2]     = InputFactory.Mouse(downFlag);
+            inputs[i * 2 + 1] = InputFactory.Mouse(upFlag);
+        }
+        InputFactory.Send(inputs);
+    }
+
     [McpServerTool(Name = "Type", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Type text, optionally clicking a target element first. Newlines are sent as Enter, tabs as Tab.")]
     public static string Type(
         UiTreeService uiTreeService,
+        ObservationService observationService,
+        ObservationStore observationStore,
+        ActionExecutor executor,
         [Description("Text to type")] string text,
         [Description("Optional: click this label before typing")] string? label = null,
         [Description("Coordinate to click before typing as [x, y]")] int[]? loc = null,
         [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
-        [Description("Press Enter after typing")] bool press_enter = false)
+        [Description("Press Enter after typing")] bool press_enter = false,
+        [Description("Element id from the last Observe (e.g. 'e7q2k'); takes precedence over label and loc; resolved against the live UI. " +
+                     "The text is set via the control's value where possible (then \\n and \\t are not converted to Enter/Tab) and the value is read back")] string? element = null,
+        [Description("Element path only: verify the result (value read-back, else UI change) and report the effect (default true)")] bool? verify = null,
+        [Description("Element path only: milliseconds to wait before the verification read (0-2000)")] int settle_ms = 300,
+        CancellationToken ct = default)
     {
         try
         {
+            if (element is not null)
+            {
+                var resolved = ElementTargets.Resolve(element, observationStore, observationService);
+                var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
+                var outcome = executor.Type(resolved.Target, text, clear, press_enter, signature, Math.Clamp(settle_ms, 0, 2000));
+
+                return $"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+            }
+
             if (ResolveTarget(uiTreeService, label, loc) is { } target)
             {
                 User32.SetCursorPos(target.X, target.Y);

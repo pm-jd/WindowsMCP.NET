@@ -18,7 +18,7 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
     /// <summary>At least one control-view child — the same "IsControlElement" view
     /// <see cref="ObservationService"/> walks, so this agrees with what an <c>Observe</c> call
     /// would have reported as this element's children.</summary>
-    public bool HasChildren => el.FindAllChildren(ControlViewCondition()).Length > 0;
+    public bool HasChildren => Guard(() => el.FindAllChildren(ControlViewCondition()).Length > 0, false);
 
     public Rectangle CurrentRect => el.BoundingRectangle;
 
@@ -37,18 +37,15 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
 
     public bool TrySelect() => TryPattern(el.Patterns.SelectionItem.PatternOrDefault, p => p.Select());
 
-    public bool CanSetValue
+    public bool CanSetValue => Guard(() =>
     {
-        get
-        {
-            var pattern = el.Patterns.Value.PatternOrDefault;
-            return pattern is not null && !pattern.IsReadOnly.ValueOrDefault;
-        }
-    }
+        var pattern = el.Patterns.Value.PatternOrDefault;
+        return pattern is not null && !pattern.IsReadOnly.ValueOrDefault;
+    }, false);
 
     public bool TrySetValue(string value) => TryPattern(el.Patterns.Value.PatternOrDefault, p => p.SetValue(value));
 
-    public string? ReadValue() => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault;
+    public string? ReadValue() => Guard(() => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault, null);
 
     public bool TryFocus()
     {
@@ -60,6 +57,20 @@ public sealed class FlaUiActionTarget(AutomationElement el) : IActionTarget
         catch (Exception)
         {
             return false;
+        }
+    }
+
+    /// <summary>Live reads can throw once the element has vanished (e.g. after the action closed its
+    /// window); the action itself already happened, so a failed read-back must not turn into an error.</summary>
+    private static T Guard<T>(Func<T> read, T fallback)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception)
+        {
+            return fallback;
         }
     }
 
