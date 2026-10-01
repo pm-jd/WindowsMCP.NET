@@ -390,15 +390,18 @@ public sealed class ActionExecutor(IInputDriver input)
             pending = call == PatternCallResult.StillRunning;
             if (pressEnter)
             {
-                // Enter is a key: without a desktop it goes nowhere, wherever UIA says the focus is.
-                // The value is already set, so this is not "nothing was done".
-                if (!input.HasInteractiveDesktop)
-                    throw new InvalidOperationException("value was set, but there is no interactive desktop — Enter was not sent");
+                // What is known about the value when Enter cannot follow: set — or only sent, when the
+                // SetValue call has not returned. Either way this is not "nothing was done".
+                var valueWas = pending ? "value was sent, but the call has not returned, and" : "value was set, but";
 
-                // SetValue does not move the focus. The value is already set, so a click point that is
+                // Enter is a key: without a desktop it goes nowhere, wherever UIA says the focus is.
+                if (!input.HasInteractiveDesktop)
+                    throw new InvalidOperationException($"{valueWas} there is no interactive desktop — Enter was not sent");
+
+                // SetValue does not move the focus. The value has been sent, so a click point that is
                 // gone or covered is not an error of its own here — it just means "no focus".
                 if (!GiveFocus(t, TryClickPoint))
-                    throw new InvalidOperationException("value was set, but the element could not be focused — Enter was not sent");
+                    throw new InvalidOperationException($"{valueWas} the element could not be focused — Enter was not sent");
 
                 input.PressEnter();
             }

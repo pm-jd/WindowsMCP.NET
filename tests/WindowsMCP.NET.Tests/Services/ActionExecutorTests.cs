@@ -111,17 +111,17 @@ public class ActionExecutorTests
 
     [Theory]
     [InlineData("CheckBox", "Toggle")]
-    [InlineData("RadioButton", "Select")]
-    [InlineData("TabItem", "Select")]
+    [InlineData("RadioButton", "Select", "IsSelected")]
+    [InlineData("TabItem", "Select", "IsSelected")]
     [InlineData("ComboBox", "ExpandCollapse")]
-    public void Click_Auto_OtherPatternTypes_StayPatternFirst_AlsoWithASafePoint(string controlType, string expectedCall)
+    public void Click_Auto_OtherPatternTypes_StayPatternFirst_AlsoWithASafePoint(string controlType, params string[] expectedCalls)
     {
         var log = new List<string>();
         var target = new FakeActionTarget(log) { ControlType = controlType };
 
         Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
-        Assert.Equal([expectedCall], log);
+        Assert.Equal(expectedCalls, log);
     }
 
     [Fact]
@@ -135,7 +135,7 @@ public class ActionExecutorTests
 
         Assert.Equal("SelectionItem", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     [Fact]
@@ -204,7 +204,7 @@ public class ActionExecutorTests
 
         Assert.Equal("mouse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Select", "LeftClick:120,210"], log);
+        Assert.Equal(["Select", "IsSelected", "LeftClick:120,210"], log);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public class ActionExecutorTests
 
         executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A", "B"), settleMs: 0);
 
-        Assert.Equal(["Select", "LeftClick:310,410"], log);
+        Assert.Equal(["Select", "IsSelected", "LeftClick:310,410"], log);
     }
 
     [Fact]
@@ -844,7 +844,7 @@ public class ActionExecutorTests
     }
 
     [Fact]
-    public void Type_Keyboard_FocusFails_ElementCovered_Throws_NothingClickedOrTyped()
+    public void Type_Keyboard_FocusFails_ElementCovered_Throws_NothingTyped()
     {
         var log = new List<string>();
         var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = false, Covered = true };
@@ -981,7 +981,7 @@ public class ActionExecutorTests
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     // --- Guards: no key without an interactive desktop either (BF4) -----------------------------------
@@ -1039,6 +1039,38 @@ public class ActionExecutorTests
     }
 
     [Fact]
+    public void Type_SetValueStillRunning_PressEnter_NoInteractiveDesktop_DoesNotClaimTheValueWasSet()
+    {
+        // The SetValue call has not returned: whether the value arrived is not known.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, CallsDoNotReturn = true };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Type(target, "Hi", clear: true, pressEnter: true, signature: null, settleMs: 0));
+
+        Assert.Equal(
+            "value was sent, but the call has not returned, and there is no interactive desktop — Enter was not sent",
+            ex.Message);
+        Assert.Equal(["SetValue"], log);
+    }
+
+    [Fact]
+    public void Type_SetValueStillRunning_PressEnter_FocusNotConfirmed_DoesNotClaimTheValueWasSet()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, CallsDoNotReturn = true, KeyboardFocus = false };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => Executor(log).Type(target, "Hi", clear: true, pressEnter: true, signature: null, settleMs: 0));
+
+        Assert.Equal(
+            "value was sent, but the call has not returned, and the element could not be focused — Enter was not sent",
+            ex.Message);
+        Assert.Equal(["SetValue", "Focus", "LeftClick:5,5"], log);
+    }
+
+    [Fact]
     public void Type_ValuePattern_WithoutEnter_NeedsNoInteractiveDesktop()
     {
         // SetValue is a pattern call: it is all that works in a disconnected session, and it does.
@@ -1092,7 +1124,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     [Fact]
@@ -1104,7 +1136,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Pattern, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     // --- A selection is verified by the target itself (BF2) -------------------------------------------
@@ -1122,7 +1154,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Auto, LoggedSignature(log, before, after), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", effect), outcome);
-        Assert.Equal(["sig", "Select", "sig"], log);
+        Assert.Equal(["sig", "Select", "IsSelected", "sig"], log);
     }
 
     [Theory]
@@ -1137,7 +1169,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Auto, LoggedSignature(log, before, after), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("mouse", effect), outcome);
-        Assert.Equal(["sig", "Select", "LeftClick:120,210", "sig"], log);
+        Assert.Equal(["sig", "Select", "IsSelected", "LeftClick:120,210", "sig"], log);
     }
 
     [Theory]
@@ -1157,12 +1189,12 @@ public class ActionExecutorTests
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     [Theory]
-    [InlineData("A", "B", "Select")]                    // changed: the select stands
-    [InlineData("A", "A", "Select", "LeftClick:5,5")]   // unchanged: one mouse click, as before
+    [InlineData("A", "B", "Select", "IsSelected")]                    // changed: the select stands
+    [InlineData("A", "A", "Select", "IsSelected", "LeftClick:5,5")]   // unchanged: one mouse click, as before
     public void Click_Select_TargetDoesNotReportItsSelection_KeepsTheSignatureRule(
         string before, string after, params string[] expectedLog)
     {
@@ -1186,7 +1218,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged) { CallPending = true }, outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select"], log); // neither a click nor the IsSelected read: the application is busy
     }
 
     [Theory]
@@ -1202,13 +1234,13 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Pattern, SignatureSequence(before, after), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select", "IsSelected"], log);
     }
 
     [Theory]
-    [InlineData(false, "Select", "LeftClick:5,5")]   // the click does not depend on the verification
-    [InlineData(true, "Select")]
-    [InlineData(null, "Select")]
+    [InlineData(false, "Select", "IsSelected", "LeftClick:5,5")]   // the click does not depend on the verification
+    [InlineData(true, "Select", "IsSelected")]
+    [InlineData(null, "Select", "IsSelected")]
     public void Click_Select_VerifyOff_ClicksOnlyWhenTheTargetSaysNotSelected(bool? isSelected, params string[] expectedLog)
     {
         var log = new List<string>();
@@ -1275,7 +1307,7 @@ public class ActionExecutorTests
         var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged) { CallPending = true }, outcome);
-        Assert.Equal(["Select"], log);
+        Assert.Equal(["Select"], log); // and the pending select is not asked for its result
     }
 
     [Fact]

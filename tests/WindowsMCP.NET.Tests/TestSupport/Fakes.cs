@@ -5,7 +5,8 @@ namespace WindowsMcpNet.Tests.TestSupport;
 
 /// <summary>Both fakes append to one shared, ordered log so cross-object call order is assertable.
 /// Only calls that DO something are logged (pattern calls, SetValue, SetFocus, mouse, keyboard);
-/// state reads (enabled, focus, rect, hit-test, value) are not. The guard defaults are the safe ones —
+/// state reads (enabled, focus, rect, hit-test, value) are not — with one exception, the IsSelected
+/// read, whose place in the order is itself asserted. The guard defaults are the safe ones —
 /// enabled, focused, not covered — so a test that does not care about a guard is not affected by it.</summary>
 internal sealed class FakeActionTarget(List<string> log) : IActionTarget
 {
@@ -35,8 +36,20 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
     /// <summary>What <see cref="HasKeyboardFocus"/> reports, unless <see cref="FocusArrivesWithClick"/> is set.</summary>
     public bool KeyboardFocus { get; set; } = true;
 
-    /// <summary>What the element says about its own selection; null = it does not report it.</summary>
-    public bool? IsSelected { get; init; }
+    private readonly bool? _isSelected;
+
+    /// <summary>What the element says about its own selection; null = it does not report it. The READ
+    /// is logged: when it happens is part of the contract — after the Select has returned and settled,
+    /// and not at all while the call is still running (the application would not answer).</summary>
+    public bool? IsSelected
+    {
+        get
+        {
+            log.Add("IsSelected");
+            return _isSelected;
+        }
+        init => _isSelected = value;
+    }
 
     /// <summary>Keyboard focus only arrives once a mouse click has been logged (SetFocus alone is not enough).</summary>
     public bool FocusArrivesWithClick { get; init; }
