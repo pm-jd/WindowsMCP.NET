@@ -71,21 +71,8 @@ public static class InputTools
             {
                 var resolved = ElementTargets.Resolve(element, observationStore, observationService);
                 var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
-                var settle = Math.Clamp(settle_ms, 0, 2000);
-
-                ActionOutcome outcome;
-                if (button == MouseButton.Left && actualClicks == 1)
-                {
-                    outcome = executor.Click(resolved.Target, method, signature, settle);
-                }
-                else
-                {
-                    var rect = resolved.Target.CurrentRect;
-                    var (ex, ey) = (rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
-                    outcome = executor.MouseAction(() => MouseClickAt(ex, ey, button, actualClicks), signature, settle);
-                }
-
-                return $"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+                return ClickResolved(resolved, executor, button, actualClicks, method, signature,
+                    ElementTargets.ClampSettle(settle_ms), MouseClickAt);
             }
 
             var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
@@ -99,6 +86,39 @@ public static class InputTools
         {
             return $"[ERROR] {ex.GetType().Name}: {ex.Message}";
         }
+    }
+
+    /// <summary>Post-resolve part of the element click: single left click goes through the executor
+    /// (pattern-first); anything else is a mouse click at the rect centre reported via <c>mouse</c>.</summary>
+    internal static string ClickResolved(
+        ResolvedElement resolved, ActionExecutor executor, MouseButton button, int clicks, ActionMethod method,
+        Func<string>? signature, int settleMs, Action<int, int, MouseButton, int> mouseClick)
+    {
+        var single = button == MouseButton.Left && clicks == 1;
+        if (method == ActionMethod.Pattern && !single)
+            throw new ArgumentException("method=pattern supports only a single left click");
+
+        ActionOutcome outcome;
+        if (single)
+        {
+            outcome = executor.Click(resolved.Target, method, signature, settleMs);
+        }
+        else
+        {
+            var rect = resolved.Target.CurrentRect;
+            var (x, y) = (rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+            outcome = executor.MouseAction(() => mouseClick(x, y, button, clicks), signature, settleMs);
+        }
+
+        return $"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+    }
+
+    internal static string TypeResolved(
+        ResolvedElement resolved, ActionExecutor executor, string text, bool clear, bool pressEnter,
+        Func<string>? signature, int settleMs)
+    {
+        var outcome = executor.Type(resolved.Target, text, clear, pressEnter, signature, settleMs);
+        return $"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
     }
 
     private static void MouseClickAt(int cx, int cy, MouseButton button, int actualClicks)
@@ -153,9 +173,7 @@ public static class InputTools
             {
                 var resolved = ElementTargets.Resolve(element, observationStore, observationService);
                 var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
-                var outcome = executor.Type(resolved.Target, text, clear, press_enter, signature, Math.Clamp(settle_ms, 0, 2000));
-
-                return $"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+                return TypeResolved(resolved, executor, text, clear, press_enter, signature, ElementTargets.ClampSettle(settle_ms));
             }
 
             if (ResolveTarget(uiTreeService, label, loc) is { } target)

@@ -13,7 +13,7 @@ public static class MultiTools
 
     [McpServerTool(Name = "MultiSelect", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Click multiple UI elements while optionally holding Ctrl, useful for multi-selection in lists/trees. " +
-                 "Provide element label IDs as an integer array or coordinate pairs as an array of [x,y] arrays.")]
+                 "Provide element ids from Observe via 'elements' (takes precedence), element label IDs as an integer array, or coordinate pairs as an array of [x,y] arrays.")]
     public static string MultiSelect(
         UiTreeService uiTreeService,
         ObservationService observationService,
@@ -21,7 +21,8 @@ public static class MultiTools
         [Description("Element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
         [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true,
-        [Description("Element ids from the last Observe, e.g. ['e7q2k','e3x9a']; takes precedence over labels and locs; each is resolved against the live UI and clicked at the centre of its current rectangle")] string[]? elements = null)
+        [Description("Element ids from the last Observe, e.g. ['e7q2k','e3x9a']; takes precedence over labels and locs; each is resolved against the live UI and clicked at the centre of its current rectangle")] string[]? elements = null,
+        CancellationToken ct = default)
     {
         try
         {
@@ -61,7 +62,8 @@ public static class MultiTools
     [McpServerTool(Name = "MultiEdit", Destructive = true, OpenWorld = true, ReadOnly = false)]
     [Description("Click and type into multiple fields sequentially. " +
                  "Provide fields as coordinate-text pairs via locs ([[x,y],[x,y],...] paired with texts) " +
-                 "or label-text pairs via labels ([[label,text],[label,text],...]).")]
+                 "or label-text pairs via labels ([[label,text],[label,text],...]). " +
+                 "With element ids from Observe, use 'elements' ([[id,text],...]); it takes precedence and sets each value directly where possible.")]
     public static string MultiEdit(
         UiTreeService uiTreeService,
         ObservationService observationService,
@@ -69,12 +71,17 @@ public static class MultiTools
         ActionExecutor executor,
         [Description("Array of [x, y, text] triplets specifying coordinate and text, e.g. [[100,200,'hello'],[300,400,'world']]")] JsonElement? locs = null,
         [Description("Array of [label, text] pairs, e.g. [['5','John'],['6','Doe']]")] JsonElement? labels = null,
-        [Description("Array of [elementId, text] pairs from the last Observe, e.g. [['e7q2k','John'],['e3x9a','Doe']]; takes precedence over locs and labels; each field is set via its value where possible and read back")] JsonElement? elements = null)
+        [Description("Array of [elementId, text] pairs from the last Observe, e.g. [['e7q2k','John'],['e3x9a','Doe']]; takes precedence over locs and labels; each field is set via its value where possible and read back")] JsonElement? elements = null,
+        CancellationToken ct = default)
     {
         try
         {
-            if (elements.HasValue)
-                return EditElements(elements.Value, observationService, observationStore, executor);
+            if (elements is { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) })
+            {
+                return EditElements(elements.Value,
+                    id => ElementTargets.Resolve(id, observationStore, observationService),
+                    executor, r => ElementTargets.SignatureFor(r, observationService, ct));
+            }
 
             var pairs = BuildEditPairs(uiTreeService, locs, labels);
             if (pairs.Count == 0)
@@ -112,8 +119,12 @@ public static class MultiTools
         return targets;
     }
 
-    private static string EditElements(
-        JsonElement elements, ObservationService svc, ObservationStore store, ActionExecutor executor)
+    /// <summary>Parses <c>[[id, text], ...]</c>, resolves ALL ids before the first edit (so a stale id
+    /// cannot leave earlier fields edited), then types into each. A failure after at least one edit
+    /// returns an error that lists what was already edited.</summary>
+    internal static string EditElements(
+        JsonElement elements, Func<string, ResolvedElement> resolve, ActionExecutor executor,
+        Func<ResolvedElement, Func<string>?> signatureFor)
     {
         if (elements.ValueKind != JsonValueKind.Array)
             throw new ArgumentException("'elements' must be an array of [elementId, text] pairs.");
@@ -131,13 +142,20 @@ public static class MultiTools
         if (entries.Count == 0)
             throw new ArgumentException("No fields specified. Provide 'locs', 'labels' or 'elements'.");
 
+        var resolved = entries.Select(e => (Element: resolve(e.Id), e.Text)).ToList();
+
         var results = new List<string>();
-        foreach (var (id, text) in entries)
+        foreach (var (element, text) in resolved)
         {
-            var resolved = ElementTargets.Resolve(id, store, svc);
-            var signature = ElementTargets.SignatureFor(resolved, svc, CancellationToken.None);
-            var outcome = executor.Type(resolved.Target, text, clear: true, pressEnter: false, signature, 300);
-            results.Add($"{resolved.Describe}: {outcome.Effect.ToWire()}");
+            try
+            {
+                var outcome = executor.Type(element.Target, text, clear: true, pressEnter: false, signatureFor(element), 300);
+                results.Add($"{element.Describe}: {outcome.Effect.ToWire()}");
+            }
+            catch (Exception ex) when (results.Count > 0 && ex is not OperationCanceledException)
+            {
+                return $"[ERROR] {ex.GetType().Name}: {ex.Message} (already edited: {string.Join(", ", results)})";
+            }
         }
 
         return $"Edited {results.Count} field(s): {string.Join(", ", results)}";

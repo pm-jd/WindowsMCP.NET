@@ -77,6 +77,24 @@ public sealed class ObservationService : IDisposable
         }
     }
 
+    /// <summary>Signature of exactly one process instance: the visible top-level windows of
+    /// <paramref name="pid"/>. Verification of element actions uses this so that, with two instances of
+    /// the same app, the instance that was acted on is the one watched. Throws
+    /// <see cref="InvalidOperationException"/> when the pid has no visible window.</summary>
+    public string Signature(int pid, CancellationToken ct)
+    {
+        lock (_lock)
+        {
+            var handles = EnumerateVisibleTopLevelWindows((uint)pid);
+            if (handles.Count == 0)
+                throw new InvalidOperationException($"process {pid} has no visible window");
+
+            var result = Collect(handles, hitTest: false, ct);
+            var timings = new ObservationTimings(result.WalkMs, 0, result.WalkMs);
+            return ObservationBuilder.Build(result.Windows, result.Nodes, maxElements: 500, timings, result.BudgetExceeded).Signature;
+        }
+    }
+
     /// <summary>
     /// Resolves a stored <see cref="ElementLocator"/> against the live desktop: walks the path
     /// step-by-step over live control-view children of a matching window; when that fails, falls back
