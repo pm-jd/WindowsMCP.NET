@@ -268,6 +268,78 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         Assert.Equal("Typed 5 chars into e9k1a (Edit 'Focus Axis') via ValuePattern — effect: value_verified", result);
     }
 
+    // --- Type tells what the field shows (AF3) --------------------------------------------------------
+
+    private static string TypeInto(string? previous, string? readBack, string text, bool clear,
+        bool verify = true, bool password = false, string describe = "e9k1a (Edit 'Focus Axis')")
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, IsPassword = password };
+        target.ReadValues.Enqueue(previous);
+        target.ReadValues.Enqueue(readBack);
+
+        return InputTools.TypeResolved(Resolved(target, describe), SafeExecutor(log),
+            text, clear, pressEnter: false, verify ? () => "sig" : null, 0).Text;
+    }
+
+    [Fact]
+    public void TypeResolved_ClearFalseOnAFieldWithAValue_StartsWithAppended_AndSaysWhatTheFieldShowsNow() =>
+        Assert.Equal(
+            "Appended 6 chars to e9k1a (Edit 'Focus Axis') — now '0,00000,0000' via ValuePattern — effect: value_verified",
+            TypeInto(previous: "0,0000", readBack: "0,00000,0000", text: "0,0000", clear: false));
+
+    [Theory]
+    [InlineData("", false)]       // nothing there to append to
+    [InlineData(null, false)]
+    [InlineData("0,0000", true)]  // clear=true replaces
+    public void TypeResolved_ThatDoesNotAppend_KeepsTheTypedWording(string? previous, bool clear) =>
+        Assert.Equal(
+            "Typed 4 chars into e9k1a (Edit 'Focus Axis') via ValuePattern — effect: value_verified",
+            TypeInto(previous, readBack: "12,5", text: "12,5", clear));
+
+    [Fact]
+    public void TypeResolved_ValueMismatch_SaysWhatTheFieldShowsAndWhatWasExpected() =>
+        Assert.Equal(
+            "Typed 4 chars into e9k1a (Edit 'Focus Axis') via ValuePattern — effect: value_mismatch " +
+            "(field shows '0,0000', expected '12,5')",
+            TypeInto(previous: "0,0000", readBack: "0,0000", text: "12,5", clear: true));
+
+    [Fact]
+    public void TypeResolved_AppendThatTheApplicationRejected_SaysBoth() =>
+        Assert.Equal(
+            "Appended 6 chars to e9k1a (Edit 'Focus Axis') — now '0,0000' via ValuePattern — effect: value_mismatch " +
+            "(field shows '0,0000', expected '0,00000,0000')",
+            TypeInto(previous: "0,0000", readBack: "0,0000", text: "0,0000", clear: false));
+
+    [Fact]
+    public void TypeResolved_Append_LongOrMultiLineValue_IsShortenedTo60AndEscaped()
+    {
+        var shown = new string('a', 60) + "\r\nsecond line";
+
+        Assert.Equal(
+            "Appended 11 chars to e9k1a (Edit 'Focus Axis') — now '" + new string('a', 60) + "…(+13 chars)' " +
+            "via ValuePattern — effect: value_verified",
+            TypeInto(previous: new string('a', 60) + "\r\n", readBack: shown, text: "second line", clear: false));
+        Assert.Equal(
+            @"Appended 1 chars to e9k1a (Edit 'Focus Axis') — now 'a\r\nb' via ValuePattern — effect: value_verified",
+            TypeInto(previous: "a\r\n", readBack: "a\r\nb", text: "b", clear: false));
+    }
+
+    [Fact]
+    public void TypeResolved_Append_VerifyOff_SaysAppended_WithoutAValue() =>
+        Assert.Equal(
+            "Appended 3 chars to e9k1a (Edit 'Focus Axis') via ValuePattern — effect: not_verified",
+            TypeInto(previous: "x", readBack: "xabc", text: "abc", clear: false, verify: false));
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TypeResolved_PasswordField_NeverShowsAValue_NorAppended(bool clear) =>
+        Assert.Equal(
+            "Typed 3 chars into e4pw (Edit 'Password') via ValuePattern — effect: not_verified",
+            TypeInto(previous: "hunter2", readBack: "hunter2new", text: "new", clear, password: true,
+                describe: "e4pw (Edit 'Password')"));
+
     // --- MultiEdit ------------------------------------------------------------------------------------
 
     private static FakeActionTarget EditTarget(List<string> log, string readBack)
@@ -291,7 +363,8 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         var result = MultiTools.EditElements(Json("""[["e1","John"],["e2","Doe"]]"""), id => targets[id],
             SafeExecutor(log), _ => () => "s");
 
-        Assert.Equal("Edited 2 field(s): e1 (Edit 'First'): value_verified, e2 (Edit 'Last'): value_mismatch", result);
+        Assert.Equal("Edited 2 field(s): e1 (Edit 'First'): value_verified, " +
+                     "e2 (Edit 'Last'): value_mismatch (field shows 'wrong', expected 'Doe')", result);
     }
 
     [Fact]

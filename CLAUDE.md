@@ -51,7 +51,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | **Snapshot** | Capture screenshot + build UI element tree with numbered labels |
 | **Screenshot** | Fast screenshot without rebuilding UI tree |
 | **Click** | Click at coordinates, a labeled UI element or an `Observe` element id (`element`; `method=auto`: mouse first for buttons/links/plain menu items, UIA pattern first for the rest; reports `effect`) |
-| **Type** | Type text with optional target click or `Observe` element id (`element`; value-verified, a password field reports `not_verified`); `\n` is sent as Enter, `\t` as Tab |
+| **Type** | Type text with optional target click or `Observe` element id (`element`; value-verified, a password field reports `not_verified`); `\n` is sent as Enter, `\t` as Tab. With `element`, `clear=false` (default) appends to the field's value — the result then says `Appended … — now '…'`; a `value_mismatch` says `(field shows '…', expected '…')` |
 | **Shortcut** | Send keyboard shortcuts (ctrl+c, alt+f4, win+printscreen, ctrl++ for the plus key; see `InputTools.ParseShortcut`) |
 | **Scroll** | Scroll mouse wheel |
 | **Move** | Move cursor, optional drag |

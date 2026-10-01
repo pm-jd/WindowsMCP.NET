@@ -557,7 +557,7 @@ public class ActionExecutorTests
 
         var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, LoggedSignature(log), settleMs: 0);
 
-        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.ValueVerified), outcome);
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.ValueVerified) { Appended = true, Shown = "xabc" }, outcome);
         Assert.Equal(["SetValue"], log); // no "sig": one full UI walk saved per field
     }
 
@@ -599,8 +599,154 @@ public class ActionExecutorTests
 
         var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, LoggedSignature(log), settleMs: 0);
 
-        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.NotVerified), outcome);
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.NotVerified) { Appended = true }, outcome);
         Assert.Equal(["SetValue"], log);
+    }
+
+    // --- Type tells what the field shows (AF3) -------------------------------------------------------
+    // clear=false appends. On a field showing "0,0000" that produced "0,00000,0000" and a result that
+    // said neither that the text was appended nor what the field shows.
+
+    [Theory]
+    [InlineData(true)]   // ValuePattern: SetValue(previous + text)
+    [InlineData(false)]  // keyboard: typed into the existing content
+    public void Type_ClearFalse_OnAFieldWithAValue_IsAnAppend_AndCarriesWhatTheFieldShowsNow(bool canSetValue)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = canSetValue };
+        target.ReadValues.Enqueue("0,0000");
+        target.ReadValues.Enqueue("0,00000,0000");
+
+        var outcome = Executor(log).Type(target, "0,0000", clear: false, pressEnter: false, SignatureSequence(), settleMs: 0);
+
+        Assert.Equal(ActionEffect.ValueVerified, outcome.Effect);
+        Assert.True(outcome.Appended);
+        Assert.Equal("0,00000,0000", outcome.Shown);
+        Assert.Null(outcome.Expected);
+    }
+
+    [Theory]
+    [InlineData(false, "")]     // clear=false on an empty field: nothing to append to
+    [InlineData(false, null)]   // clear=false on a field without a readable value
+    [InlineData(true, "old")]   // clear=true replaces
+    public void Type_ThatDoesNotAppend_IsNotAnAppend_AndCarriesNoValueWhenVerified(bool clear, string? previous)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue(previous);
+        target.ReadValues.Enqueue("new");
+
+        var outcome = Executor(log).Type(target, "new", clear, pressEnter: false, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.ValueVerified), outcome);
+    }
+
+    [Fact]
+    public void Type_ValueMismatch_CarriesWhatTheFieldShows_AndWhatWasExpected()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("0,0000");
+        target.ReadValues.Enqueue("0,0000"); // the application rejected the new value
+
+        var outcome = Executor(log).Type(target, "12,5", clear: true, pressEnter: false, SignatureSequence(), settleMs: 0);
+
+        Assert.Equal(
+            new ActionOutcome("ValuePattern", ActionEffect.ValueMismatch) { Shown = "0,0000", Expected = "12,5" },
+            outcome);
+    }
+
+    [Fact]
+    public void Type_AppendThatTheApplicationRejected_IsAnAppend_WithAMismatch()
+    {
+        // The acceptance case: "0,0000" appended to "0,0000", Enter, the application kept the old value.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("0,0000");
+        target.ReadValues.Enqueue("0,0000");
+
+        var outcome = Executor(log).Type(target, "0,0000", clear: false, pressEnter: true, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal(
+            new ActionOutcome("ValuePattern", ActionEffect.ValueMismatch)
+            {
+                Appended = true, Shown = "0,0000", Expected = "0,00000,0000",
+            },
+            outcome);
+    }
+
+    [Fact]
+    public void Type_Append_VerifyOff_IsStillAnAppend_ButCarriesNoValue()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("x");
+        target.ReadValues.Enqueue("xabc"); // must not be read: verification is off
+
+        var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, signature: null, settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.NotVerified) { Appended = true }, outcome);
+        Assert.Single(target.ReadValues);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Type_PasswordField_NeverReadsOrCarriesAValue_AndIsNeverAnAppend(bool verify)
+    {
+        // Second line of defence: even a target that WOULD hand out the value of a password field.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { IsPassword = true, CanSetValue = true };
+        target.ReadValues.Enqueue("hunter2");
+        target.ReadValues.Enqueue("hunter2new");
+
+        var outcome = Executor(log).Type(target, "new", clear: false, pressEnter: false, verify ? SignatureSequence() : null, settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.NotVerified), outcome);
+        Assert.Equal("new", target.LastSetValue);      // the old value was not read to append to it
+        Assert.Equal(2, target.ReadValues.Count);      // nothing was read at all
+    }
+
+    [Fact]
+    public void EffectText_ValueMismatch_SaysWhatTheFieldShowsAndWhatWasExpected()
+    {
+        var outcome = new ActionOutcome("ValuePattern", ActionEffect.ValueMismatch) { Shown = "0,0000", Expected = "12,5" };
+
+        Assert.Equal("value_mismatch (field shows '0,0000', expected '12,5')", outcome.EffectText());
+    }
+
+    [Fact]
+    public void EffectText_ValueMismatch_ShortensLongValuesTo60_AndEscapesControlCharacters()
+    {
+        var outcome = new ActionOutcome("ValuePattern", ActionEffect.ValueMismatch)
+        {
+            Shown = "line 1\r\nline 2\tend",
+            Expected = new string('a', 60) + new string('b', 40),
+        };
+
+        Assert.Equal(
+            @"value_mismatch (field shows 'line 1\r\nline 2\tend', expected '" + new string('a', 60) + "…(+40 chars)')",
+            outcome.EffectText());
+    }
+
+    [Fact]
+    public void EffectText_ValueMismatch_ThenThePendingNote()
+    {
+        var outcome = new ActionOutcome("ValuePattern", ActionEffect.ValueMismatch)
+        {
+            Shown = "a", Expected = "b", CallPending = true,
+        };
+
+        Assert.Equal("value_mismatch (field shows 'a', expected 'b')" + PendingNote, outcome.EffectText());
+    }
+
+    [Fact]
+    public void EffectText_VerifiedAppend_StaysThePlainEffect()
+    {
+        // What the field shows after an append is said by the Type result's head, not by the effect.
+        var outcome = new ActionOutcome("ValuePattern", ActionEffect.ValueVerified) { Appended = true, Shown = "xabc" };
+
+        Assert.Equal("value_verified", outcome.EffectText());
     }
 
     // --- Password fields cannot be verified (AF4) ---------------------------------------------------

@@ -235,8 +235,9 @@ public static class ObservationFormatter
     }
 
     /// <summary>Markdown rendering of one piece of UI text: limited to <paramref name="maxChars"/> and
-    /// free of line breaks and tabs, so that one element always stays one line.</summary>
-    private static string Line(string text, int maxChars) => EscapeControl(Clip(text, maxChars));
+    /// free of line breaks and tabs, so that one element always stays one line. Also how the action
+    /// results quote a field value.</summary>
+    internal static string Line(string text, int maxChars) => EscapeControl(Clip(text, maxChars));
 
     /// <summary>At most <paramref name="maxChars"/> characters of <paramref name="text"/>; a longer text
     /// keeps its first <paramref name="maxChars"/> characters followed by <c>…(+n chars)</c> with the

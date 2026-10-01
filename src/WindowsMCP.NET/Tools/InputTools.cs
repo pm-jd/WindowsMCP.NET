@@ -141,12 +141,23 @@ public static class InputTools
         return ($"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.EffectText()}", outcome);
     }
 
+    /// <summary>Post-resolve part of the element type. The result says what happened to the field, not
+    /// only what was sent: <c>clear=false</c> on a field that already had a value is reported as
+    /// "Appended … — now '…'" (the field does not show just the text), and a value mismatch names what
+    /// the field shows and what was expected (<see cref="ActionOutcome.EffectText"/>).</summary>
     internal static (string Text, ActionOutcome Outcome) TypeResolved(
         ResolvedElement resolved, ActionExecutor executor, string text, bool clear, bool pressEnter,
         Func<string>? signature, int settleMs)
     {
         var outcome = executor.Type(resolved.Target, text, clear, pressEnter, signature, settleMs);
-        return ($"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.EffectText()}", outcome);
+
+        var what = outcome.Appended
+            ? $"Appended {text.Length} chars to {resolved.Describe}"
+            : $"Typed {text.Length} chars into {resolved.Describe}";
+        if (outcome is { Appended: true, Shown: { } shown })
+            what += $" — now '{ActionOutcome.Display(shown)}'";
+
+        return ($"{what} via {outcome.Via} — effect: {outcome.EffectText()}", outcome);
     }
 
     private static void MouseClickAt(int cx, int cy, MouseButton button, int actualClicks)
@@ -187,7 +198,8 @@ public static class InputTools
         [Description("Text to type")] string text,
         [Description("Optional: click this label before typing")] string? label = null,
         [Description("Coordinate to click before typing as [x, y]")] int[]? loc = null,
-        [Description("Select all (Ctrl+A then Delete) before typing")] bool clear = false,
+        [Description("Select all (Ctrl+A then Delete) before typing. With 'element': clear=false (the default) appends the text to the field's current value; " +
+                     "pass clear=true to set the field to exactly the text")] bool clear = false,
         [Description("Press Enter after typing")] bool press_enter = false,
         [Description("Element id from the last Observe (e.g. 'e7q2k'); takes precedence over label and loc; resolved against the live UI. " +
                      "The text is set via the control's value where possible (then \\n and \\t are not converted to Enter/Tab) and the value is read back")] string? element = null,

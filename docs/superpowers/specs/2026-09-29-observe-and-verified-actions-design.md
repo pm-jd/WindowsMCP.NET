@@ -192,9 +192,18 @@ A call that **has not returned** when the 2 s limit runs out is told apart from 
 2. Otherwise: focus the element (`SetFocus`; one mouse click when that does not bring the focus — subject to the covered-click-point guard), **confirm that it holds the keyboard focus**, then the existing keyboard path (`clear` → Ctrl+A, Delete). Without confirmed focus nothing is typed: `could not give keyboard focus to the element — nothing was typed`.
 3. Read back `ValuePattern.Value` (when available): equal after trimming → `value_verified`, else `value_mismatch` (reported, not thrown). `\n`/`\t` handling stays as today for the keyboard path.
 
+**`clear`** — with `element`, `clear=false` (the default) **appends** the text to the field's current value; `clear=true` sets the field to exactly the text. The default is unchanged; the parameter descriptions of `Type` and of `Perform` type steps say so plainly, and the result tells what the field shows (below).
+
 ### Result text
 
 Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x') via SelectionItem — effect: changed`. A pattern call that has not returned adds its note after the effect (see Click): `Clicked eA3F (Button 'Open') via Invoke — effect: changed — the call has not returned after 2 s: …`.
+
+`Type` tells what the field shows whenever that is not simply the text that was passed (acceptance: `0,0000` appended to `0,0000` gave `0,00000,0000` and a result that said neither):
+
+- `clear=false` on a field that already had a value starts with `Appended` instead of `Typed` and names the new content: `Appended 6 chars to e9K1 (Edit 'Focus Axis') — now '0,00000,0000' via ValuePattern — effect: value_verified` (`— now '…'` only when the value could be read back).
+- `value_mismatch` is followed by the read-back and the expectation: `… — effect: value_mismatch (field shows '0,0000', expected '12,5')`. `MultiEdit` appends the same to the field's entry.
+- Both values are shortened to 60 characters and escaped like the Observe markdown (`…(+n chars)`, `\r`/`\n`/`\t`).
+- Never for a password field: its value is not read, so the result is the plain `Typed n chars into … — effect: not_verified`.
 
 ## 4. Verification and stall detection
 

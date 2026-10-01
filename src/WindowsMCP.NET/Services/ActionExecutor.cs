@@ -26,13 +26,45 @@ public sealed record ActionOutcome(string Via, ActionEffect Effect)
     /// repeated nor followed by a mouse click; the result text says so (<see cref="EffectText"/>).</summary>
     public bool CallPending { get; init; }
 
-    /// <summary>The effect as a tool result states it: the wire value, followed — for a pattern call
-    /// that has not returned — by what that means for the caller.</summary>
-    public string EffectText() => CallPending
-        ? $"{Effect.ToWire()} — the call has not returned after {PatternCall.DefaultLimit.TotalSeconds:0} s: " +
-          "the application may be showing a modal dialog and cannot be observed until it is closed " +
-          "(Screenshot and keyboard still work)"
-        : Effect.ToWire();
+    /// <summary>Type only: the text was added to a field that already had a value (<c>clear=false</c>),
+    /// so the field does not show just the text. The result says "Appended" instead of "Typed".</summary>
+    public bool Appended { get; init; }
+
+    /// <summary>Type only: what the field shows after the action — carried when the result has to say
+    /// it: the text was appended, or the read-back differs from <see cref="Expected"/>. Never set for
+    /// a password field.</summary>
+    public string? Shown { get; init; }
+
+    /// <summary>Type only, on <see cref="ActionEffect.ValueMismatch"/>: the value the field was
+    /// expected to show.</summary>
+    public string? Expected { get; init; }
+
+    /// <summary>Longest field value quoted in a result text (see <see cref="Display"/>).</summary>
+    internal const int MaxShownChars = 60;
+
+    /// <summary>A field value as a result text quotes it: shortened and escaped by the rules of the
+    /// Observe markdown (<c>…(+n chars)</c>, control characters as escapes), so it stays one line.</summary>
+    internal static string Display(string value) => ObservationFormatter.Line(value, MaxShownChars);
+
+    /// <summary>The effect as a tool result states it: the wire value, followed — on a value mismatch —
+    /// by what the field shows and what was expected, and — for a pattern call that has not returned —
+    /// by what that means for the caller.</summary>
+    public string EffectText()
+    {
+        var text = Effect.ToWire();
+
+        if (Effect == ActionEffect.ValueMismatch && Shown is not null && Expected is not null)
+            text += $" (field shows '{Display(Shown)}', expected '{Display(Expected)}')";
+
+        if (CallPending)
+        {
+            text += $" — the call has not returned after {PatternCall.DefaultLimit.TotalSeconds:0} s: " +
+                    "the application may be showing a modal dialog and cannot be observed until it is closed " +
+                    "(Screenshot and keyboard still work)";
+        }
+
+        return text;
+    }
 }
 
 /// <summary>
@@ -277,12 +309,17 @@ public sealed class ActionExecutor(IInputDriver input)
 
         // A password field's value is never read back and is deliberately not part of the signature,
         // so the signature would say "unchanged" after a perfectly successful entry — a failure that
-        // is none, and one that counts towards Perform's stall stop. It is not verified at all.
-        if (t.IsPassword)
+        // is none, and one that counts towards Perform's stall stop. It is not verified at all, and
+        // its value is not read here either (it must not reach a result text).
+        var password = t.IsPassword;
+        if (password)
             signature = null;
 
-        var previous = t.ReadValue();
+        var previous = password ? null : t.ReadValue();
         var expected = clear ? text : (previous ?? "") + text;
+
+        // clear=false on a field that already shows something: the field will not show just the text.
+        var appended = !clear && !string.IsNullOrEmpty(previous);
 
         // The baseline signature costs a full UI walk and is only the fallback for a read-back that
         // cannot decide. A readable value will decide — unless Enter follows, which may take the
@@ -319,15 +356,21 @@ public sealed class ActionExecutor(IInputDriver input)
         Settle(settleMs);
 
         if (signature is null)
-            return new ActionOutcome(via, ActionEffect.NotVerified) { CallPending = pending };
+            return new ActionOutcome(via, ActionEffect.NotVerified) { CallPending = pending, Appended = appended };
 
         var readBack = t.ReadValue();
         if (readBack is not null)
         {
-            var effect = string.Equals(readBack.Trim(), expected.Trim(), StringComparison.Ordinal)
-                ? ActionEffect.ValueVerified
-                : ActionEffect.ValueMismatch;
-            return new ActionOutcome(via, effect) { CallPending = pending };
+            // The result tells what the field shows whenever that is not simply the text: after an
+            // append, and when the read-back is not what was expected.
+            var verified = string.Equals(readBack.Trim(), expected.Trim(), StringComparison.Ordinal);
+            return new ActionOutcome(via, verified ? ActionEffect.ValueVerified : ActionEffect.ValueMismatch)
+            {
+                CallPending = pending,
+                Appended = appended,
+                Shown = appended || !verified ? readBack : null,
+                Expected = verified ? null : expected,
+            };
         }
 
         // The value was readable before and is not any more, and no baseline was taken: nothing to
@@ -335,6 +378,7 @@ public sealed class ActionExecutor(IInputDriver input)
         return new ActionOutcome(via, needsBaseline ? CompareEffect(signature, before) : ActionEffect.NotVerified)
         {
             CallPending = pending,
+            Appended = appended,
         };
     }
 
