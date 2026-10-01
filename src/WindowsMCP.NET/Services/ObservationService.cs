@@ -384,9 +384,10 @@ public sealed class ObservationService : IDisposable
         var walkMs = stopwatch.ElapsedMilliseconds;
         var hitMs = 0L;
 
-        if (hitTest && !budgetExceeded)
+        // Also when the walk has already spent the budget: the hit-test then only does its Win32 part.
+        if (hitTest)
         {
-            budgetExceeded = HitTest(windows, nodes, byRuntimeId, stopwatch, ct);
+            budgetExceeded |= HitTest(windows, nodes, byRuntimeId, stopwatch, ct);
             hitMs = stopwatch.ElapsedMilliseconds - walkMs;
         }
 
@@ -474,8 +475,9 @@ public sealed class ObservationService : IDisposable
     /// stacked above it (popups, menus, dialogs) are trusted without hit-testing. A node whose centre
     /// lies in another top-level window is not visible (<see cref="ClassifyHit"/>). Runs after the
     /// collecting <see cref="CacheRequest"/>'s scope has closed, so <c>_automation.FromPoint</c> below
-    /// makes a fresh, non-cached query — matching the working reference (mcsprobe). Returns whether the
-    /// time budget was exceeded partway through.</summary>
+    /// makes a fresh, non-cached query — matching the working reference (mcsprobe). The time budget
+    /// stops the UIA queries only; the Win32 pre-check still runs for every remaining node. Returns
+    /// whether the budget left a node without its UIA hit-test.</summary>
     private bool HitTest(
         List<ObservedWindow> windows, List<ObservedNode> nodes, Dictionary<string, int> byRuntimeId,
         Stopwatch stopwatch, CancellationToken ct)
@@ -484,11 +486,9 @@ public sealed class ObservationService : IDisposable
         for (var i = 0; i < windows.Count; i++)
             lastWindowIndexByPid[windows[i].Pid] = i;
 
+        var budgetExceeded = false;
         for (var i = 0; i < nodes.Count; i++)
         {
-            if (stopwatch.Elapsed >= Budget)
-                return true;
-
             ct.ThrowIfCancellationRequested();
 
             var node = nodes[i];
@@ -501,11 +501,18 @@ public sealed class ObservationService : IDisposable
             var centre = new Point(node.Rect.X + node.Rect.Width / 2, node.Rect.Y + node.Rect.Height / 2);
             var hit = ClassifyHit(
                 WindowHit.TopLevelOf(WindowHit.WindowAt(centre)), windows[node.Window].Handle,
+                budgetSpent: stopwatch.Elapsed >= Budget,
                 () => IsUiaHit(node, nodeIndex, centre, nodes, byRuntimeId));
+            if (hit == NodeHit.NotTested)
+            {
+                budgetExceeded = true; // the node keeps HitVisible = null and the observation is truncated
+                continue;
+            }
+
             nodes[i] = node with { HitVisible = hit == NodeHit.Visible, InOtherWindow = hit == NodeHit.InOtherWindow };
         }
 
-        return false;
+        return budgetExceeded;
     }
 
     /// <summary>What the hit-test found for one node of a main window (see <see cref="ClassifyHit"/>).</summary>
@@ -520,6 +527,10 @@ public sealed class ObservationService : IDisposable
 
         /// <summary>The centre lies in another top-level window: the node is drawn there.</summary>
         InOtherWindow,
+
+        /// <summary>The centre is in the node's own window, but the time budget is spent: UIA was not
+        /// asked, the node stays "not hit-tested".</summary>
+        NotTested,
     }
 
     /// <summary>
@@ -531,12 +542,16 @@ public sealed class ObservationService : IDisposable
     /// own window block is the one that stays. Only for a point in the node's own window the UIA
     /// hit-test decides. The two kinds of "not visible" are told apart because
     /// <see cref="ObservationBuilder"/> keeps a tab item whose UIA hit-test missed, but not one that is
-    /// drawn in another window.
+    /// drawn in another window. The time budget (<paramref name="budgetSpent"/>) stops the UIA
+    /// hit-test only: the Win32 answer costs nothing and is still given.
     /// </summary>
-    internal static NodeHit ClassifyHit(nint topLevelAtCentre, nint nodeWindow, Func<bool> uiaHitTest)
+    internal static NodeHit ClassifyHit(nint topLevelAtCentre, nint nodeWindow, bool budgetSpent, Func<bool> uiaHitTest)
     {
         if (!WindowHit.IsInWindow(topLevelAtCentre, nodeWindow))
             return NodeHit.InOtherWindow;
+
+        if (budgetSpent)
+            return NodeHit.NotTested;
 
         return uiaHitTest() ? NodeHit.Visible : NodeHit.Hidden;
     }

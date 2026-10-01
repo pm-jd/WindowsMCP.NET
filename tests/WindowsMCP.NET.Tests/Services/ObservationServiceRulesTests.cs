@@ -49,7 +49,7 @@ public class ObservationServiceRulesTests
     {
         var asked = false;
 
-        var hit = ObservationService.ClassifyHit(topLevelAtCentre, nodeWindow: 0x20, () => asked = true);
+        var hit = ObservationService.ClassifyHit(topLevelAtCentre, nodeWindow: 0x20, budgetSpent: false, () => asked = true);
 
         // Not merely "hidden": the reason travels to the builder, where a tab item whose UIA hit-test
         // missed is kept — one that is drawn in another window is not.
@@ -64,10 +64,25 @@ public class ObservationServiceRulesTests
     {
         var asked = 0;
 
-        var hit = ObservationService.ClassifyHit(topLevelAtCentre: 0x20, nodeWindow: 0x20, () => { asked++; return uiaHit; });
+        var hit = ObservationService.ClassifyHit(topLevelAtCentre: 0x20, nodeWindow: 0x20, budgetSpent: false, () => { asked++; return uiaHit; });
 
         Assert.Equal(uiaHit ? ObservationService.NodeHit.Visible : ObservationService.NodeHit.Hidden, hit);
         Assert.Equal(1, asked);
+    }
+
+    [Fact]
+    public void ClassifyHit_BudgetSpent_TheWin32PreCheckStillRuns_OnlyTheUiaHitTestStops()
+    {
+        // The pre-check costs no UIA call: also after the time budget, a node drawn in another
+        // top-level window must not come back as "not tested" (and so as listed).
+        var asked = false;
+
+        var elsewhere = ObservationService.ClassifyHit(topLevelAtCentre: 0x30, nodeWindow: 0x20, budgetSpent: true, () => asked = true);
+        var here = ObservationService.ClassifyHit(topLevelAtCentre: 0x20, nodeWindow: 0x20, budgetSpent: true, () => asked = true);
+
+        Assert.Equal(ObservationService.NodeHit.InOtherWindow, elsewhere);
+        Assert.Equal(ObservationService.NodeHit.NotTested, here);
+        Assert.False(asked);
     }
 
     // --- unreadable windows (AF2): a window that does not answer UIA is reported, at one attempt per process ---
