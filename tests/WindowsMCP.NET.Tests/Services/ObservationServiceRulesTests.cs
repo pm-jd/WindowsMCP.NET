@@ -205,7 +205,9 @@ public class ObservationServiceRulesTests
     [Fact]
     public void SelectResolutionWindows_MainWindowGone_FallsBackToSameClassWindowsInZOrder()
     {
-        // The application was restarted: its main window has a new handle, the id keeps working.
+        // The application was restarted: its main window has a new handle. The id is looked for in the
+        // new window — whether it is found there depends on the application exposing real AutomationIds
+        // or names (WinForms reports the window handle as AutomationId, which changes with every start).
         nint[] matching = [0x30, 0x10];
 
         Assert.Equal(matching, ObservationService.SelectResolutionWindows(0x20, transient: false, matching));

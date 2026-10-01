@@ -30,7 +30,7 @@ The result is useful on its own (fewer tokens and fewer failed steps for Claude)
 ## Goals
 
 - `Observe` returns the foreground application's windows, focus, visible actionable elements and static texts in < 1.5 s and < 8 KB for MCS main screens.
-- Element ids are stable across `Observe` calls as long as the UI structure is unchanged.
+- Element ids are stable across `Observe` calls as long as the UI structure is unchanged and the application keeps running (§2 — whether they survive a restart depends on the application).
 - `Click`, `Type`, `Perform`, `MultiSelect`, `MultiEdit` accept element ids, resolve them live and report an `effect`.
 - `Perform` stops on stalls instead of reporting "OK" for steps that changed nothing.
 - No behaviour change for existing parameters; Phase-1 parity schema tests stay green apart from the additive changes.
@@ -142,11 +142,13 @@ Collections are serialized inside the service (one at a time, like `UiTreeServic
 - **Window affinity**: every id remembers the top-level window (handle) it was observed in and whether that window was **transient** — not the bottom-most (main) window of its process in that observation, i.e. a popup, menu or dialog. (A process with several top-level document windows, such as Windows 11 Notepad, has one bottom-most window; the others count as transient too, which only costs them the restart fallback below.) The handle is not part of the locator and (except for the identical-locator case above) not of the id.
 - **Store**: `ObservationStore` (singleton) keeps id → (locator, window handle, transient) for the last 8 observations (LRU). Ids from older observations fail with the stale-id error below.
 - **Resolution** at action time (fresh UIA calls, no cache):
-  1. Candidate windows: when the remembered window is still a visible top-level window of the same process name and class, resolve **only** in that window. When it is gone, a transient id is stale (a remembered dialog button never resolves in a later dialog of the same class); a main-window id falls back to every visible window of that process name and class in z-order (so ids survive an application restart).
+  1. Candidate windows: when the remembered window is still a visible top-level window of the same process name and class, resolve **only** in that window. When it is gone, a transient id is stale (a remembered dialog button never resolves in a later dialog of the same class); a main-window id falls back to every visible window of that process name and class in z-order (so that an id *can* survive an application restart — see "How stable is an id" below).
   2. Walk the locator path from the live window (FindFirstChild per step with type + key + index).
   3. Fallback: within the candidate window(s), a unique descendant with the same ControlType and key.
   4. None or ambiguous → `[ERROR] ElementNotFound: element e7Q2 no longer present — call Observe`.
 - Resolution returns the element together with the window it was found in; that window's process id scopes verification (§4) and its enabled state is checked before acting (§3).
+
+**How stable is an id.** Ids are stable **while the application runs**. Whether they survive a restart depends on the application exposing real AutomationIds or names: the locator keys every step on the AutomationId (else the Name), and WinForms reports a control's **window handle** as its AutomationId when the developer set none — a value that changes with every start. Measured on MCS (re-test, 2026-10-01): after a restart 94 of 97 main-window element ids differ; the MCS dialogs, whose controls have real AutomationIds or names, keep theirs. This is kept deliberately: the handle identifies the control instance exactly, which is what acting on an id needs, whereas replacing it by positional indexes would make ids shift whenever a sibling pane appears. Consequence for callers: do not persist ids across application runs — call `Observe` again; an id from an earlier run no longer resolves (`ElementNotFound`).
 
 RuntimeIds are not used for identity: WinForms proxies regenerate them. Known limitation: with several same-class windows of one process name and the remembered window gone, a main-window id resolves in the topmost match — agents should act on their latest `Observe`.
 
