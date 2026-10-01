@@ -340,6 +340,20 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
             TypeInto(previous: "hunter2", readBack: "hunter2new", text: "new", clear, password: true,
                 describe: "e4pw (Edit 'Password')"));
 
+    [Fact]
+    public void TypeResolved_KeyboardPath_NoInteractiveDesktop_SaysNothingWasTyped_NotClicked()
+    {
+        // Disconnected session: the refusal used to come from the click-to-focus ("nothing was clicked").
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = false, KeyboardFocus = false };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => InputTools.TypeResolved(
+            Resolved(target, "e1 (Document 'Editor')"), NoDesktopExecutor(log), "abc", clear: false, pressEnter: false, null, 0));
+
+        Assert.Equal("no interactive desktop (session disconnected or not rendered) — nothing was typed", ex.Message);
+        Assert.Empty(log);
+    }
+
     // --- MultiEdit ------------------------------------------------------------------------------------
 
     private static FakeActionTarget EditTarget(List<string> log, string readBack)
@@ -421,8 +435,8 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     // --- a pattern call that has not returned is visible in the result (AF1) ---------------------------
 
     private const string PendingNote =
-        " — the call has not returned after 2 s: the application may be showing a modal dialog and cannot be " +
-        "observed until it is closed (Screenshot and keyboard still work)";
+        " — the call has not returned after 2 s: if it opened a modal dialog, the application cannot be " +
+        "observed until that is closed (Screenshot and keyboard still work)";
 
     [Fact]
     public void ClickResolved_PatternCallStillRunning_SaysSoInTheResult()

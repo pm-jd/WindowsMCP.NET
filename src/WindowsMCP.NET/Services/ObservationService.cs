@@ -64,6 +64,10 @@ public sealed class ObservationService : IDisposable
 
         /// <summary>The window disappeared between its enumeration and the read: it is left out.</summary>
         Gone,
+
+        /// <summary>The time budget is spent and the window would need a UIA walk: it is left out and
+        /// the observation is truncated.</summary>
+        OutOfBudget,
     }
 
     /// <summary>
@@ -75,15 +79,21 @@ public sealed class ObservationService : IDisposable
     /// A window that did not answer is never skipped — an observation is never silently empty — with
     /// one exception: a window that is no longer visible (<paramref name="stillVisible"/>; a menu or
     /// tooltip that closed meanwhile) is simply gone and says nothing about its process.
+    /// The time budget (<paramref name="budgetSpent"/>) only stops UIA walks: a window of a process
+    /// already known to be unreadable costs Win32 calls alone and is still recorded — the timeout that
+    /// marked its process is what ate the budget.
     /// </summary>
     internal static WindowRead ReadWindow<TRoot>(
-        nint handle, uint pid, HashSet<uint> unreadablePids,
+        nint handle, uint pid, HashSet<uint> unreadablePids, bool budgetSpent,
         Func<nint, TRoot?> read, Func<nint, bool> stillVisible, out TRoot? root)
         where TRoot : class
     {
         root = null;
         if (unreadablePids.Contains(pid))
             return WindowRead.Unreadable;
+
+        if (budgetSpent)
+            return WindowRead.OutOfBudget;
 
         root = read(handle);
         if (root is not null)
@@ -171,8 +181,10 @@ public sealed class ObservationService : IDisposable
             var roots = new List<(AutomationElement Root, nint Hwnd)>();
             foreach (var handle in SelectResolutionWindows(stored.WindowHandle, stored.Transient, matching))
             {
-                if (TryGetRoot(handle) is { } root)
+                if (TryGetRoot(handle, out var failure) is { } root)
                     roots.Add((root, handle));
+                else if (failure is not null)
+                    LogRootFailure(handle, failure, unreadable: User32.IsWindowVisible(handle));
             }
 
             foreach (var (root, hwnd) in roots)
@@ -324,14 +336,24 @@ public sealed class ObservationService : IDisposable
             foreach (var handle in handles)
             {
                 ct.ThrowIfCancellationRequested();
-                if (stopwatch.Elapsed >= Budget)
-                {
-                    budgetExceeded = true;
-                    break;
-                }
 
                 var pid = GetPid(handle);
-                if (ReadWindow(handle, pid, unreadablePids, TryGetRoot, User32.IsWindowVisible, out var root) == WindowRead.Gone)
+                Exception? failure = null;
+                var read = ReadWindow(handle, pid, unreadablePids, budgetSpent: stopwatch.Elapsed >= Budget,
+                    h => TryGetRoot(h, out failure), User32.IsWindowVisible, out var root);
+
+                // Logged only now that the window is classified: a window that does not answer is a
+                // Warning, one that merely disappeared meanwhile is not.
+                if (failure is not null)
+                    LogRootFailure(handle, failure, unreadable: read == WindowRead.Unreadable);
+
+                if (read == WindowRead.OutOfBudget)
+                {
+                    budgetExceeded = true;
+                    continue; // later windows of a process known to be unreadable are still recorded
+                }
+
+                if (read == WindowRead.Gone)
                     continue;
 
                 // A window that did not answer is described by Win32 alone (title, rectangle): those
@@ -645,19 +667,35 @@ public sealed class ObservationService : IDisposable
     // --- Small Win32 helpers --------------------------------------------------------------------------
 
     /// <summary>Null when the window's UIA root (inside a collecting <see cref="CacheRequest"/>: its
-    /// whole subtree) cannot be read — the window is gone, or its application does not answer. Logged
-    /// at Warning: an application that stops answering is what an operator has to find in the log.</summary>
-    private AutomationElement? TryGetRoot(nint handle)
+    /// whole subtree) cannot be read — the window is gone, or its application does not answer; the
+    /// caller finds out which and logs it (<see cref="LogRootFailure"/>).</summary>
+    private AutomationElement? TryGetRoot(nint handle, out Exception? failure)
     {
+        failure = null;
         try
         {
             return _automation.FromHandle(handle);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("UIA root of window {Handle} could not be read: {ExceptionType}: {Message}",
-                handle, ex.GetType().Name, ex.Message);
+            failure = ex;
             return null;
+        }
+    }
+
+    /// <summary>An application that stops answering is what an operator has to find in the log:
+    /// Warning. A window that had merely disappeared by the time it was read is routine: Debug.</summary>
+    private void LogRootFailure(nint handle, Exception failure, bool unreadable)
+    {
+        if (unreadable)
+        {
+            _logger.LogWarning("Window {Handle} did not answer UI Automation: {ExceptionType}: {Message}",
+                handle, failure.GetType().Name, failure.Message);
+        }
+        else
+        {
+            _logger.LogDebug("Window {Handle} was gone when its UIA root was read: {ExceptionType}: {Message}",
+                handle, failure.GetType().Name, failure.Message);
         }
     }
 

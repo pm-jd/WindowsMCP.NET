@@ -80,8 +80,8 @@ public class ObservationServiceRulesTests
 
         public List<nint> Asked { get; } = [];
 
-        public ObservationService.WindowRead Read(nint handle, uint pid) =>
-            ObservationService.ReadWindow(handle, pid, _unreadablePids,
+        public ObservationService.WindowRead Read(nint handle, uint pid, bool budgetSpent = false) =>
+            ObservationService.ReadWindow(handle, pid, _unreadablePids, budgetSpent,
                 h => { Asked.Add(h); return answers(h) ? new Root() : null; },
                 stillVisible ?? (_ => true), out _);
     }
@@ -91,7 +91,7 @@ public class ObservationServiceRulesTests
     {
         var root = new Root();
 
-        var result = ObservationService.ReadWindow(0x10, pid: 1, [], _ => root, _ => true, out var read);
+        var result = ObservationService.ReadWindow(0x10, pid: 1, [], budgetSpent: false, _ => root, _ => true, out var read);
 
         Assert.Equal(ObservationService.WindowRead.Read, result);
         Assert.Same(root, read);
@@ -100,7 +100,7 @@ public class ObservationServiceRulesTests
     [Fact]
     public void ReadWindow_WindowThatDoesNotAnswer_IsUnreadable_NotSkipped()
     {
-        var result = ObservationService.ReadWindow<Root>(0x10, pid: 1, [], _ => null, _ => true, out var read);
+        var result = ObservationService.ReadWindow<Root>(0x10, pid: 1, [], budgetSpent: false, _ => null, _ => true, out var read);
 
         Assert.Equal(ObservationService.WindowRead.Unreadable, result);
         Assert.Null(read);
@@ -151,6 +151,35 @@ public class ObservationServiceRulesTests
         Assert.Equal(ObservationService.WindowRead.Read, reader.Read(0x11, pid: 1));
 
         Assert.Equal([(nint)0x10, (nint)0x11], reader.Asked);
+    }
+
+    // --- time budget (BF4): it limits UIA walks, not the cheap record of windows known to be unreadable ---
+
+    [Fact]
+    public void ReadWindow_BudgetSpent_WindowsNotYetRead_AreOutOfBudget_AndNotAsked()
+    {
+        var reader = new Reader(answers: _ => true);
+
+        Assert.Equal(ObservationService.WindowRead.Read, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.OutOfBudget, reader.Read(0x11, pid: 1, budgetSpent: true));
+        Assert.Equal(ObservationService.WindowRead.OutOfBudget, reader.Read(0x20, pid: 2, budgetSpent: true));
+
+        Assert.Equal([(nint)0x10], reader.Asked);
+    }
+
+    [Fact]
+    public void ReadWindow_BudgetSpent_WindowsOfAProcessKnownToBeUnreadable_AreStillRecorded()
+    {
+        // The timeout of the first window may have eaten the budget; the other windows of that process
+        // cost only Win32 calls and must not vanish from the observation.
+        var reader = new Reader(answers: h => h == 0x20);
+
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x11, pid: 1, budgetSpent: true));
+        Assert.Equal(ObservationService.WindowRead.OutOfBudget, reader.Read(0x20, pid: 2, budgetSpent: true));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x12, pid: 1, budgetSpent: true));
+
+        Assert.Equal([(nint)0x10], reader.Asked);
     }
 
     // --- window affinity (F4): matching = visible windows of the locator's process name and class, z-order ---

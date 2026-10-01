@@ -58,8 +58,10 @@ public sealed record ActionOutcome(string Via, ActionEffect Effect)
 
         if (CallPending)
         {
+            // Worded as a condition: in a disconnected session every pattern call is slower than the
+            // limit, and no dialog is involved.
             text += $" — the call has not returned after {PatternCall.DefaultLimit.TotalSeconds:0} s: " +
-                    "the application may be showing a modal dialog and cannot be observed until it is closed " +
+                    "if it opened a modal dialog, the application cannot be observed until that is closed " +
                     "(Screenshot and keyboard still work)";
         }
 
@@ -163,27 +165,42 @@ internal static class ActionGuards
             throw new InvalidOperationException($"{t.ControlType} is disabled — nothing was done");
     }
 
+    /// <summary>What a refusal says was not done — by the action the caller asked for, not by the step
+    /// that was refused: a click-to-focus that is refused while typing means "nothing was typed".</summary>
+    public const string NothingClicked = "nothing was clicked";
+
+    /// <inheritdoc cref="NothingClicked"/>
+    public const string NothingTyped = "nothing was typed";
+
+    /// <summary>Refuses injected input — mouse and keyboard alike — when there is no desktop to take
+    /// it: in a disconnected or non-rendered session only UIA patterns work.</summary>
+    public static void EnsureInteractiveDesktop(IInputDriver input, string nothingDone)
+    {
+        if (!input.HasInteractiveDesktop)
+            throw new InvalidOperationException(
+                $"no interactive desktop (session disconnected or not rendered) — {nothingDone}");
+    }
+
     /// <summary>
     /// The screen point a mouse click on <paramref name="t"/> goes to: the centre of its CURRENT
     /// rectangle — verified to lie in the element's own window (<see cref="IActionTarget.OwnsPoint"/>),
     /// so neither a window of another application, nor a popup, menu or dialog of the same one, nor
     /// another control of the same window lying on top is ever clicked.
     /// Throws (and nothing is clicked) when there is no desktop to click on, the element is gone
-    /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered.
+    /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered; the
+    /// message ends in <paramref name="nothingDone"/>.
     /// </summary>
-    public static Point ClickPoint(IActionTarget t, IInputDriver input)
+    public static Point ClickPoint(IActionTarget t, IInputDriver input, string nothingDone = NothingClicked)
     {
-        if (!input.HasInteractiveDesktop)
-            throw new InvalidOperationException(
-                "no interactive desktop (session disconnected or not rendered) — nothing was clicked");
+        EnsureInteractiveDesktop(input, nothingDone);
 
         var rect = t.CurrentRect;
         if (rect.Width <= 0 || rect.Height <= 0)
-            throw new InvalidOperationException("the element has no visible area — nothing was clicked");
+            throw new InvalidOperationException($"the element has no visible area — {nothingDone}");
 
         var centre = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
         if (!t.OwnsPoint(centre))
-            throw new InvalidOperationException("the element is covered by another window — nothing was clicked");
+            throw new InvalidOperationException($"the element is covered by another window — {nothingDone}");
 
         return centre;
     }
@@ -322,8 +339,9 @@ public sealed class ActionExecutor(IInputDriver input)
     /// Types into <paramref name="t"/>. Prefers <c>ValuePattern.SetValue</c> when the target supports
     /// writing a value; otherwise gives the element the keyboard focus (SetFocus, one mouse click when
     /// that does not bring the focus) and sends the keyboard path. Keys — the text, and Enter after a
-    /// SetValue — are only ever sent once the target (or one of its descendants) is confirmed to hold
-    /// the keyboard focus; otherwise this throws and no key is sent. Verification prefers reading the
+    /// SetValue — are only ever sent when there is an interactive desktop and once the target (or one
+    /// of its descendants) is confirmed to hold the keyboard focus; otherwise this throws and no key
+    /// is sent (on the keyboard path the desktop is checked before anything is done). Verification prefers reading the
     /// value back (trimmed equality against the expected text) and falls back to the
     /// <paramref name="signature"/> comparison only when no read-back is available — the baseline for
     /// that comparison is taken only when the value is not readable up front or Enter follows; a
@@ -364,6 +382,11 @@ public sealed class ActionExecutor(IInputDriver input)
             pending = call == PatternCallResult.StillRunning;
             if (pressEnter)
             {
+                // Enter is a key: without a desktop it goes nowhere, wherever UIA says the focus is.
+                // The value is already set, so this is not "nothing was done".
+                if (!input.HasInteractiveDesktop)
+                    throw new InvalidOperationException("value was set, but there is no interactive desktop — Enter was not sent");
+
                 // SetValue does not move the focus. The value is already set, so a click point that is
                 // gone or covered is not an error of its own here — it just means "no focus".
                 if (!GiveFocus(t, TryClickPoint))
@@ -374,8 +397,13 @@ public sealed class ActionExecutor(IInputDriver input)
         }
         else
         {
-            // Nothing has been sent yet: a covered or vanished element refuses with its own error.
-            if (!GiveFocus(t, target => ClickPoint(target)))
+            // Keys need a desktop as much as clicks do. Checked before anything is sent — also before
+            // SetFocus, which may well "succeed" in a disconnected session.
+            ActionGuards.EnsureInteractiveDesktop(input, ActionGuards.NothingTyped);
+
+            // Nothing has been sent yet: a covered or vanished element refuses with its own error —
+            // worded for the caller's action (typing), not for the click that would have focused it.
+            if (!GiveFocus(t, target => ActionGuards.ClickPoint(target, input, ActionGuards.NothingTyped)))
                 throw new InvalidOperationException("could not give keyboard focus to the element — nothing was typed");
 
             input.TypeText(text, clear, pressEnter);

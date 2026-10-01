@@ -17,8 +17,8 @@ public class ActionExecutorTests
         "no interactive desktop (session disconnected or not rendered) — nothing was clicked";
 
     private const string PendingNote =
-        " — the call has not returned after 2 s: the application may be showing a modal dialog and cannot be " +
-        "observed until it is closed (Screenshot and keyboard still work)";
+        " — the call has not returned after 2 s: if it opened a modal dialog, the application cannot be " +
+        "observed until that is closed (Screenshot and keyboard still work)";
 
     // --- Click -----------------------------------------------------------------------------------
 
@@ -852,7 +852,21 @@ public class ActionExecutorTests
         var ex = Assert.Throws<InvalidOperationException>(
             () => Executor(log).Type(target, "Hello", clear: false, pressEnter: false, signature: null, settleMs: 0));
 
-        Assert.Equal("the element is covered by another window — nothing was clicked", ex.Message);
+        // The caller asked to type: the refusal of the click-to-focus says so (BF4), not "nothing was clicked".
+        Assert.Equal("the element is covered by another window — nothing was typed", ex.Message);
+        Assert.Equal(["Focus"], log);
+    }
+
+    [Fact]
+    public void Type_Keyboard_FocusFails_ElementHasNoArea_Throws_NothingTyped()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = false, CurrentRect = Rectangle.Empty };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => Executor(log).Type(target, "Hello", clear: false, pressEnter: false, signature: null, settleMs: 0));
+
+        Assert.Equal("the element has no visible area — nothing was typed", ex.Message);
         Assert.Equal(["Focus"], log);
     }
 
@@ -970,32 +984,74 @@ public class ActionExecutorTests
         Assert.Equal(["Select"], log);
     }
 
-    [Fact]
-    public void Type_Keyboard_FocusFails_NoInteractiveDesktop_Throws_NothingClickedOrTyped()
+    // --- Guards: no key without an interactive desktop either (BF4) -----------------------------------
+    // Keys are injected input like clicks. In a disconnected session SetFocus may well report the focus
+    // on the target — the keys would still go nowhere.
+
+    private const string NoInteractiveDesktopNothingTyped =
+        "no interactive desktop (session disconnected or not rendered) — nothing was typed";
+
+    [Theory]
+    [InlineData(true, true)]     // the focus would arrive by SetFocus alone
+    [InlineData(false, false)]   // the focus would need a click
+    public void Type_Keyboard_NoInteractiveDesktop_Throws_BeforeAnythingIsSent(bool focusResult, bool keyboardFocus)
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = false };
+        var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = focusResult, KeyboardFocus = keyboardFocus };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Type(target, "Hello", clear: true, pressEnter: true, signature: null, settleMs: 0));
+
+        Assert.Equal(NoInteractiveDesktopNothingTyped, ex.Message);
+        Assert.Empty(log); // not even SetFocus
+    }
+
+    [Fact]
+    public void Type_SetValueUnsupported_NoInteractiveDesktop_Throws_NothingTyped()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, SetValueResult = false };
         var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => executor.Type(target, "Hello", clear: false, pressEnter: false, signature: null, settleMs: 0));
 
-        Assert.Equal(NoInteractiveDesktop, ex.Message);
-        Assert.Equal(["Focus"], log);
+        Assert.Equal(NoInteractiveDesktopNothingTyped, ex.Message);
+        Assert.Equal(["SetValue"], log); // the (unsupported) pattern lookup; nothing was sent
     }
 
-    [Fact]
-    public void Type_ValuePattern_PressEnter_NoInteractiveDesktop_Throws_EnterNotSent()
+    [Theory]
+    [InlineData(true, true)]     // the focus would arrive by SetFocus alone
+    [InlineData(false, false)]   // the focus would need a click
+    public void Type_ValuePattern_PressEnter_NoInteractiveDesktop_Throws_EnterNotSent(bool focusResult, bool keyboardFocus)
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { CanSetValue = true, FocusResult = false };
+        var target = new FakeActionTarget(log) { CanSetValue = true, FocusResult = focusResult, KeyboardFocus = keyboardFocus };
         var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => executor.Type(target, "Hi", clear: true, pressEnter: true, signature: null, settleMs: 0));
 
-        Assert.Equal("value was set, but the element could not be focused — Enter was not sent", ex.Message);
-        Assert.Equal(["SetValue", "Focus"], log);
+        // The value WAS set, so this must not read like "nothing was done".
+        Assert.Equal("value was set, but there is no interactive desktop — Enter was not sent", ex.Message);
+        Assert.Equal(["SetValue"], log);
+    }
+
+    [Fact]
+    public void Type_ValuePattern_WithoutEnter_NeedsNoInteractiveDesktop()
+    {
+        // SetValue is a pattern call: it is all that works in a disconnected session, and it does.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("");
+        target.ReadValues.Enqueue("Hi");
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
+
+        var outcome = executor.Type(target, "Hi", clear: true, pressEnter: false, SignatureSequence(), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.ValueVerified), outcome);
+        Assert.Equal(["SetValue"], log);
     }
 
     [Fact]
