@@ -274,11 +274,117 @@ public class ObservationFormatterTests
         Assert.Contains("e1abc  Edit ''  label='Serial number'", markdown.Split('\n'));
     }
 
+    // --- unreadable windows (AF2): an observation is never silently empty ----------------------------
+
+    private const string UnreadableNote =
+        " window(s) did not answer UI Automation — an earlier action may still be running (for example a modal " +
+        "dialog opened by Invoke). Use Screenshot and keyboard/coordinates until it is closed.";
+
+    [Fact]
+    public void Markdown_UnreadableWindows_AreNamedInTheirHeading_AndExplainedInOneLineBeforeTheFooter()
+    {
+        var windows = new[]
+        {
+            Window("Öffnen", foreground: true, modal: true) with { Unreadable = true },
+            Window("MCS - service") with { Unreadable = true },
+        };
+        var observation = MakeObservation(windows, [], texts: []);
+
+        var lines = ObservationFormatter.ToMarkdown(observation).Split('\n');
+
+        Assert.Equal(
+        [
+            "## Öffnen  (app.exe, pid 100) · foreground · modal · unreadable",
+            "",
+            "## MCS - service  (app.exe, pid 100) · unreadable",
+            "",
+            "2" + UnreadableNote,
+            "signature abcd1234 · 0 elements · 15 ms",
+        ], lines);
+    }
+
+    [Fact]
+    public void Markdown_UnreadableNote_ComesAfterTheTexts_AndCountsOnlyUnreadableWindows()
+    {
+        var windows = new[] { Window("Tool"), Window("Main") with { Unreadable = true } };
+        var elements = new[] { Element("e1", "Button", "Close", window: "Tool") };
+        var observation = MakeObservation(windows, elements, texts: ["Ready"]);
+
+        var lines = ObservationFormatter.ToMarkdown(observation).Split('\n');
+
+        Assert.Equal(["texts: Ready", "1" + UnreadableNote, "signature abcd1234 · 1 elements · 15 ms"], lines[^3..]);
+        Assert.Contains("## Tool  (app.exe, pid 100)", lines); // the readable window is not marked
+    }
+
+    [Fact]
+    public void Markdown_WithoutUnreadableWindows_HasNoSuchLine()
+    {
+        var observation = MakeObservation([Window("Main")], [Element("e1", "Button", "Open")]);
+
+        Assert.DoesNotContain("did not answer", ObservationFormatter.ToMarkdown(observation), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Json_UnreadableWindow_IsFlagged_ReadableOnesCarryNoSuchField()
+    {
+        var windows = new[] { Window("Tool"), Window("Main") with { Unreadable = true } };
+        var json = JsonOf(MakeObservation(windows, []));
+
+        var windowsJson = json.GetProperty("windows");
+        Assert.False(windowsJson[0].TryGetProperty("unreadable", out _));
+        Assert.True(windowsJson[1].GetProperty("unreadable").GetBoolean());
+        Assert.Equal("Main", windowsJson[1].GetProperty("title").GetString());
+    }
+
+    [Fact]
+    public void Markdown_WindowWithoutElements_IsLeftOutOnlyWhenUntitledNotForegroundAndReadable()
+    {
+        var windows = new[]
+        {
+            Window(""),                                   // noise: a menu's untitled helper window -> left out
+            Window("", pid: 2, foreground: true),         // untitled but foreground -> kept
+            Window("", pid: 3) with { Unreadable = true }, // untitled but unreadable -> kept
+            Window("Tooltip host", pid: 4),               // titled -> kept
+            Window("Main", pid: 5),
+        };
+        var elements = new[] { Element("e1", "Button", "Open") }; // in the last (main) window
+        var observation = MakeObservation(windows, elements, focusId: "e1");
+
+        var lines = ObservationFormatter.ToMarkdown(observation).Split('\n');
+
+        Assert.Equal(
+        [
+            "##   (app.exe, pid 2) · foreground",
+            "focus: e1", // under the first heading that is rendered
+            "",
+            "##   (app.exe, pid 3) · unreadable",
+            "",
+            "## Tooltip host  (app.exe, pid 4)",
+            "",
+            "## Main  (app.exe, pid 5)",
+            "",
+            "e1     Button 'Open'",
+            "",
+            "1" + UnreadableNote,
+            "signature abcd1234 · 1 elements · 15 ms",
+        ], lines);
+    }
+
+    [Fact]
+    public void Json_KeepsEveryWindow_AlsoTheOnesTheMarkdownLeavesOut()
+    {
+        var windows = new[] { Window(""), Window("Main") };
+        var json = JsonOf(MakeObservation(windows, [Element("e1", "Button", "Open")]));
+
+        Assert.Equal(2, json.GetProperty("windows").GetArrayLength());
+    }
+
     [Fact]
     public void Markdown_GroupsByWindow_EachElementOnce()
     {
         // Two windows with the same (empty) title, as the spike saw for untitled popups: an
         // element whose Window matches must land in the FIRST such window, never rendered twice.
+        // The second untitled window ends up without any element and is left out (AF2).
         var windows = new[]
         {
             Window("FileDropDown"),
@@ -299,7 +405,7 @@ public class ObservationFormatterTests
         var headingIndices = Enumerable.Range(0, lines.Length)
             .Where(i => lines[i].StartsWith("## ", StringComparison.Ordinal))
             .ToList();
-        Assert.Equal(4, headingIndices.Count);
+        Assert.Equal(3, headingIndices.Count);
 
         var saveIndex = Array.FindIndex(lines, l => l.Contains("Save", StringComparison.Ordinal));
         var untitledIndex = Assert.Single(lines, l => l.Contains("Untitled", StringComparison.Ordinal));
@@ -307,7 +413,7 @@ public class ObservationFormatterTests
 
         Assert.Equal(headingIndices[0], NearestHeadingIndex(saveIndex));
         Assert.Equal(headingIndices[1], NearestHeadingIndex(Array.IndexOf(lines, untitledIndex)));
-        Assert.Equal(headingIndices[3], NearestHeadingIndex(openIndex));
+        Assert.Equal(headingIndices[2], NearestHeadingIndex(openIndex));
 
         Assert.Equal("focus: e3", lines[headingIndices[0] + 1]);
         Assert.Equal(1, lines.Count(l => l.StartsWith("focus:", StringComparison.Ordinal)));

@@ -27,8 +27,10 @@ public static class ObservationFormatter
     /// One block per window (topmost first): a heading, a `focus:` line after the first heading when
     /// set, then its elements. An element belongs to the window whose <see cref="ObservedWindow.Title"/>
     /// equals its <see cref="ObservedElement.Window"/>; a null <c>Window</c> belongs to the last window
-    /// (the bottom-most main window). A window with no elements still gets its heading. Blocks are
-    /// followed by a `texts:` line (when non-empty) and a footer, each section separated by a blank line.
+    /// (the bottom-most main window). A window with no elements still gets its heading — unless it is
+    /// mere noise (<see cref="IsNoise"/>). Blocks are followed by a `texts:` line (when non-empty), one
+    /// line about windows that did not answer UI Automation (when there are any) and a footer, each
+    /// section separated by a blank line.
     /// </summary>
     public static string ToMarkdown(Observation o)
     {
@@ -38,12 +40,24 @@ public static class ObservationFormatter
 
         var sections = new List<string>(o.Windows.Count + 1);
         for (var i = 0; i < o.Windows.Count; i++)
-            sections.Add(BuildWindowBlock(o, i, elementsByWindow.GetValueOrDefault(i, [])));
+        {
+            var elements = elementsByWindow.GetValueOrDefault(i, []);
+            if (elements.Count == 0 && IsNoise(o.Windows[i]))
+                continue;
+
+            sections.Add(BuildWindowBlock(o.Windows[i], sections.Count == 0 ? o.FocusId : null, elements));
+        }
 
         sections.Add(BuildFooterSection(o));
 
         return string.Join("\n\n", sections);
     }
+
+    /// <summary>A window that says nothing when it has no element to show: untitled, not the foreground
+    /// window and readable — the helper windows a menu drop-down brings along. A titled, foreground or
+    /// unreadable window always keeps its heading.</summary>
+    private static bool IsNoise(ObservedWindow w) =>
+        string.IsNullOrWhiteSpace(w.Title) && !w.Foreground && !w.Unreadable;
 
     /// <summary>
     /// Anonymous-shaped envelope: optional element fields (label, panel, window, value, toggle,
@@ -71,13 +85,12 @@ public static class ObservationFormatter
         };
     }
 
-    private static string BuildWindowBlock(Observation o, int windowIndex, List<ObservedElement> elements)
+    private static string BuildWindowBlock(ObservedWindow window, string? focusId, List<ObservedElement> elements)
     {
-        var window = o.Windows[windowIndex];
         var lines = new List<string> { BuildHeading(window) };
 
-        if (windowIndex == 0 && o.FocusId is not null)
-            lines.Add($"focus: {o.FocusId}");
+        if (focusId is not null)
+            lines.Add($"focus: {focusId}");
 
         if (elements.Count > 0)
         {
@@ -134,6 +147,7 @@ public static class ObservationFormatter
             .Append("## ").Append(EscapeControl(w.Title)).Append("  (").Append(w.Process).Append(", pid ").Append(w.Pid).Append(')');
         if (w.Foreground) sb.Append(" · foreground");
         if (w.Modal) sb.Append(" · modal");
+        if (w.Unreadable) sb.Append(" · unreadable");
         return sb.ToString();
     }
 
@@ -165,6 +179,15 @@ public static class ObservationFormatter
         if (o.Texts.Count > 0)
             lines.Add($"texts: {string.Join(" · ", o.Texts.Select(t => Line(t, MaxNameChars)))}");
 
+        // Said in words, not only in the headings: an agent that sees no elements must know that this
+        // is "did not answer", not "nothing there", and what still works.
+        var unreadable = o.Windows.Count(w => w.Unreadable);
+        if (unreadable > 0)
+        {
+            lines.Add($"{unreadable} window(s) did not answer UI Automation — an earlier action may still be running " +
+                      "(for example a modal dialog opened by Invoke). Use Screenshot and keyboard/coordinates until it is closed.");
+        }
+
         var footer = $"signature {o.Signature} · {o.Elements.Count} elements · {o.Timings.TotalMs} ms";
         if (o.Truncated) footer += " · truncated";
         lines.Add(footer);
@@ -172,15 +195,22 @@ public static class ObservationFormatter
         return string.Join("\n", lines);
     }
 
-    private static Dictionary<string, object?> ToWindowJson(ObservedWindow w) => new()
+    private static Dictionary<string, object?> ToWindowJson(ObservedWindow w)
     {
-        ["title"] = w.Title,
-        ["process"] = w.Process,
-        ["pid"] = w.Pid,
-        ["foreground"] = w.Foreground,
-        ["modal"] = w.Modal,
-        ["rect"] = ToRectArray(w.Rect),
-    };
+        var dict = new Dictionary<string, object?>
+        {
+            ["title"] = w.Title,
+            ["process"] = w.Process,
+            ["pid"] = w.Pid,
+            ["foreground"] = w.Foreground,
+            ["modal"] = w.Modal,
+        };
+
+        if (w.Unreadable) dict["unreadable"] = true;
+        dict["rect"] = ToRectArray(w.Rect);
+
+        return dict;
+    }
 
     private static Dictionary<string, object?> ToElementJson(ObservedElement e)
     {

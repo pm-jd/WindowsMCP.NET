@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Drawing;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
+using WindowsMcpNet.Models;
 using WindowsMcpNet.Services;
 using WindowsMcpNet.Tests.TestSupport;
 using WindowsMcpNet.Tools;
@@ -64,6 +66,26 @@ public class ObserveToolsTests
         Assert.Equal(2, result.Content.Count);
         Assert.Equal("image/jpeg", Assert.IsType<ImageContentBlock>(result.Content[1]).MimeType);
     }
+
+    [Fact]
+    public void ScreenshotRegion_AllWindowsUnreadable_StillCoversThem()
+    {
+        // UI Automation did not answer for any window: the screenshot is all the caller can get, so the
+        // region must come from the windows' (Win32) rectangles alone.
+        var windows = new[]
+        {
+            new ObservedWindow(1, "Öffnen", "#32770", "MCS", 7, true, true, new Rectangle(600, 300, 800, 500)) { Unreadable = true },
+            new ObservedWindow(2, "MCS - service", "Main", "MCS", 7, false, false, new Rectangle(-8, -8, 2576, 1416)) { Unreadable = true },
+        };
+
+        var region = ObserveTools.ScreenshotRegion(windows, virtualScreen: new Rectangle(0, 0, 2560, 1440));
+
+        Assert.Equal(new Rectangle(0, 0, 2560, 1408), region);
+    }
+
+    [Fact]
+    public void ScreenshotRegion_NoWindows_IsEmpty() =>
+        Assert.True(ObserveTools.ScreenshotRegion([], new Rectangle(0, 0, 2560, 1440)).IsEmpty);
 
     [Fact]
     public void Observe_Description_DocumentsElementIdsAndJsonShape()

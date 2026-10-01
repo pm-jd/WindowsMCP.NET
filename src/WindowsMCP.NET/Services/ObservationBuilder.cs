@@ -51,7 +51,8 @@ public static class ObservationBuilder
     /// <summary>
     /// Builds the <see cref="Observation"/> for one collection pass. <paramref name="windows"/> must
     /// be topmost-first; <paramref name="nodes"/> must have <see cref="ObservedNode.Index"/> equal to
-    /// each node's position in the list, with exactly one root (Depth 0, Parent null) per window.
+    /// each node's position in the list, with exactly one root (Depth 0, Parent null) per window — and
+    /// none for an <see cref="ObservedWindow.Unreadable"/> window, which has no nodes at all.
     /// </summary>
     public static Observation Build(
         IReadOnlyList<ObservedWindow> windows,
@@ -160,9 +161,12 @@ public static class ObservationBuilder
     private static string? EmittedValue(ObservedNode node) => node.Password ? null : node.Value;
 
     /// <summary>
-    /// First 8 lower-case hex characters of a SHA-256 hash over window <c>Handle+Title</c> and, per
-    /// element, <c>Id|Name|Value|Toggle|Selected|Expand|Enabled</c> — deliberately excluding rects so
-    /// pure movement/resizing doesn't change the signature.
+    /// First 8 lower-case hex characters of a SHA-256 hash over window <c>Handle+Title</c> (plus a
+    /// marker for a window that did not answer UI Automation) and, per element,
+    /// <c>Id|Name|Value|Toggle|Selected|Expand|Enabled</c> — deliberately excluding rects so pure
+    /// movement/resizing doesn't change the signature. An unreadable window is part of it: readable →
+    /// unreadable is a change, and an observation of windows that do not answer never has the signature
+    /// of an empty one.
     /// </summary>
     public static string ComputeSignature(IReadOnlyList<ObservedWindow> windows, IReadOnlyList<ObservedElement> elements)
     {
@@ -171,7 +175,13 @@ public static class ObservationBuilder
 
         var canonical = new StringBuilder();
         foreach (var window in windows)
-            canonical.Append(window.Handle).Append('|').Append(window.Title).Append('\n');
+        {
+            canonical.Append(window.Handle).Append('|').Append(window.Title);
+            if (window.Unreadable)
+                canonical.Append("|unreadable");
+            canonical.Append('\n');
+        }
+
         foreach (var element in elements)
         {
             canonical.Append(element.Id).Append('|').Append(element.Name).Append('|').Append(element.Value).Append('|')

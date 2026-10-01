@@ -385,6 +385,50 @@ public class ObservationBuilderTests
         Assert.NotEqual(baseline, enabledChanged);
     }
 
+    // --- unreadable windows (AF2): an observation is never silently empty ----------------------------
+
+    [Fact]
+    public void UnreadableWindow_IsPartOfTheSignature_AndNeverEqualsTheEmptySignature()
+    {
+        string Signature(IReadOnlyList<ObservedWindow> windows, IReadOnlyList<ObservedNode> nodes) =>
+            ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false).Signature;
+
+        ObservedNode[] rootOnly = [Node(0, null, 0, 0, "Window", "Main", hitVisible: null)];
+        ObservedNode[] withButton = [.. rootOnly, Node(1, 0, 1, 0, "Button", "Open")];
+
+        var nothing = Signature([], []);
+        var unreadable = Signature([Window(1, "Main") with { Unreadable = true }], []);
+
+        Assert.Equal("e3b0c442", nothing); // the hash of nothing that the acceptance saw
+        Assert.NotEqual(nothing, unreadable);
+        // readable -> unreadable is a change: with elements, and also for a window that had none.
+        Assert.NotEqual(Signature([Window(1, "Main")], withButton), unreadable);
+        Assert.NotEqual(Signature([Window(1, "Main")], rootOnly), unreadable);
+    }
+
+    [Fact]
+    public void UnreadableWindow_HasNoNodes_AndTheReadableWindowsAreBuiltAsUsual()
+    {
+        // A window that still answers lies above the one that does not.
+        var windows = new[]
+        {
+            Window(0x11, "Tool", className: "Popup"),
+            Window(0x22, "Main") with { Unreadable = true },
+        };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Tool", hitVisible: null),
+            Node(1, 0, 1, 0, "Button", "Close", hitVisible: null),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var button = Assert.Single(observation.Elements);
+        Assert.Equal("Tool", button.Window);
+        Assert.True(button.Transient);
+        Assert.Equal([false, true], observation.Windows.Select(w => w.Unreadable));
+    }
+
     // --- observation content (F5, F6, F7) ----------------------------------------------------------
 
     [Theory]

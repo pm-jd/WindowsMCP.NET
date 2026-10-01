@@ -68,7 +68,8 @@ Observe(
 
 ### Content
 
-- **windows**: `title`, `process`, `pid`, `foreground`, `modal` (owned window with disabled owner), `rect`
+- **windows**: `title`, `process`, `pid`, `foreground`, `modal` (owned window with disabled owner), `unreadable`, `rect`
+  - **An observation is never silently empty.** A window whose UIA root or subtree cannot be read (exception or timeout — typically an earlier `Invoke` whose handler opened a modal dialog is still pending and the application's UI thread answers nobody) is **not** skipped: it is reported with `unreadable = true`, its title, class and rectangle taken from Win32 (`GetWindowText`, `GetWindowRect`) and no elements. After the first unreadable window of a process, the remaining windows of the same process are marked unreadable without another UIA attempt in that call (one timeout per process, not per window). A window that did not answer but is no longer visible (a menu or tooltip that closed between the enumeration and the read) is simply left out and says nothing about its process. The failure is logged at Warning with the exception type.
 - **focus**: the element with keyboard focus (as element reference, if it is in the collected set)
 - **elements** (actionable, visible, capped by `max_elements`, topmost window first, then top-to-bottom/left-to-right):
   - `id`, `type`, `name`, `label` (derived, only when `name` is empty or equals `value`), `panel` (nearest named container ancestor), `window` (only when not the main window)
@@ -78,7 +79,7 @@ Observe(
   - an element with neither a name nor a value is skipped — **except input types** (Edit, ComboBox, Spinner, Slider, Document), which are always emitted: an empty unnamed field is exactly what gets typed into (`label` is derived as usual; markdown renders the empty name as `''`)
   - **password fields** (UIA `IsPassword`): the `value` is never collected, so it is neither emitted nor part of the signature
 - **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only; at most 80 entries
-- **signature**: hash over (window handles + titles, and for every emitted element: id, name, value, toggle, selected, expanded, enabled) — always over the **full** value, independent of the display limits below
+- **signature**: hash over (window handles + titles + the unreadable flag, and for every emitted element: id, name, value, toggle, selected, expanded, enabled) — always over the **full** value, independent of the display limits below. Unreadable windows are part of it: readable → unreadable is a change, and an observation whose windows do not answer never has the signature of an empty one
 - **truncated**: `true` when `max_elements`, the 80-texts cap or the time budget cut the result
 - **timings**: `walk_ms`, `hit_ms`, `total_ms`
 
@@ -99,21 +100,32 @@ texts: Nosepiece · Focus Axis · Illumination · View Settings
 signature 5f1c9a0e · 118 elements · 1,21 s
 ```
 
-When a drop-down or dialog is open, its window block comes first with its own heading.
+When a drop-down or dialog is open, its window block comes first with its own heading. A window without any emitted element keeps its heading — except when it is untitled, not the foreground window and not unreadable (the untitled helper windows an open menu brings along are noise; JSON still lists every window). The `focus:` line follows the first heading that is rendered.
+
+A window that did not answer UI Automation says so in its heading, and one line before the footer says what that means and what still works:
+
+```
+## Öffnen  (MCS, pid 10976) · foreground · modal · unreadable
+
+## MCS - service  (MCS, pid 10976) · unreadable
+
+2 window(s) did not answer UI Automation — an earlier action may still be running (for example a modal dialog opened by Invoke). Use Screenshot and keyboard/coordinates until it is closed.
+signature 3c1f07aa · 0 elements · 2040 ms
+```
 
 ### JSON format
 
 `ToolHelpers.JsonResult` envelope with `structuredContent`; shape documented inline in the `format` parameter description (project convention):
-`{windows:[…], focus:"e9K1", elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?,expanded?,enabled?,rect:[x,y,w,h]}], texts:[…], signature, truncated, timings:{walk_ms,hit_ms,total_ms}}`
+`{windows:[{title,process,pid,foreground,modal,unreadable?,rect:[x,y,w,h]}], focus:"e9K1", elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?,expanded?,enabled?,rect:[x,y,w,h]}], texts:[…], signature, truncated, timings:{walk_ms,hit_ms,total_ms}}` (`unreadable` is only emitted when `true`)
 
 ### Screenshot
 
-`screenshot=true` appends one image block: the union of the collected windows' rects (clipped to the screen), JPEG quality 80, longest edge ≤ 1568 px. No annotation (ids are in the text).
+`screenshot=true` appends one image block: the union of the collected windows' rects (clipped to the screen), JPEG quality 80, longest edge ≤ 1568 px. No annotation (ids are in the text). The region depends on the windows' rectangles only — unreadable windows carry their Win32 rectangle — so the image is also returned when no window answered UI Automation, which is exactly when the picture is all the caller can get.
 
 ### Collection (`ObservationService`)
 
 1. Resolve the target windows (EnumWindows z-order, visible, owned by the target pid(s)).
-2. Per window: one `CacheRequest` with `TreeScope.Subtree`, tree filter `IsControlElement = true`, properties ControlType, Name, AutomationId, IsEnabled, HasKeyboardFocus, IsOffscreen, BoundingRectangle, IsPassword, RuntimeId, Invoke availability, Value, ToggleState, IsSelected, ExpandCollapseState. Walk `CachedChildren`; drop offscreen and ≤ 1 px nodes (and their subtrees).
+2. Per window: one `CacheRequest` with `TreeScope.Subtree`, tree filter `IsControlElement = true`, properties ControlType, Name, AutomationId, IsEnabled, HasKeyboardFocus, IsOffscreen, BoundingRectangle, IsPassword, RuntimeId, Invoke availability, Value, ToggleState, IsSelected, ExpandCollapseState. Walk `CachedChildren`; drop offscreen and ≤ 1 px nodes (and their subtrees). A window for which this request fails is recorded as unreadable (see Content) instead of being skipped.
 3. Visibility: hit-test (`FromPoint` at the element centre, match by RuntimeId against the node, its descendants and ancestors) **only** for nodes of the bottom-most main window; nodes of windows above it are visible; a `TabItem` is visible when its `Tab` parent is.
 4. Build the state (pure function over the node list — see §6): actionable elements, labels, panels, texts, ids, signature.
 5. Budget: `CancellationToken` plus a hard 5 s walk budget; on overrun return what was collected with `truncated=true`.

@@ -14,8 +14,10 @@ namespace WindowsMcpNet.Services;
 /// <summary>
 /// Live UIA collector behind the <c>Observe</c> tool. Resolves the target top-level windows for a
 /// scope, walks one cached subtree per window (see <see cref="ObservationBuilder"/>'s header for the
-/// node-list contract this must satisfy), hit-tests visibility for the bottom-most (main) window of
-/// each process, and hands the raw node list to <see cref="ObservationBuilder"/>. Also resolves a
+/// node-list contract this must satisfy) — a window that does not answer UI Automation is reported as
+/// unreadable instead of being skipped (<see cref="ReadWindow"/>) —, hit-tests visibility for the
+/// bottom-most (main) window of each process, and hands the raw node list to
+/// <see cref="ObservationBuilder"/>. Also resolves a
 /// stored <see cref="ElementLocator"/> back to a live <see cref="AutomationElement"/> for verified
 /// actions (Task 7).
 /// </summary>
@@ -50,6 +52,49 @@ public sealed class ObservationService : IDisposable
     /// must not reach the observation, the signature or a log — and nothing for an empty value.</summary>
     internal static string? CollectedValue(bool isPassword, string? rawValue) =>
         isPassword || string.IsNullOrEmpty(rawValue) ? null : rawValue;
+
+    /// <summary>What the collector does with one window (see <see cref="ReadWindow"/>).</summary>
+    internal enum WindowRead
+    {
+        /// <summary>UI Automation answered: the window is walked.</summary>
+        Read,
+
+        /// <summary>UI Automation did not answer: the window is reported without nodes.</summary>
+        Unreadable,
+
+        /// <summary>The window disappeared between its enumeration and the read: it is left out.</summary>
+        Gone,
+    }
+
+    /// <summary>
+    /// Reads one window's UIA root through <paramref name="read"/> (null = it did not answer) — unless
+    /// another window of the same process has already failed to answer in this collection
+    /// (<paramref name="unreadablePids"/>): an application whose UI thread is busy, e.g. inside an
+    /// <c>Invoke</c> that opened a modal dialog, lets EVERY request run into the timeout, so a
+    /// collection pays for one failed attempt per process and marks the rest unreadable unasked.
+    /// A window that did not answer is never skipped — an observation is never silently empty — with
+    /// one exception: a window that is no longer visible (<paramref name="stillVisible"/>; a menu or
+    /// tooltip that closed meanwhile) is simply gone and says nothing about its process.
+    /// </summary>
+    internal static WindowRead ReadWindow<TRoot>(
+        nint handle, uint pid, HashSet<uint> unreadablePids,
+        Func<nint, TRoot?> read, Func<nint, bool> stillVisible, out TRoot? root)
+        where TRoot : class
+    {
+        root = null;
+        if (unreadablePids.Contains(pid))
+            return WindowRead.Unreadable;
+
+        root = read(handle);
+        if (root is not null)
+            return WindowRead.Read;
+
+        if (!stillVisible(handle))
+            return WindowRead.Gone;
+
+        unreadablePids.Add(pid);
+        return WindowRead.Unreadable;
+    }
 
     public ObservationService(ILogger<ObservationService> logger)
     {
@@ -272,6 +317,7 @@ public sealed class ObservationService : IDisposable
         var byRuntimeId = new Dictionary<string, int>(StringComparer.Ordinal);
         var budgetExceeded = false;
         var foreground = User32.GetForegroundWindow();
+        var unreadablePids = new HashSet<uint>();
 
         using (BuildCacheRequest().Activate())
         {
@@ -284,27 +330,32 @@ public sealed class ObservationService : IDisposable
                     break;
                 }
 
-                var root = TryGetRoot(handle);
-                if (root is null)
+                var pid = GetPid(handle);
+                if (ReadWindow(handle, pid, unreadablePids, TryGetRoot, User32.IsWindowVisible, out var root) == WindowRead.Gone)
                     continue;
 
-                var rect = root.Properties.BoundingRectangle.ValueOrDefault;
+                // A window that did not answer is described by Win32 alone (title, rectangle): those
+                // calls do not depend on the application's UI thread.
+                var rect = root is null ? GetWindowRectangle(handle) : root.Properties.BoundingRectangle.ValueOrDefault;
                 if (rect.Width <= 0 || rect.Height <= 0)
                     continue;
 
-                var pid = GetPid(handle);
                 var windowIndex = windows.Count;
                 windows.Add(new ObservedWindow(
                     handle,
-                    root.Properties.Name.ValueOrDefault ?? "",
+                    root is null ? GetWindowTitle(handle) : root.Properties.Name.ValueOrDefault ?? "",
                     GetClassName(handle),
                     GetProcessName(pid),
                     (int)pid,
                     handle == foreground,
                     IsModal(handle),
-                    rect));
+                    rect)
+                {
+                    Unreadable = root is null,
+                });
 
-                WalkNode(root, null, 0, windowIndex, nodes, byRuntimeId, ct);
+                if (root is not null)
+                    WalkNode(root, null, 0, windowIndex, nodes, byRuntimeId, ct);
             }
         }
 
@@ -577,6 +628,9 @@ public sealed class ObservationService : IDisposable
 
     // --- Small Win32 helpers --------------------------------------------------------------------------
 
+    /// <summary>Null when the window's UIA root (inside a collecting <see cref="CacheRequest"/>: its
+    /// whole subtree) cannot be read — the window is gone, or its application does not answer. Logged
+    /// at Warning: an application that stops answering is what an operator has to find in the log.</summary>
     private AutomationElement? TryGetRoot(nint handle)
     {
         try
@@ -585,7 +639,8 @@ public sealed class ObservationService : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to get UIA root for window {Handle}", handle);
+            _logger.LogWarning("UIA root of window {Handle} could not be read: {ExceptionType}: {Message}",
+                handle, ex.GetType().Name, ex.Message);
             return null;
         }
     }
@@ -595,6 +650,18 @@ public sealed class ObservationService : IDisposable
         User32.GetWindowThreadProcessId(handle, out var pid);
         return pid;
     }
+
+    private static string GetWindowTitle(nint handle)
+    {
+        var buffer = new char[256];
+        var length = User32.GetWindowTextW(handle, buffer, buffer.Length);
+        return length > 0 ? new string(buffer, 0, length) : "";
+    }
+
+    private static Rectangle GetWindowRectangle(nint handle) =>
+        User32.GetWindowRect(handle, out var rect)
+            ? Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom)
+            : Rectangle.Empty;
 
     private static string GetClassName(nint handle)
     {

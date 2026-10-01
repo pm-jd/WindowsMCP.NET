@@ -37,6 +37,91 @@ public class ObservationServiceRulesTests
     public void CollectedValue_IsNullForPasswordFields_AndForEmptyValues(bool isPassword, string? raw, string? expected) =>
         Assert.Equal(expected, ObservationService.CollectedValue(isPassword, raw));
 
+    // --- unreadable windows (AF2): a window that does not answer UIA is reported, at one attempt per process ---
+
+    private sealed class Root;
+
+    /// <summary>Drives <see cref="ObservationService.ReadWindow{TRoot}"/> like the collector does and
+    /// records which windows UIA was actually asked for.</summary>
+    private sealed class Reader(Func<nint, bool> answers, Func<nint, bool>? stillVisible = null)
+    {
+        private readonly HashSet<uint> _unreadablePids = [];
+
+        public List<nint> Asked { get; } = [];
+
+        public ObservationService.WindowRead Read(nint handle, uint pid) =>
+            ObservationService.ReadWindow(handle, pid, _unreadablePids,
+                h => { Asked.Add(h); return answers(h) ? new Root() : null; },
+                stillVisible ?? (_ => true), out _);
+    }
+
+    [Fact]
+    public void ReadWindow_WindowThatAnswers_IsRead()
+    {
+        var root = new Root();
+
+        var result = ObservationService.ReadWindow(0x10, pid: 1, [], _ => root, _ => true, out var read);
+
+        Assert.Equal(ObservationService.WindowRead.Read, result);
+        Assert.Same(root, read);
+    }
+
+    [Fact]
+    public void ReadWindow_WindowThatDoesNotAnswer_IsUnreadable_NotSkipped()
+    {
+        var result = ObservationService.ReadWindow<Root>(0x10, pid: 1, [], _ => null, _ => true, out var read);
+
+        Assert.Equal(ObservationService.WindowRead.Unreadable, result);
+        Assert.Null(read);
+    }
+
+    [Fact]
+    public void ReadWindow_AfterTheFirstUnreadableWindowOfAProcess_ItsOtherWindowsAreNotAskedAgain()
+    {
+        // A blocked UI thread lets every request run into the timeout: one timeout per process, not per window.
+        var reader = new Reader(answers: _ => false);
+
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x11, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x12, pid: 1));
+
+        Assert.Equal([(nint)0x10], reader.Asked);
+    }
+
+    [Fact]
+    public void ReadWindow_UnreadableProcess_DoesNotAffectTheWindowsOfOtherProcesses()
+    {
+        var reader = new Reader(answers: h => h != 0x10);
+
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Read, reader.Read(0x20, pid: 2));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x11, pid: 1));
+
+        Assert.Equal([(nint)0x10, (nint)0x20], reader.Asked);
+    }
+
+    [Fact]
+    public void ReadWindow_WindowsReadBeforeTheFirstFailure_StayRead()
+    {
+        var reader = new Reader(answers: h => h == 0x10);
+
+        Assert.Equal(ObservationService.WindowRead.Read, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Unreadable, reader.Read(0x11, pid: 1));
+    }
+
+    [Fact]
+    public void ReadWindow_WindowThatDisappearedMeanwhile_IsGone_AndSaysNothingAboutItsProcess()
+    {
+        // A menu or tooltip that closed between the window enumeration and the read: not "unreadable",
+        // and no reason to stop asking the other windows of that process.
+        var reader = new Reader(answers: h => h != 0x10, stillVisible: h => h != 0x10);
+
+        Assert.Equal(ObservationService.WindowRead.Gone, reader.Read(0x10, pid: 1));
+        Assert.Equal(ObservationService.WindowRead.Read, reader.Read(0x11, pid: 1));
+
+        Assert.Equal([(nint)0x10, (nint)0x11], reader.Asked);
+    }
+
     // --- window affinity (F4): matching = visible windows of the locator's process name and class, z-order ---
 
     [Fact]

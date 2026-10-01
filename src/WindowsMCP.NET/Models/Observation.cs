@@ -3,7 +3,13 @@ using System.Drawing;
 namespace WindowsMcpNet.Models;
 
 /// <summary>A top-level window captured by Observe.</summary>
-public sealed record ObservedWindow(nint Handle, string Title, string ClassName, string Process, int Pid, bool Foreground, bool Modal, Rectangle Rect);
+public sealed record ObservedWindow(nint Handle, string Title, string ClassName, string Process, int Pid, bool Foreground, bool Modal, Rectangle Rect)
+{
+    /// <summary>The window did not answer UI Automation (its root or subtree could not be read), so it
+    /// has no nodes; title and rectangle come from Win32. It is reported instead of being left out: an
+    /// observation is never silently empty.</summary>
+    public bool Unreadable { get; init; }
+}
 
 /// <summary>
 /// A raw node from the UI-tree walk, before filtering down to <see cref="ObservedElement"/>s.

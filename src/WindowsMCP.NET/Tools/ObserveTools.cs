@@ -16,7 +16,9 @@ public static class ObserveTools
                  "application's windows, default), process (a named process's windows — requires 'process'), " +
                  "desktop (all visible top-level windows). Pass an element's id as \"element\" to Click/Type/Perform " +
                  "instead of coordinates — ids stay valid across the last several Observe calls. " +
-                 "format=json shape: {windows:[{title,process,pid,foreground,modal,rect:[x,y,w,h]}], " +
+                 "A window that does not answer UI Automation (an earlier action may still be running, e.g. a modal dialog " +
+                 "opened by Invoke) is listed as 'unreadable' without elements instead of being left out — use Screenshot and keyboard/coordinates until it is closed. " +
+                 "format=json shape: {windows:[{title,process,pid,foreground,modal,unreadable?,rect:[x,y,w,h]}], " +
                  "focus:string|null, elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?," +
                  "expanded?,enabled?,rect:[x,y,w,h]}], texts:[string], signature:string, truncated:bool, " +
                  "timings:{walk_ms,hit_ms,total_ms}}. Set screenshot=true to also attach a downscaled JPEG " +
@@ -74,7 +76,17 @@ public static class ObserveTools
 
     /// <summary>Union of every observed window's bounds, clipped to the virtual screen — the region a
     /// screenshot needs to cover, and never wider than what's actually capturable via GDI.</summary>
-    private static Rectangle ScreenshotRegion(IReadOnlyList<ObservedWindow> windows)
+    private static Rectangle ScreenshotRegion(IReadOnlyList<ObservedWindow> windows) =>
+        ScreenshotRegion(windows, new Rectangle(
+            User32.GetSystemMetrics(User32.SM_XVIRTUALSCREEN),
+            User32.GetSystemMetrics(User32.SM_YVIRTUALSCREEN),
+            User32.GetSystemMetrics(User32.SM_CXVIRTUALSCREEN),
+            User32.GetSystemMetrics(User32.SM_CYVIRTUALSCREEN)));
+
+    /// <summary>The region depends on the windows' rectangles only — an unreadable window carries its
+    /// Win32 rectangle, so a screenshot is possible exactly when UI Automation does not answer and the
+    /// picture is all the caller can get.</summary>
+    internal static Rectangle ScreenshotRegion(IReadOnlyList<ObservedWindow> windows, Rectangle virtualScreen)
     {
         if (windows.Count == 0)
             return Rectangle.Empty;
@@ -82,12 +94,6 @@ public static class ObserveTools
         var union = windows[0].Rect;
         for (var i = 1; i < windows.Count; i++)
             union = Rectangle.Union(union, windows[i].Rect);
-
-        var virtualScreen = new Rectangle(
-            User32.GetSystemMetrics(User32.SM_XVIRTUALSCREEN),
-            User32.GetSystemMetrics(User32.SM_YVIRTUALSCREEN),
-            User32.GetSystemMetrics(User32.SM_CXVIRTUALSCREEN),
-            User32.GetSystemMetrics(User32.SM_CYVIRTUALSCREEN));
 
         return Rectangle.Intersect(union, virtualScreen);
     }
