@@ -1,11 +1,12 @@
 === Schema Diff Report ===
 Tools only in baseline  : 0
-Tools only in actual    : 2
-Tools with differences  : 8
-Total differences       : 17
+Tools only in actual    : 3
+Tools with differences  : 11
+Total differences       : 27
 
 --- New tools (in actual only) ---
   + Context
+  + Observe
   + Perform
 
 --- App ---
@@ -23,12 +24,27 @@ Total differences       : 17
   [Screenshot.params.width_reference_line] baseline=exists actual=missing
   [Screenshot.params.height_reference_line] baseline=exists actual=missing
 
+--- Click ---
+  [Click.params.element] baseline=missing actual=exists
+  [Click.params.method] baseline=missing actual=exists
+  [Click.params.verify] baseline=missing actual=exists
+  [Click.params.settle_ms] baseline=missing actual=exists
+
 --- Type ---
   [Type.params.caret_position] baseline=exists actual=missing
+  [Type.params.element] baseline=missing actual=exists
+  [Type.params.verify] baseline=missing actual=exists
+  [Type.params.settle_ms] baseline=missing actual=exists
 
 --- Scrape ---
   [Scrape.params.use_dom] baseline=exists actual=missing
   [Scrape.params.use_sampling] baseline=exists actual=missing
+
+--- MultiSelect ---
+  [MultiSelect.params.elements] baseline=missing actual=exists
+
+--- MultiEdit ---
+  [MultiEdit.params.elements] baseline=missing actual=exists
 
 --- Process ---
   [Process.params.offset] baseline=missing actual=exists
