@@ -603,6 +603,39 @@ public class ActionExecutorTests
         Assert.Equal(["SetValue"], log);
     }
 
+    // --- Password fields cannot be verified (AF4) ---------------------------------------------------
+    // The value is never read back and is deliberately not part of the signature, so the signature
+    // says "unchanged" after a perfectly successful entry. That is not a finding; it is no information.
+
+    [Theory]
+    [InlineData(true, false, "SetValue")]                          // ValuePattern
+    [InlineData(true, true, "SetValue", "Focus", "PressEnter")]    // ValuePattern + Enter
+    [InlineData(false, false, "Focus", "TypeText:s3cret|True|False")] // keyboard
+    public void Type_PasswordField_IsNotVerified_AndNeverJudgedByTheSignature(
+        bool canSetValue, bool pressEnter, params string[] expectedLog)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { IsPassword = true, CanSetValue = canSetValue };
+        // A live password target never yields its value: ReadValues stays empty (null).
+
+        var outcome = Executor(log).Type(target, "s3cret", clear: true, pressEnter, LoggedSignature(log, "A", "A"), settleMs: 0);
+
+        Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
+        Assert.Equal(expectedLog, log); // and not a single signature walk: it could not decide anything
+    }
+
+    [Fact]
+    public void Type_UnreadableValueThatIsNotAPassword_IsStillJudgedByTheSignature()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { IsPassword = false, CanSetValue = true };
+
+        var outcome = Executor(log).Type(target, "abc", clear: true, pressEnter: false, LoggedSignature(log, "A", "A"), settleMs: 0);
+
+        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
+        Assert.Equal(["sig", "SetValue", "sig"], log);
+    }
+
     // --- Guards: disabled targets (F1) -------------------------------------------------------------
 
     [Theory]

@@ -13,6 +13,7 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
 
     public string ControlType { get; init; } = "Edit";
     public bool IsEnabled { get; init; } = true;
+    public bool IsPassword { get; init; }
     public bool HasChildren { get; init; }
     public Rectangle? RectAfterPattern { get; init; }
     public bool CanSetValue { get; init; }

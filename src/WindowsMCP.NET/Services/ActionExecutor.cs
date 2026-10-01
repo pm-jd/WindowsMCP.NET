@@ -53,6 +53,11 @@ public interface IActionTarget
     /// counts as enabled).</summary>
     bool IsEnabled { get; }
 
+    /// <summary>True for a password field (UIA <c>IsPassword</c>); false when that cannot be read. Its
+    /// value is never read back and is not part of the signature, so a <see cref="ActionExecutor.Type"/>
+    /// into it cannot be verified.</summary>
+    bool IsPassword { get; }
+
     bool HasChildren { get; }
     Rectangle CurrentRect { get; }
 
@@ -261,13 +266,20 @@ public sealed class ActionExecutor(IInputDriver input)
     /// value back (trimmed equality against the expected text) and falls back to the
     /// <paramref name="signature"/> comparison only when no read-back is available — the baseline for
     /// that comparison is taken only when the value is not readable up front or Enter follows; a
-    /// <see langword="null"/> signature disables verification.
+    /// <see langword="null"/> signature disables verification. A password field is always
+    /// <see cref="ActionEffect.NotVerified"/>: there is nothing to judge it by.
     /// </summary>
     public ActionOutcome Type(IActionTarget t, string text, bool clear, bool pressEnter, Func<string>? signature, int settleMs)
     {
         ArgumentNullException.ThrowIfNull(t);
         ArgumentNullException.ThrowIfNull(text);
         ActionGuards.EnsureEnabled(t);
+
+        // A password field's value is never read back and is deliberately not part of the signature,
+        // so the signature would say "unchanged" after a perfectly successful entry — a failure that
+        // is none, and one that counts towards Perform's stall stop. It is not verified at all.
+        if (t.IsPassword)
+            signature = null;
 
         var previous = t.ReadValue();
         var expected = clear ? text : (previous ?? "") + text;

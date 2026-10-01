@@ -33,6 +33,9 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     /// one that reports <c>false</c> is refused by the executor.</summary>
     public bool IsEnabled => ReadOrGone(() => !el.Properties.IsEnabled.TryGetValue(out var enabled) || enabled);
 
+    /// <summary>UIA <c>IsPassword</c>; false when it cannot be read.</summary>
+    public bool IsPassword => Guard(() => el.Properties.IsPassword.ValueOrDefault, false);
+
     /// <summary>At least one control-view child — the same "IsControlElement" view
     /// <see cref="ObservationService"/> walks, so this agrees with what an <c>Observe</c> call
     /// would have reported as this element's children.</summary>
@@ -91,7 +94,8 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     public PatternCallResult TrySetValue(string value) => Attempt(WritableValuePattern, p => p.SetValue(value));
 
     /// <summary>The element's current value — never that of a password field: <see langword="null"/>
-    /// there, so <see cref="ActionExecutor.Type"/> verifies by the signature and the secret is not read.</summary>
+    /// there, so the secret is not read (<see cref="ActionExecutor.Type"/> reports such a field as
+    /// not verified, see <see cref="IsPassword"/>).</summary>
     public string? ReadValue() => Guard(
         () => el.Properties.IsPassword.ValueOrDefault ? null : el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault,
         null);

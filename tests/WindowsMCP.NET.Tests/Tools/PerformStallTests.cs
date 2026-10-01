@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Protocol;
+using WindowsMcpNet.Models;
 using WindowsMcpNet.Services;
 using WindowsMcpNet.Tests.TestSupport;
 using WindowsMcpNet.Tools;
@@ -227,6 +228,37 @@ public class PerformStallTests(McpToolsFixture fixture)
         Assert.Equal(5, executed.Count);
         Assert.False(chain.Stalled);
         Assert.False(chain.Errored);
+    }
+
+    [Fact]
+    public async Task Perform_PasswordEntries_DoNotCountTowardsTheStall()
+    {
+        // Two element steps that changed nothing, then three entries into password fields through the
+        // real executor. The signature would say "unchanged" for each of them (the value is not part of
+        // it); they report not_verified instead, which leaves the stall count alone.
+        var log = new List<string>();
+        var executor = new ActionExecutor(new FakeInputDriver(log)) { FocusWaitMs = 0 };
+        var executed = new List<int>();
+
+        Task<PerformTools.StepResult> RunStep(PerformTools.ParsedStep _, int num)
+        {
+            executed.Add(num);
+            if (num <= 2)
+                return Task.FromResult(new PerformTools.StepResult(num, true, "Clicked x via mouse — effect: unchanged", ActionEffect.Unchanged));
+
+            var password = new ResolvedElement(new FakeActionTarget(log) { IsPassword = true, CanSetValue = true },
+                $"e{num} (Edit 'Password')", new ElementLocator("p", "c", []), Pid: 1, WindowHandle: 0x10);
+            var (text, outcome) = InputTools.TypeResolved(password, executor, "s3cret", clear: true, pressEnter: false, () => "same", 0);
+            return Task.FromResult(new PerformTools.StepResult(num, true, text, outcome.Effect));
+        }
+
+        var chain = await PerformTools.RunChain(Steps(5), RunStep,
+            stopOnError: true, stopOnStall: true, delayBetweenMs: 0, progress: null, ct: Ct);
+
+        Assert.Equal([1, 2, 3, 4, 5], executed);
+        Assert.False(chain.Stalled);
+        Assert.All(chain.Results.Skip(2), r => Assert.Equal(ActionEffect.NotVerified, r.Effect));
+        Assert.EndsWith("via ValuePattern — effect: not_verified", chain.Results[^1].Message);
     }
 
     [Fact]
