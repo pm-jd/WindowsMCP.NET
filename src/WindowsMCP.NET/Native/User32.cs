@@ -118,6 +118,10 @@ internal static partial class User32
     [LibraryImport("user32.dll")]
     internal static partial nint GetAncestor(nint hWnd, uint gaFlags);
 
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsChild(nint hWndParent, nint hWnd);
+
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     internal const uint GW_OWNER = 4;

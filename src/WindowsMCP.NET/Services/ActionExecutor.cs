@@ -97,10 +97,11 @@ public interface IActionTarget
     /// ComboBox's inner Edit counts); false when that cannot be determined.</summary>
     bool HasKeyboardFocus { get; }
 
-    /// <summary>True when the top-level window at screen point <paramref name="p"/> is the window this
-    /// element was resolved in — i.e. a click there reaches that window and nothing lying on top of it:
-    /// no window of another application, and no popup, menu or dialog of the same one. False when that
-    /// cannot be determined.</summary>
+    /// <summary>True when a click at screen point <paramref name="p"/> reaches this element: the window
+    /// at the point belongs to the top-level window the element was resolved in (no window of another
+    /// application, no popup, menu or dialog of the same one lies on top) and is the element's own
+    /// native window or a child of it (no sibling control of the same window lies on top, and the
+    /// element is not clipped away there). False when the window at the point cannot be determined.</summary>
     bool OwnsPoint(Point p);
 
     /// <summary>Pattern calls: <see cref="PatternCallResult.NotSupported"/> ONLY when the element does
@@ -160,8 +161,9 @@ internal static class ActionGuards
 
     /// <summary>
     /// The screen point a mouse click on <paramref name="t"/> goes to: the centre of its CURRENT
-    /// rectangle — verified to lie in the window the element was resolved in, so neither a window of
-    /// another application nor a popup, menu or dialog of the same one lying on top is ever clicked.
+    /// rectangle — verified to lie in the element's own window (<see cref="IActionTarget.OwnsPoint"/>),
+    /// so neither a window of another application, nor a popup, menu or dialog of the same one, nor
+    /// another control of the same window lying on top is ever clicked.
     /// Throws (and nothing is clicked) when there is no desktop to click on, the element is gone
     /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered.
     /// </summary>

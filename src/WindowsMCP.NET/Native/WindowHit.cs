@@ -18,6 +18,12 @@ internal static class WindowHit
     /// <summary>The top-level window <paramref name="window"/> belongs to — itself when it is one.</summary>
     public static nint TopLevelOf(nint window) => User32.GetAncestor(window, User32.GA_ROOT);
 
+    /// <summary>Whether <paramref name="p"/> lies in the rectangle of <paramref name="window"/> (false
+    /// when the window is gone).</summary>
+    public static bool Contains(nint window, Point p) =>
+        User32.GetWindowRect(window, out var rect)
+        && p.X >= rect.Left && p.X < rect.Right && p.Y >= rect.Top && p.Y < rect.Bottom;
+
     /// <summary>The rule both callers share: the top-level window found at a point is
     /// <paramref name="window"/>. "No window there" never matches — not even an unknown window.</summary>
     public static bool IsInWindow(nint topLevelAtPoint, nint window) =>

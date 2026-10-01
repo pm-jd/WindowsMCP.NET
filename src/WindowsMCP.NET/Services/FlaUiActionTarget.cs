@@ -23,9 +23,12 @@ namespace WindowsMcpNet.Services;
 /// <param name="windowHandle">The top-level window the element was resolved in.</param>
 public sealed class FlaUiActionTarget(AutomationElement el, string id, string controlType, nint windowHandle) : IActionTarget
 {
-    /// <summary>Upper bound for the walk from the focused element up to the target (a UI tree is never
-    /// this deep; the bound only makes a misbehaving provider terminate).</summary>
-    private const int MaxFocusWalkDepth = 64;
+    /// <summary>Upper bound for a walk up the UI tree — from the focused element to the target, from
+    /// the target to its native window (a UI tree is never this deep; the bound only makes a
+    /// misbehaving provider terminate).</summary>
+    private const int MaxWalkDepth = 64;
+
+    private nint? _nativeWindow;
 
     public string ControlType => controlType;
 
@@ -51,7 +54,7 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
         var automation = el.Automation;
         var walker = automation.TreeWalkerFactory.GetControlViewWalker();
         var current = automation.FocusedElement();
-        for (var depth = 0; current is not null && depth < MaxFocusWalkDepth; depth++)
+        for (var depth = 0; current is not null && depth < MaxWalkDepth; depth++)
         {
             if (current.Equals(el))
                 return true;
@@ -63,9 +66,74 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     }, false);
 
     /// <summary><see cref="WindowHit"/> names the window a click at <paramref name="p"/> would go to;
-    /// its top-level window must be the window the element was resolved in.</summary>
-    public bool OwnsPoint(Point p) =>
-        WindowHit.IsInWindow(WindowHit.TopLevelOf(WindowHit.WindowAt(p)), windowHandle);
+    /// <see cref="OwnsWindow"/> decides whether that is this element.</summary>
+    public bool OwnsPoint(Point p)
+    {
+        var windowAtPoint = WindowHit.WindowAt(p);
+        return OwnsWindow(windowAtPoint, WindowHit.TopLevelOf(windowAtPoint), windowHandle,
+            () => NativeWindow, window => WindowHit.Contains(window, p), User32.IsChild);
+    }
+
+    /// <summary>
+    /// The rule behind <see cref="OwnsPoint"/>. The window at the point must
+    /// <list type="number">
+    /// <item>belong to the top-level window the element was resolved in — not another application, and
+    /// not a popup, menu or dialog of the same one — and</item>
+    /// <item>be the element's own native window (<paramref name="nativeWindow"/>, see
+    /// <see cref="NearestWindow"/>) or a child window of it — not a sibling control lying over the
+    /// element, and not the container the element is scrolled out of. For an element whose native
+    /// window is the top-level window itself (title-bar button, menu item of a popup) this adds nothing
+    /// to (1): every window in it is a child of it.</item>
+    /// </list>
+    /// Only (1) applies when the native window is not determined: unknown (zero), or a window that does
+    /// not even contain the point (<paramref name="containsPoint"/>) — then it is not where the element
+    /// is drawn. Measured on the Windows 11 task bar (XAML island): the buttons hang under an
+    /// <c>InputSite</c> window that lies elsewhere, while the window at their centre is the task list.
+    /// The native window is asked for only when (1) holds: determining it costs UIA calls.
+    /// </summary>
+    internal static bool OwnsWindow(
+        nint windowAtPoint, nint topLevelAtPoint, nint resolvedWindow,
+        Func<nint> nativeWindow, Func<nint, bool> containsPoint, Func<nint, nint, bool> isChild)
+    {
+        if (!WindowHit.IsInWindow(topLevelAtPoint, resolvedWindow))
+            return false;
+
+        var native = nativeWindow();
+        if (native == nint.Zero || !containsPoint(native))
+            return true;
+
+        return windowAtPoint == native || isChild(native, windowAtPoint);
+    }
+
+    /// <summary>The window that draws this element and takes its clicks: its own HWND, or — for a
+    /// windowless element such as a toolbar button, menu item, title-bar button or docking tab — that
+    /// of the nearest ancestor that has one. Determined once, on first use; zero when it cannot be
+    /// determined (the element is gone, the application does not answer).</summary>
+    private nint NativeWindow => _nativeWindow ??= Guard(
+        () => NearestWindow(
+            el, e => e.Properties.NativeWindowHandle.ValueOrDefault,
+            el.Automation.TreeWalkerFactory.GetRawViewWalker().GetParent, MaxWalkDepth),
+        nint.Zero);
+
+    /// <summary>The first non-zero window handle on the way from <paramref name="start"/> up its
+    /// parents (the element itself included); zero when there is none within <paramref name="maxDepth"/>
+    /// elements.</summary>
+    internal static nint NearestWindow<TElement>(
+        TElement? start, Func<TElement, nint> windowOf, Func<TElement, TElement?> parentOf, int maxDepth)
+        where TElement : class
+    {
+        var current = start;
+        for (var depth = 0; current is not null && depth < maxDepth; depth++)
+        {
+            var window = windowOf(current);
+            if (window != nint.Zero)
+                return window;
+
+            current = parentOf(current);
+        }
+
+        return nint.Zero;
+    }
 
     public PatternCallResult TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
 
