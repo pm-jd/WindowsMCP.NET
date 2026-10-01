@@ -108,6 +108,65 @@ public class PerformStallTests(McpToolsFixture fixture)
         Assert.Contains("Completed. 2/2 succeeded.", text);
     }
 
+    // --- 'element' on steps that cannot use it (F9) -------------------------------------------------
+    // Only the wait action is run end to end here: before the fix a scroll/move/shortcut step would
+    // really send input. Those actions are covered through the pure ValidateStep check below.
+
+    [Fact]
+    public async Task Perform_WaitStepCarryingElement_FailsInsteadOfSilentlyIgnoringIt()
+    {
+        var text = await RunPerform("""[{"action":"wait","duration":0,"element":"e0000"},{"action":"wait","duration":0}]""");
+
+        Assert.StartsWith("Step 1: FAIL — ArgumentException: 'element' is only supported on click and type steps", text);
+        Assert.DoesNotContain("Step 2", text);
+        Assert.Contains("Stopped after step 1 (stop_on_error=true). 0/1 succeeded.", text);
+    }
+
+    [Fact]
+    public async Task Perform_WaitStepCarryingElement_IsNotSkippedByIfExists()
+    {
+        var text = await RunPerform("""[{"action":"wait","duration":0,"element":"e0000","if_exists":true}]""");
+
+        Assert.StartsWith("Step 1: FAIL — ArgumentException: 'element' is only supported on click and type steps", text);
+    }
+
+    private static PerformTools.ParsedStep Step(string json) => PerformTools.ParseSteps(Json($"[{json}]")).Single();
+
+    [Theory]
+    [InlineData("""{"action":"scroll","element":"e7q2k"}""")]
+    [InlineData("""{"action":"move","loc":[10,10],"element":"e7q2k"}""")]
+    [InlineData("""{"action":"shortcut","shortcut":"ctrl+s","element":"e7q2k"}""")]
+    [InlineData("""{"action":"wait","duration":1,"element":"e7q2k"}""")]
+    public void ValidateStep_ElementOnAStepThatCannotUseIt_Throws(string step)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => PerformTools.ValidateStep(Step(step)));
+
+        Assert.Equal("'element' is only supported on click and type steps", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("""{"action":"click","element":"e7q2k"}""")]
+    [InlineData("""{"action":"type","text":"x","element":"e7q2k"}""")]
+    [InlineData("""{"action":"scroll","direction":"down"}""")]
+    [InlineData("""{"action":"move","loc":[10,10]}""")]
+    [InlineData("""{"action":"shortcut","shortcut":"ctrl+s"}""")]
+    [InlineData("""{"action":"wait","duration":1}""")]
+    [InlineData("""{"action":"wait","duration":1,"element":null}""")] // explicit null = not provided
+    [InlineData("""{"action":"click","loc":[1,2],"element":null}""")]
+    public void ValidateStep_AcceptsElementOnClickAndType_AndStepsWithoutElement(string step) =>
+        PerformTools.ValidateStep(Step(step));
+
+    [Theory]
+    [InlineData("""{"action":"click","loc":[1,2],"element":5}""")]
+    [InlineData("""{"action":"type","text":"x","element":["e7q2k"]}""")]
+    [InlineData("""{"action":"scroll","element":true}""")]
+    public void ValidateStep_ElementThatIsNotAString_Throws_InsteadOfFallingBackToLabelOrLoc(string step)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => PerformTools.ValidateStep(Step(step)));
+
+        Assert.Equal("'element' must be a string: an element id from Observe", ex.Message);
+    }
+
     // --- stall loop (driven through the seam, no desktop needed) -----------------------------------
 
     private static List<PerformTools.ParsedStep> Steps(int n) =>

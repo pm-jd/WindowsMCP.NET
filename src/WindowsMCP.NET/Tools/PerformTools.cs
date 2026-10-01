@@ -119,6 +119,8 @@ public static class PerformTools
 
         try
         {
+            ValidateStep(step);
+
             // if_exists: skip the step when the referenced label is not in the current UI tree
             if (step.GetBool("if_exists") && step.GetString("label") is { } label && uiTreeService.ResolveLabel(label) is null)
                 return new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)");
@@ -139,6 +141,24 @@ public static class PerformTools
         {
             return new StepResult(stepNum, false, $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Rejects a step whose <c>element</c> would be ignored: an agent that names an element expects the
+    /// step to act on exactly that element, so running it without (scroll/move/shortcut/wait have no
+    /// element support) or falling back to label/loc (when <c>element</c> is not a string) and
+    /// reporting OK would be a silent lie. An explicit JSON null counts as "not provided".
+    /// </summary>
+    internal static void ValidateStep(ParsedStep step)
+    {
+        if (step.Get("element") is not { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) } element)
+            return;
+
+        if (element.ValueKind != JsonValueKind.String)
+            throw new ArgumentException("'element' must be a string: an element id from Observe");
+
+        if (step.Action is not ("click" or "type"))
+            throw new ArgumentException("'element' is only supported on click and type steps");
     }
 
     /// <summary>Runs one step; the effect is non-null only for element steps and arrives as the executor's

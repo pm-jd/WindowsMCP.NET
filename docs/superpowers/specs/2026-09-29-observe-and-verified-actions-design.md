@@ -137,7 +137,7 @@ RuntimeIds are not used for identity: WinForms proxies regenerate them. Known li
 
 ## 3. Actions with element ids
 
-New optional parameter `element: string?` on `Click`, `Type` and on every `Perform` step; `MultiSelect` and `MultiEdit` accept element ids wherever they accept labels today (exact parameter shape follows their current signatures). Precedence: `element` > `label` > `loc`. New parameter `method: ActionMethod = auto` (`auto | pattern | mouse`).
+New optional parameter `element: string?` on `Click`, `Type` and on the **click and type steps** of `Perform` (a `scroll`, `move`, `shortcut` or `wait` step that carries `element` fails with `ArgumentException: 'element' is only supported on click and type steps` instead of silently running without it; an `element` that is not a string fails as well instead of falling back to `label`/`loc`); `MultiSelect` and `MultiEdit` accept element ids wherever they accept labels today (exact parameter shape follows their current signatures). Precedence: `element` > `label` > `loc`. New parameter `method: ActionMethod = auto` (`auto | pattern | mouse`).
 
 ### Guards — input never reaches anything but the resolved target
 
@@ -177,7 +177,7 @@ Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x')
 - **Signature**: after resolving the element and before acting, compute the scope signature (same collection as `Observe` without hit-testing and without formatting); after acting wait `settle_ms` (default 300, max 2000) and compute it again.
 - **effect**: `changed` (signatures differ), `unchanged`, `value_verified`, `value_mismatch`.
 - **verify** parameter: default `true` when `element` is used, `false` otherwise (label/loc behaviour unchanged).
-- **Perform**: each step re-resolves its `element`; new options `verify` (default `true` for element steps) and `stop_on_stall` (default `true`): three consecutive element steps with `effect=unchanged` stop the run with `Stopped after step N: no visible change for 3 steps (stall).`. Step result lines gain the effect. Progress notifications unchanged.
+- **Perform**: each click and type step re-resolves its `element`; new options `verify` (default `true` for element steps) and `stop_on_stall` (default `true`): three consecutive element steps with `effect=unchanged` stop the run with `Stopped after step N: no visible change for 3 steps (stall).`. Step result lines gain the effect. Progress notifications unchanged.
 - A step whose pattern "succeeded" but whose mouse fallback also produced `unchanged` is reported as `OK — effect: unchanged` (not an error); only stall detection turns it into a stop.
 
 ## 5. Errors, limits, security
