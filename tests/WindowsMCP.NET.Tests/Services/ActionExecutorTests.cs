@@ -13,20 +13,111 @@ namespace WindowsMcpNet.Tests.Services;
 /// </summary>
 public class ActionExecutorTests
 {
+    private const string NoInteractiveDesktop =
+        "no interactive desktop (session disconnected or not rendered) — nothing was clicked";
+
     // --- Click -----------------------------------------------------------------------------------
 
+    // --- auto on Invoke-type controls: the mouse first when it can click safely (AF1) ----------------
+    // An Invoke that opens a modal dialog does not return until the dialog is closed, and while it is
+    // pending the application answers no UI Automation request. A mouse click has no such after-effect.
+
+    [Theory]
+    [InlineData("Button")]
+    [InlineData("SplitButton")]
+    [InlineData("Hyperlink")]
+    [InlineData("MenuItem")] // a MenuItem WITHOUT children; one with children is expanded (below)
+    public void Click_Auto_InvokeType_SafePoint_ClicksOnceWithTheMouse_NoPatternCall(string controlType)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = controlType, CurrentRect = new Rectangle(100, 200, 40, 20) };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, LoggedSignature(log, "A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("mouse", ActionEffect.Changed), outcome);
+        Assert.Equal(["sig", "LeftClick:120,210", "sig"], log); // exactly one click, no Invoke
+    }
+
     [Fact]
-    public void Click_Button_UsesInvoke_Changed()
+    public void Click_Auto_InvokeType_MouseClickChangedNothing_IsNotFollowedByInvoke()
     {
         var log = new List<string>();
         var target = new FakeActionTarget(log) { ControlType = "Button" };
-        var executor = new ActionExecutor(new FakeInputDriver(log));
 
-        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
-        Assert.Equal("Invoke", outcome.Via);
-        Assert.Equal(ActionEffect.Changed, outcome.Effect);
+        Assert.Equal(new ActionOutcome("mouse", ActionEffect.Unchanged), outcome);
+        Assert.Equal(["LeftClick:5,5"], log); // a second action could press the button twice
+    }
+
+    [Theory]
+    [InlineData(true, false, false, true)]    // another window lies over the click point
+    [InlineData(false, true, false, true)]    // the element has no area
+    [InlineData(false, false, true, true)]    // the element's rectangle cannot be read
+    [InlineData(false, false, false, false)]  // no interactive desktop: the pattern is all that works there
+    public void Click_Auto_InvokeType_NoSafePoint_InvokesOnce_NoMouseClick(
+        bool covered, bool emptyRect, bool rectGone, bool interactiveDesktop)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", Covered = covered, RectGone = rectGone };
+        if (emptyRect)
+            target.CurrentRect = Rectangle.Empty;
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = interactiveDesktop });
+
+        var outcome = executor.Click(target, ActionMethod.Auto, LoggedSignature(log, "A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Invoke", ActionEffect.Changed), outcome);
+        Assert.Equal(["sig", "Invoke", "sig"], log); // exactly one Invoke, no click
+    }
+
+    [Fact]
+    public void Click_Auto_InvokeType_FallbackInvokeChangedNothing_IsNeverRepeatedWithTheMouse()
+    {
+        // The point is covered before the Invoke and free afterwards: even then the dispatched Invoke
+        // stands — a click on top of it could press the button a second time.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", Covered = true };
+        var reads = 0;
+        string Signature()
+        {
+            if (++reads == 2)
+                target.Covered = false;
+            return "A";
+        }
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, Signature, settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Invoke", ActionEffect.Unchanged), outcome);
         Assert.Equal(["Invoke"], log);
+    }
+
+    [Fact]
+    public void Click_Auto_InvokeType_NoSafePoint_PatternUnsupported_RefusesWithTheReasonTheMouseCannotBeUsed()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", InvokeResult = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false });
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Click(target, ActionMethod.Auto, signature: null, settleMs: 0));
+
+        Assert.Equal(NoInteractiveDesktop, ex.Message);
+        Assert.Equal(["Invoke"], log); // the (unsupported) pattern lookup, and no click
+    }
+
+    [Theory]
+    [InlineData("CheckBox", "Toggle")]
+    [InlineData("RadioButton", "Select")]
+    [InlineData("TabItem", "Select")]
+    [InlineData("ComboBox", "ExpandCollapse")]
+    public void Click_Auto_OtherPatternTypes_StayPatternFirst_AlsoWithASafePoint(string controlType, string expectedCall)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = controlType };
+
+        Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal([expectedCall], log);
     }
 
     [Fact]
@@ -72,13 +163,13 @@ public class ActionExecutorTests
     }
 
     [Fact]
-    public void Click_MenuItemWithoutChildren_UsesInvoke()
+    public void Click_MenuItemWithoutChildren_MethodPattern_UsesInvoke()
     {
         var log = new List<string>();
         var target = new FakeActionTarget(log) { ControlType = "MenuItem", HasChildren = false };
         var executor = new ActionExecutor(new FakeInputDriver(log));
 
-        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+        var outcome = executor.Click(target, ActionMethod.Pattern, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("Invoke", outcome.Via);
         Assert.Equal(["Invoke"], log);
@@ -113,20 +204,6 @@ public class ActionExecutorTests
     }
 
     [Fact]
-    public void Click_InvokeUnchanged_DoesNotFallBack()
-    {
-        var log = new List<string>();
-        var target = new FakeActionTarget(log) { ControlType = "Button" };
-        var executor = new ActionExecutor(new FakeInputDriver(log));
-
-        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
-
-        Assert.Equal("Invoke", outcome.Via);
-        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
-        Assert.Equal(["Invoke"], log);
-    }
-
-    [Fact]
     public void Click_ToggleUnchanged_DoesNotFallBack()
     {
         var log = new List<string>();
@@ -158,14 +235,14 @@ public class ActionExecutorTests
     public void Click_PatternUnsupported_Auto_FallsBackToMouse()
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { ControlType = "Button", InvokeResult = false, CurrentRect = new Rectangle(0, 0, 20, 10) };
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox", ToggleResult = false, CurrentRect = new Rectangle(0, 0, 20, 10) };
         var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("mouse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Invoke", "LeftClick:10,5"], log);
+        Assert.Equal(["Toggle", "LeftClick:10,5"], log);
     }
 
     [Fact]
@@ -284,14 +361,14 @@ public class ActionExecutorTests
     public void Click_NoSignature_NotVerified()
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox" };
         var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, signature: null, settleMs: 0);
 
-        Assert.Equal("Invoke", outcome.Via);
+        Assert.Equal("Toggle", outcome.Via);
         Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
-        Assert.Equal(["Invoke"], log);
+        Assert.Equal(["Toggle"], log);
     }
 
     // --- Type ------------------------------------------------------------------------------------
@@ -677,6 +754,65 @@ public class ActionExecutorTests
             () => Executor(log).Click(target, ActionMethod.Auto, signature: null, settleMs: 0));
 
         Assert.Equal(["Invoke"], log); // the (unsupported) pattern lookup, and no click
+    }
+
+    // --- Guards: no mouse input without an interactive desktop (AF1) ----------------------------------
+
+    [Theory]
+    [InlineData("Button", ActionMethod.Mouse)]  // explicit mouse
+    [InlineData("Edit", ActionMethod.Auto)]     // a control type with no click pattern
+    public void Click_MousePath_NoInteractiveDesktop_Throws_BeforeAnythingIsSent(string controlType, ActionMethod method)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = controlType };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false });
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Click(target, method, signature: null, settleMs: 0));
+
+        Assert.Equal(NoInteractiveDesktop, ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Fact]
+    public void Click_SelectUnchanged_NoInteractiveDesktop_ReportsUnchanged_NoClick()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem" };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false });
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(["Select"], log);
+    }
+
+    [Fact]
+    public void Type_Keyboard_FocusFails_NoInteractiveDesktop_Throws_NothingClickedOrTyped()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false, FocusResult = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Type(target, "Hello", clear: false, pressEnter: false, signature: null, settleMs: 0));
+
+        Assert.Equal(NoInteractiveDesktop, ex.Message);
+        Assert.Equal(["Focus"], log);
+    }
+
+    [Fact]
+    public void Type_ValuePattern_PressEnter_NoInteractiveDesktop_Throws_EnterNotSent()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, FocusResult = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => executor.Type(target, "Hi", clear: true, pressEnter: true, signature: null, settleMs: 0));
+
+        Assert.Equal("value was set, but the element could not be focused — Enter was not sent", ex.Message);
+        Assert.Equal(["SetValue", "Focus"], log);
     }
 
     [Fact]

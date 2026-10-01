@@ -58,7 +58,10 @@ public static class InputTools
         [Description("Mouse button")] MouseButton button = MouseButton.Left,
         [Description("Number of clicks: 1 for single (default), 2 for double")] int clicks = 1,
         [Description("Element id from the last Observe (e.g. 'e7q2k'); takes precedence over label and loc; resolved against the live UI")] string? element = null,
-        [Description("Element path only: auto tries the UIA pattern for the control type and falls back to the mouse, pattern never uses the mouse, mouse always does")] ActionMethod method = ActionMethod.Auto,
+        [Description("Element path only. auto: buttons, links and plain menu items are clicked with the mouse when the element can be clicked safely, " +
+                     "and via the UIA Invoke pattern only when it cannot (an Invoke that opens a modal dialog does not return and blocks UI Automation for that application until the dialog is closed); " +
+                     "other controls (check box, radio button, tab, list/tree item, combo box, submenu) use their UIA pattern first and the mouse when they have none. " +
+                     "pattern never uses the mouse, mouse always does")] ActionMethod method = ActionMethod.Auto,
         [Description("Element path only: compare the process's UI before and after and report the effect (default true)")] bool? verify = null,
         [Description("Element path only: milliseconds to wait before the verification read (0-2000)")] int settle_ms = 300,
         CancellationToken ct = default)
@@ -109,9 +112,9 @@ public static class InputTools
     }
 
     /// <summary>Post-resolve part of the element click: single left click goes through the executor
-    /// (pattern-first); anything else is a mouse click at the rect centre reported via <c>mouse</c> —
-    /// behind the same guards as the executor's mouse path (target enabled, click point not covered by
-    /// another application's window), checked right before the click.</summary>
+    /// (which chooses between pattern and mouse); anything else is a mouse click at the rect centre
+    /// reported via <c>mouse</c> — behind the same guards as the executor's mouse path (target enabled,
+    /// an interactive desktop, click point in the element's own window), checked right before the click.</summary>
     internal static (string Text, ActionOutcome Outcome) ClickResolved(
         ResolvedElement resolved, ActionExecutor executor, MouseButton button, int clicks, ActionMethod method,
         Func<string>? signature, int settleMs, Action<int, int, MouseButton, int> mouseClick)
@@ -130,7 +133,7 @@ public static class InputTools
             ActionGuards.EnsureEnabled(resolved.Target);
             outcome = executor.MouseAction(() =>
             {
-                var point = ActionGuards.ClickPoint(resolved.Target);
+                var point = executor.ClickPoint(resolved.Target);
                 mouseClick(point.X, point.Y, button, clicks);
             }, signature, settleMs);
         }

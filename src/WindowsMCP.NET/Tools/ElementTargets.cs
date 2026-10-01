@@ -27,15 +27,11 @@ internal static class ElementTargets
         User32.GetWindowThreadProcessId(hwnd, out var windowPid);
 
         string controlType, name;
-        int elementPid;
         try
         {
             var properties = element.Properties;
             controlType = properties.ControlType.ValueOrDefault.ToString();
             name = properties.Name.ValueOrDefault ?? "";
-            // Usually the window's process; differs for content hosted from another process, where the
-            // element's own process is what a hit-test at its position reports.
-            elementPid = properties.ProcessId.TryGetValue(out var processId) ? processId : (int)windowPid;
         }
         catch (Exception)
         {
@@ -43,7 +39,7 @@ internal static class ElementTargets
         }
 
         return new ResolvedElement(
-            new FlaUiActionTarget(element, id, controlType, elementPid),
+            new FlaUiActionTarget(element, id, controlType, hwnd),
             $"{id} ({controlType} '{name}')", stored.Locator, (int)windowPid, hwnd);
     }
 

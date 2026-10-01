@@ -112,9 +112,16 @@ internal static partial class User32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsWindowEnabled(nint hWnd);
 
+    [LibraryImport("user32.dll")]
+    internal static partial nint WindowFromPoint(POINT point);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetAncestor(nint hWnd, uint gaFlags);
+
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     internal const uint GW_OWNER = 4;
+    internal const uint GA_ROOT = 2;
 
     internal const int SW_SHOW = 5;
     internal const int SW_RESTORE = 9;

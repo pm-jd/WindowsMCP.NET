@@ -84,6 +84,9 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
 
 internal sealed class FakeInputDriver(List<string> log) : IInputDriver
 {
+    /// <summary>False simulates a disconnected or non-rendered session: no input can be injected.</summary>
+    public bool HasInteractiveDesktop { get; set; } = true;
+
     public void LeftClick(Point p) => log.Add($"LeftClick:{p.X},{p.Y}");
     public void TypeText(string text, bool clear, bool pressEnter) => log.Add($"TypeText:{text}|{clear}|{pressEnter}");
     public void PressEnter() => log.Add("PressEnter");

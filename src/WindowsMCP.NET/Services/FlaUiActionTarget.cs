@@ -3,6 +3,7 @@ using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Patterns;
+using WindowsMcpNet.Native;
 
 namespace WindowsMcpNet.Services;
 
@@ -19,8 +20,8 @@ namespace WindowsMcpNet.Services;
 /// <param name="el">The resolved live element.</param>
 /// <param name="id">The element id it was resolved from (for <see cref="ElementNotFoundException"/>).</param>
 /// <param name="controlType">The element's control type, read once when it was resolved.</param>
-/// <param name="processId">The process the element belongs to, read once when it was resolved.</param>
-public sealed class FlaUiActionTarget(AutomationElement el, string id, string controlType, int processId) : IActionTarget
+/// <param name="windowHandle">The top-level window the element was resolved in.</param>
+public sealed class FlaUiActionTarget(AutomationElement el, string id, string controlType, nint windowHandle) : IActionTarget
 {
     /// <summary>Upper bound for the walk from the focused element up to the target (a UI tree is never
     /// this deep; the bound only makes a misbehaving provider terminate).</summary>
@@ -58,11 +59,17 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
         return false;
     }, false);
 
-    public bool OwnsPoint(Point p) => Guard(() =>
-    {
-        var hit = el.Automation.FromPoint(p);
-        return hit is not null && hit.Properties.ProcessId.ValueOrDefault == processId;
-    }, false);
+    /// <summary>Plain Win32, no UI Automation: UIA's hit-test is unreliable in popups, menus and
+    /// dialogs (and for docking tab items), costs a cross-process call and cannot answer while the
+    /// application is busy. <c>WindowFromPoint</c> names the window a click at <paramref name="p"/>
+    /// would go to; its top-level ancestor must be the window the element was resolved in.</summary>
+    public bool OwnsPoint(Point p) => IsResolvedWindow(
+        User32.GetAncestor(User32.WindowFromPoint(new POINT { X = p.X, Y = p.Y }), User32.GA_ROOT), windowHandle);
+
+    /// <summary>The rule behind <see cref="OwnsPoint"/>: the top-level window found at the point is the
+    /// one the element was resolved in. "No window there" never matches — not even an unknown window.</summary>
+    internal static bool IsResolvedWindow(nint topLevelAtPoint, nint resolvedWindow) =>
+        resolvedWindow != nint.Zero && topLevelAtPoint == resolvedWindow;
 
     public bool TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
 

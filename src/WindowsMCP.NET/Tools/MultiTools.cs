@@ -19,6 +19,7 @@ public static class MultiTools
         UiTreeService uiTreeService,
         ObservationService observationService,
         ObservationStore observationStore,
+        ActionExecutor executor,
         [Description("Element label IDs from last Snapshot, e.g. [3, 7, 12]")] int[]? labels = null,
         [Description("Array of [x, y] coordinates, e.g. [[100,200],[300,400]]")] int[][]? locs = null,
         [Description("Hold Ctrl key while clicking (for multi-selection)")] bool press_ctrl = true,
@@ -32,7 +33,7 @@ public static class MultiTools
                 var resolved = elements
                     .Select(id => ElementTargets.Resolve(id, observationStore, observationService))
                     .ToList();
-                return SelectElements(resolved, press_ctrl,
+                return SelectElements(resolved, press_ctrl, executor,
                     down => InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: !down)),
                     point => InputFactory.LeftClickAt(point.X, point.Y));
             }
@@ -117,18 +118,19 @@ public static class MultiTools
 
     /// <summary>
     /// Element path of MultiSelect (after all ids were resolved). EVERY target is checked — enabled, on
-    /// screen, click point not covered by another application's window — before Ctrl goes down or
-    /// anything is clicked, so a target that cannot be clicked leaves the UI untouched. Each click point
-    /// is taken and checked again right before its click (an earlier click may have moved or covered the
-    /// element); a failure then stops the run, releases Ctrl and reports what was already clicked.
+    /// screen, click point in the element's own window (<see cref="ActionExecutor.ClickPoint"/>) —
+    /// before Ctrl goes down or anything is clicked, so a target that cannot be clicked leaves the UI
+    /// untouched. Each click point is taken and checked again right before its click (an earlier click
+    /// may have moved or covered the element); a failure then stops the run, releases Ctrl and reports
+    /// what was already clicked.
     /// </summary>
     internal static string SelectElements(
-        IReadOnlyList<ResolvedElement> resolved, bool pressCtrl, Action<bool> holdCtrl, Action<Point> click)
+        IReadOnlyList<ResolvedElement> resolved, bool pressCtrl, ActionExecutor executor, Action<bool> holdCtrl, Action<Point> click)
     {
         foreach (var element in resolved)
         {
             ActionGuards.EnsureEnabled(element.Target);
-            ActionGuards.ClickPoint(element.Target);
+            executor.ClickPoint(element.Target);
         }
 
         if (pressCtrl)
@@ -139,7 +141,7 @@ public static class MultiTools
         {
             foreach (var element in resolved)
             {
-                click(ActionGuards.ClickPoint(element.Target));
+                click(executor.ClickPoint(element.Target));
                 clicked.Add(element.Describe);
             }
         }

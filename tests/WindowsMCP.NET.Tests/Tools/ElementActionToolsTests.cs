@@ -23,7 +23,14 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
     private static readonly ObservationService Svc = new(NullLogger<ObservationService>.Instance);
 
+    private const string NoInteractiveDesktop =
+        "no interactive desktop (session disconnected or not rendered) — nothing was clicked";
+
     private static ActionExecutor SafeExecutor(List<string>? log = null) => new(new FakeInputDriver(log ?? [])) { FocusWaitMs = 0 };
+
+    /// <summary>Executor in a disconnected or non-rendered session: nothing can be clicked there.</summary>
+    private static ActionExecutor NoDesktopExecutor(List<string> log) =>
+        new(new FakeInputDriver(log) { HasInteractiveDesktop = false }) { FocusWaitMs = 0 };
 
     private static UiTreeService Ui => null!;
 
@@ -58,7 +65,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
     [Fact]
     public void MultiSelect_UnknownElement_ReturnsElementNotFound() =>
-        Assert.Equal(NotFound("e9zz9"), MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), elements: ["e9zz9"], ct: Ct));
+        Assert.Equal(NotFound("e9zz9"), MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), SafeExecutor(), elements: ["e9zz9"], ct: Ct));
 
     [Fact]
     public void MultiEdit_UnknownElement_ReturnsElementNotFound() =>
@@ -77,7 +84,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
     [Fact]
     public void MultiSelect_StaleElement_ReturnsElementNotFound() =>
-        Assert.Equal(NotFound("e5stl"), MultiTools.MultiSelect(Ui, Svc, StaleStore(), elements: ["e5stl"], ct: Ct));
+        Assert.Equal(NotFound("e5stl"), MultiTools.MultiSelect(Ui, Svc, StaleStore(), SafeExecutor(), elements: ["e5stl"], ct: Ct));
 
     [Fact]
     public void MultiEdit_StaleElement_ReturnsElementNotFound() =>
@@ -111,12 +118,12 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     [Fact]
     public void MultiSelect_WithoutLabelsLocsOrElements_KeepsLegacyError() =>
         Assert.Equal("[ERROR] ArgumentException: No targets specified. Provide 'labels' or 'locs'.",
-            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), ct: Ct));
+            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), SafeExecutor(), ct: Ct));
 
     [Fact]
     public void MultiSelect_EmptyElements_FallsThroughToTheLegacyError() =>
         Assert.Equal("[ERROR] ArgumentException: No targets specified. Provide 'labels' or 'locs'.",
-            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), elements: [], ct: Ct));
+            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), SafeExecutor(), elements: [], ct: Ct));
 
     [Fact]
     public void Click_WithoutLabelOrLocOrElement_KeepsLegacyError() =>
@@ -135,25 +142,38 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     public void ClickResolved_SingleLeftClick_VerifyOn_Format()
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox" };
+
+        var result = InputTools.ClickResolved(Resolved(target, "e7q2k (CheckBox 'Auto')"), SafeExecutor(log),
+            MouseButton.Left, 1, ActionMethod.Auto, Sig(log, "A", "B"), 0, (_, _, _, _) => log.Add("mouse")).Text;
+
+        Assert.Equal("Clicked e7q2k (CheckBox 'Auto') via Toggle — effect: changed", result);
+        Assert.Equal(["sig", "Toggle", "sig"], log);
+    }
+
+    [Fact]
+    public void ClickResolved_SingleLeftClick_OnAButton_GoesThroughTheExecutorsMouseFirstPath()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", CurrentRect = new Rectangle(100, 200, 40, 20) };
 
         var result = InputTools.ClickResolved(Resolved(target, "e7q2k (Button 'Save')"), SafeExecutor(log),
             MouseButton.Left, 1, ActionMethod.Auto, Sig(log, "A", "B"), 0, (_, _, _, _) => log.Add("mouse")).Text;
 
-        Assert.Equal("Clicked e7q2k (Button 'Save') via Invoke — effect: changed", result);
-        Assert.Equal(["sig", "Invoke", "sig"], log);
+        Assert.Equal("Clicked e7q2k (Button 'Save') via mouse — effect: changed", result);
+        Assert.Equal(["sig", "LeftClick:120,210", "sig"], log);
     }
 
     [Fact]
     public void ClickResolved_VerifyOff_NullSignature_NotVerified()
     {
         var log = new List<string>();
-        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox" };
 
-        var result = InputTools.ClickResolved(Resolved(target, "e7q2k (Button 'Save')"), SafeExecutor(log),
+        var result = InputTools.ClickResolved(Resolved(target, "e7q2k (CheckBox 'Auto')"), SafeExecutor(log),
             MouseButton.Left, 1, ActionMethod.Auto, null, 0, (_, _, _, _) => { }).Text;
 
-        Assert.Equal("Clicked e7q2k (Button 'Save') via Invoke — effect: not_verified", result);
+        Assert.Equal("Clicked e7q2k (CheckBox 'Auto') via Toggle — effect: not_verified", result);
     }
 
     [Theory]
@@ -213,6 +233,22 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
             (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}")));
 
         Assert.Equal("Button is disabled — nothing was done", ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Theory]
+    [InlineData(MouseButton.Right, 1)]
+    [InlineData(MouseButton.Left, 2)]
+    public void ClickResolved_NonSingleLeft_NoInteractiveDesktop_Throws_NothingClicked(MouseButton button, int clicks)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => InputTools.ClickResolved(
+            Resolved(target, "e1 (Button 'X')"), NoDesktopExecutor(log), button, clicks, ActionMethod.Auto, null, 0,
+            (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}")));
+
+        Assert.Equal(NoInteractiveDesktop, ex.Message);
         Assert.Empty(log);
     }
 
@@ -312,7 +348,10 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     // --- MultiSelect (element path, driven through the seam: no real input) ----------------------------
 
     private static string RunSelect(List<string> log, bool pressCtrl, params ResolvedElement[] resolved) =>
-        MultiTools.SelectElements(resolved, pressCtrl,
+        RunSelect(log, SafeExecutor(log), pressCtrl, resolved);
+
+    private static string RunSelect(List<string> log, ActionExecutor executor, bool pressCtrl, params ResolvedElement[] resolved) =>
+        MultiTools.SelectElements(resolved, pressCtrl, executor,
             down => log.Add(down ? "ctrl:down" : "ctrl:up"),
             p => log.Add($"click:{p.X},{p.Y}"));
 
@@ -369,6 +408,20 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     }
 
     [Fact]
+    public void SelectElements_NoInteractiveDesktop_Throws_BeforeCtrlAndBeforeAnyClick()
+    {
+        var log = new List<string>();
+        var first = new FakeActionTarget(log) { ControlType = "ListItem" };
+        var second = new FakeActionTarget(log) { ControlType = "ListItem" };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => RunSelect(log, NoDesktopExecutor(log), pressCtrl: true, Resolved(first, "e1"), Resolved(second, "e2")));
+
+        Assert.Equal(NoInteractiveDesktop, ex.Message);
+        Assert.Empty(log);
+    }
+
+    [Fact]
     public void SelectElements_TargetCoveredAfterAnEarlierClick_StopsReleasesCtrl_AndListsWhatWasClicked()
     {
         var log = new List<string>();
@@ -377,7 +430,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
         // The first click opens something (of another application) on top of the second target.
         var result = MultiTools.SelectElements([Resolved(first, "e1 (ListItem 'A')"), Resolved(second, "e2 (ListItem 'B')")],
-            pressCtrl: true,
+            pressCtrl: true, SafeExecutor(log),
             down => log.Add(down ? "ctrl:down" : "ctrl:up"),
             p => { log.Add($"click:{p.X},{p.Y}"); second.Covered = true; });
 

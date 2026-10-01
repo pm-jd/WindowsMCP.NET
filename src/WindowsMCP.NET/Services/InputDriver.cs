@@ -10,6 +10,10 @@ namespace WindowsMcpNet.Services;
 /// </summary>
 public sealed class InputDriver : IInputDriver
 {
+    /// <summary>A desktop that takes injected input has a foreground window; a disconnected or
+    /// non-rendered session has none.</summary>
+    public bool HasInteractiveDesktop => User32.GetForegroundWindow() != nint.Zero;
+
     public void LeftClick(Point p) => InputFactory.LeftClickAt(p.X, p.Y);
 
     public void TypeText(string text, bool clear, bool pressEnter)

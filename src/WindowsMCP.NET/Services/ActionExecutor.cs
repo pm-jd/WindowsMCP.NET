@@ -46,9 +46,10 @@ public interface IActionTarget
     /// ComboBox's inner Edit counts); false when that cannot be determined.</summary>
     bool HasKeyboardFocus { get; }
 
-    /// <summary>True when the UI element at screen point <paramref name="p"/> belongs to the same
-    /// process as this element — i.e. no window of another application covers that point. False when
-    /// that cannot be determined.</summary>
+    /// <summary>True when the top-level window at screen point <paramref name="p"/> is the window this
+    /// element was resolved in — i.e. a click there reaches that window and nothing lying on top of it:
+    /// no window of another application, and no popup, menu or dialog of the same one. False when that
+    /// cannot be determined.</summary>
     bool OwnsPoint(Point p);
 
     /// <summary>Pattern calls: <see langword="false"/> ONLY when the element does not support the
@@ -75,11 +76,15 @@ public interface IActionTarget
     bool TryFocus();
 }
 
-/// <summary>Seam over the mouse/keyboard <c>SendInput</c> paths <see cref="ActionExecutor"/> falls back
-/// to. <see cref="InputDriver"/> is the production implementation (built on <c>InputFactory</c>,
+/// <summary>Seam over the mouse/keyboard <c>SendInput</c> paths <see cref="ActionExecutor"/> uses.
+/// <see cref="InputDriver"/> is the production implementation (built on <c>InputFactory</c>,
 /// exactly as <c>InputTools.Click</c>/<c>Type</c> do today); tests use a hand-written fake.</summary>
 public interface IInputDriver
 {
+    /// <summary>False when this process cannot inject input at all: the session is disconnected or
+    /// not rendered. Only UIA patterns work there; every mouse path refuses.</summary>
+    bool HasInteractiveDesktop { get; }
+
     void LeftClick(Point p);
     void TypeText(string text, bool clear, bool pressEnter);
     void PressEnter();
@@ -87,10 +92,10 @@ public interface IInputDriver
 
 /// <summary>
 /// The checks every element action passes before real input is sent — shared by <see cref="ActionExecutor"/>
-/// and the element paths of the tools (non-left/multi clicks, MultiSelect) so there is exactly one
-/// definition of "where to click" and "may we click there". The rule behind them: input on the element
-/// path never reaches anything but the resolved target; when in doubt the action is refused and
-/// nothing is done.
+/// and, through <see cref="ActionExecutor.ClickPoint"/>, the element paths of the tools (non-left/multi
+/// clicks, MultiSelect) so there is exactly one definition of "where to click" and "may we click
+/// there". The rule behind them: input on the element path never reaches anything but the resolved
+/// target; when in doubt the action is refused and nothing is done.
 /// </summary>
 internal static class ActionGuards
 {
@@ -104,12 +109,17 @@ internal static class ActionGuards
 
     /// <summary>
     /// The screen point a mouse click on <paramref name="t"/> goes to: the centre of its CURRENT
-    /// rectangle — verified to belong to the target's own process, so a window of another application
-    /// lying on top is never clicked. Throws (and nothing is clicked) when the element is gone
+    /// rectangle — verified to lie in the window the element was resolved in, so neither a window of
+    /// another application nor a popup, menu or dialog of the same one lying on top is ever clicked.
+    /// Throws (and nothing is clicked) when there is no desktop to click on, the element is gone
     /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered.
     /// </summary>
-    public static Point ClickPoint(IActionTarget t)
+    public static Point ClickPoint(IActionTarget t, IInputDriver input)
     {
+        if (!input.HasInteractiveDesktop)
+            throw new InvalidOperationException(
+                "no interactive desktop (session disconnected or not rendered) — nothing was clicked");
+
         var rect = t.CurrentRect;
         if (rect.Width <= 0 || rect.Height <= 0)
             throw new InvalidOperationException("the element has no visible area — nothing was clicked");
@@ -123,37 +133,51 @@ internal static class ActionGuards
 }
 
 /// <summary>
-/// Pattern-first action execution for element-id based Click/Type: tries the UIA pattern matching the
-/// element's control type, uses the mouse/keyboard <see cref="IInputDriver"/> path when the element has
-/// no such pattern, and reports which mechanism acted plus the verified <see cref="ActionEffect"/> by
-/// comparing a caller-supplied signature (or, for <see cref="Type"/>, the element's own read-back value
-/// when available) before and after.
+/// Verified action execution for element-id based Click/Type: acts through the UIA pattern matching
+/// the element's control type or through the mouse/keyboard <see cref="IInputDriver"/> path (see
+/// <see cref="Click"/> and <see cref="Type"/> for which comes first), and reports which mechanism acted
+/// plus the verified <see cref="ActionEffect"/> by comparing a caller-supplied signature (or, for
+/// <see cref="Type"/>, the element's own read-back value when available) before and after.
 /// <para>
 /// Two rules hold on every path: input never reaches anything but the resolved target (disabled
 /// targets, covered click points and unconfirmed keyboard focus are refused before anything is sent),
 /// and no action is performed twice (a dispatched pattern call is never repeated with the mouse, except
-/// the idempotent SelectionItem select that visibly changed nothing).
+/// the idempotent SelectionItem select that visibly changed nothing; a mouse click is never followed
+/// by a pattern call).
 /// </para>
 /// </summary>
 public sealed class ActionExecutor(IInputDriver input)
 {
     private const int FocusPollMs = 25;
+    private const string Invoke = "Invoke";
+    private const string SelectionItem = "SelectionItem";
 
     /// <summary>How long to wait for the keyboard focus to arrive on the target after SetFocus or the
     /// click-to-focus (both are asynchronous for the target application). Tests set 0.</summary>
     internal int FocusWaitMs { get; init; } = 500;
 
     /// <summary>
-    /// Clicks <paramref name="t"/>. <paramref name="method"/> selects the strategy: <c>Auto</c> tries
-    /// the pattern for the element's control type first and uses a mouse click at the element's current
-    /// centre when the element does not support that pattern, or when a SelectionItem select had no
-    /// observable effect (any other dispatched pattern call is never repeated with the mouse — not even
-    /// when it threw or timed out, because it may have run); <c>Pattern</c> never uses the mouse (throws
-    /// when no pattern applies); <c>Mouse</c> skips the pattern entirely. <paramref name="signature"/> is
-    /// the signature function used for before/after comparison; a <see langword="null"/> signature
-    /// disables verification (<see cref="ActionEffect.NotVerified"/>) without changing the action taken.
-    /// Throws before anything is done when the target is disabled, and before any mouse input when the
-    /// click point is covered by another application's window.
+    /// Clicks <paramref name="t"/>. <paramref name="method"/> selects the strategy:
+    /// <list type="bullet">
+    /// <item><c>Auto</c>, control types clicked through <c>Invoke</c> (Button, SplitButton, Hyperlink,
+    /// MenuItem without children): the MOUSE first when it can click safely — an <c>Invoke</c> whose
+    /// handler opens a modal dialog does not return before the dialog is closed, and until then the
+    /// application answers no UI Automation request (it cannot be observed, its dialog cannot be
+    /// operated by id). <c>Invoke</c> only when there is no safe click point (no interactive desktop,
+    /// no visible area, covered).</item>
+    /// <item><c>Auto</c>, other control types: the pattern for the control type first; a mouse click at
+    /// the element's current centre when the element does not support that pattern, or when a
+    /// SelectionItem select had no observable effect.</item>
+    /// <item><c>Pattern</c> never uses the mouse (throws when no pattern applies); <c>Mouse</c> skips
+    /// the pattern entirely.</item>
+    /// </list>
+    /// A dispatched pattern call is never repeated with the mouse (apart from that Select) — not even
+    /// when it threw or timed out, because it may have run — and a mouse click is never followed by a
+    /// pattern call. <paramref name="signature"/> is the signature function used for before/after
+    /// comparison; a <see langword="null"/> signature disables verification
+    /// (<see cref="ActionEffect.NotVerified"/>) without changing the action taken. Throws before
+    /// anything is done when the target is disabled, and before any mouse input when the click point is
+    /// not safe (see <see cref="ActionGuards.ClickPoint"/>).
     /// </summary>
     public ActionOutcome Click(IActionTarget t, ActionMethod method, Func<string>? signature, int settleMs)
     {
@@ -164,26 +188,34 @@ public sealed class ActionExecutor(IInputDriver input)
 
         if (method != ActionMethod.Mouse)
         {
-            var (dispatched, via) = TryPattern(t);
-            if (dispatched)
+            var pattern = ClickPattern(t);
+
+            if (method == ActionMethod.Auto && pattern == Invoke && TryClickPoint(t) is { } safePoint)
+            {
+                input.LeftClick(safePoint);
+                Settle(settleMs);
+                return new ActionOutcome("mouse", CompareEffect(signature, before));
+            }
+
+            if (pattern is not null && CallPattern(t, pattern))
             {
                 Settle(settleMs);
 
                 if (signature is null)
-                    return new ActionOutcome(via, ActionEffect.NotVerified);
+                    return new ActionOutcome(pattern, ActionEffect.NotVerified);
 
                 if (signature() != before)
-                    return new ActionOutcome(via, ActionEffect.Changed);
+                    return new ActionOutcome(pattern, ActionEffect.Changed);
 
                 // Unchanged: only SelectionItem (idempotent Select) may be retried with the mouse. A
                 // second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
-                if (method == ActionMethod.Pattern || via != "SelectionItem")
-                    return new ActionOutcome(via, ActionEffect.Unchanged);
+                if (method == ActionMethod.Pattern || pattern != SelectionItem)
+                    return new ActionOutcome(pattern, ActionEffect.Unchanged);
 
                 // The Select has been sent, so from here on nothing may turn into an error: when the
-                // element can no longer be clicked safely (gone, or covered), the Select stands.
+                // element can no longer be clicked safely (gone, covered, no desktop), the Select stands.
                 if (TryClickPoint(t) is not { } retryPoint)
-                    return new ActionOutcome(via, ActionEffect.Unchanged);
+                    return new ActionOutcome(pattern, ActionEffect.Unchanged);
 
                 input.LeftClick(retryPoint);
                 Settle(settleMs);
@@ -194,10 +226,14 @@ public sealed class ActionExecutor(IInputDriver input)
                 throw new InvalidOperationException($"no usable UIA pattern for {t.ControlType}");
         }
 
-        input.LeftClick(ActionGuards.ClickPoint(t));
+        input.LeftClick(ClickPoint(t));
         Settle(settleMs);
         return new ActionOutcome("mouse", CompareEffect(signature, before));
     }
+
+    /// <summary><see cref="ActionGuards.ClickPoint"/> with this executor's input driver — for the
+    /// element paths of the tools that send their own mouse input (non-left/multi clicks, MultiSelect).</summary>
+    internal Point ClickPoint(IActionTarget t) => ActionGuards.ClickPoint(t, input);
 
     /// <summary>
     /// Types into <paramref name="t"/>. Prefers <c>ValuePattern.SetValue</c> when the target supports
@@ -242,7 +278,7 @@ public sealed class ActionExecutor(IInputDriver input)
         else
         {
             // Nothing has been sent yet: a covered or vanished element refuses with its own error.
-            if (!GiveFocus(t, static target => ActionGuards.ClickPoint(target)))
+            if (!GiveFocus(t, target => ClickPoint(target)))
                 throw new InvalidOperationException("could not give keyboard focus to the element — nothing was typed");
 
             input.TypeText(text, clear, pressEnter);
@@ -284,17 +320,26 @@ public sealed class ActionExecutor(IInputDriver input)
         return new ActionOutcome("mouse", CompareEffect(signature, before));
     }
 
-    /// <summary>Click pattern table (spec §3): the UIA pattern tried first for a control type, and the
-    /// <see cref="ActionOutcome.Via"/> name it reports. <c>Dispatched</c> is false — and nothing was
-    /// sent — for control types with no click pattern and for elements that do not support theirs.</summary>
-    private static (bool Dispatched, string Via) TryPattern(IActionTarget t) => t.ControlType switch
+    /// <summary>Click pattern table (spec §3): the UIA pattern that clicks a control type — also the
+    /// <see cref="ActionOutcome.Via"/> name it reports — or null for control types with no click pattern.</summary>
+    private static string? ClickPattern(IActionTarget t) => t.ControlType switch
     {
-        "Button" or "SplitButton" or "Hyperlink" => (t.TryInvoke(), "Invoke"),
-        "MenuItem" => t.HasChildren ? (t.TryExpandCollapse(), "ExpandCollapse") : (t.TryInvoke(), "Invoke"),
-        "ComboBox" => (t.TryExpandCollapse(), "ExpandCollapse"),
-        "CheckBox" => (t.TryToggle(), "Toggle"),
-        "RadioButton" or "TabItem" or "ListItem" or "TreeItem" or "DataItem" => (t.TrySelect(), "SelectionItem"),
-        _ => (false, ""),
+        "Button" or "SplitButton" or "Hyperlink" => Invoke,
+        "MenuItem" => t.HasChildren ? "ExpandCollapse" : Invoke,
+        "ComboBox" => "ExpandCollapse",
+        "CheckBox" => "Toggle",
+        "RadioButton" or "TabItem" or "ListItem" or "TreeItem" or "DataItem" => SelectionItem,
+        _ => null,
+    };
+
+    /// <summary>Calls a pattern from <see cref="ClickPattern"/>. False — and nothing was sent — when
+    /// the element does not support it.</summary>
+    private static bool CallPattern(IActionTarget t, string pattern) => pattern switch
+    {
+        Invoke => t.TryInvoke(),
+        "ExpandCollapse" => t.TryExpandCollapse(),
+        "Toggle" => t.TryToggle(),
+        _ => t.TrySelect(),
     };
 
     /// <summary>
@@ -328,13 +373,14 @@ public sealed class ActionExecutor(IInputDriver input)
         }
     }
 
-    /// <summary><see cref="ActionGuards.ClickPoint"/> for the moments AFTER an action was sent: no
-    /// click point (element gone, no area, covered) is an answer there, not an error.</summary>
-    private static Point? TryClickPoint(IActionTarget t)
+    /// <summary><see cref="ActionGuards.ClickPoint"/> where "no" is an answer, not an error: for the
+    /// choice between mouse and pattern, and for the moments AFTER an action was sent. Null when there
+    /// is no safe click point (no interactive desktop, element gone, no area, covered).</summary>
+    private Point? TryClickPoint(IActionTarget t)
     {
         try
         {
-            return ActionGuards.ClickPoint(t);
+            return ClickPoint(t);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ElementNotFoundException)
         {

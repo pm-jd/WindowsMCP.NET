@@ -17,7 +17,8 @@ public static class PerformTools
     [Description("Execute a sequence of UI actions in one call. " +
                  "steps: array of {action, ...params}. " +
                  "Supported actions: click, type, shortcut, scroll, move, wait. " +
-                 "click and type steps accept 'element' (an id from Observe, resolved against the live UI when the step runs; click also 'method': auto|pattern|mouse). " +
+                 "click and type steps accept 'element' (an id from Observe, resolved against the live UI when the step runs; click also 'method': auto|pattern|mouse — " +
+                 "auto clicks buttons, links and plain menu items with the mouse when that is safe, because an Invoke that opens a modal dialog blocks UI Automation for the application until the dialog is closed). " +
                  "Element steps report their effect (changed, unchanged, value_verified, value_mismatch, not_verified); " +
                  "after 3 consecutive element steps without visible change the chain stops (stop_on_stall). " +
                  "if_exists skips a step whose element id or label is not found. " +

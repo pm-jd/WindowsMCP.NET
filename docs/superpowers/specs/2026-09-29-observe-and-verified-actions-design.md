@@ -145,22 +145,32 @@ Two rules hold on every element path: **input is never sent to anything but the 
 
 - **Modal dialog**: when the top-level window the element was resolved in (§2) is disabled — it owns an open modal dialog — resolution fails with `InvalidOperationException: element e7Q2 is in a window blocked by a modal dialog — call Observe and handle the dialog first`. UIA patterns (`Invoke`, `SetValue`) would otherwise act behind the dialog.
 - **Disabled target**: `Click` and `Type` refuse an element that reports `IsEnabled = false` with `InvalidOperationException: Button is disabled — nothing was done` (an element that does not report the property counts as enabled). The same check guards the mouse-only element paths (non-left/multi clicks, `MultiSelect`).
-- **Covered click point**: before **any** mouse input on the element path — mouse method and fallback, click-to-focus, non-left/multi clicks, `MultiSelect` — the UIA element at the click point (centre of the element's current rectangle) must belong to the target's process; otherwise `InvalidOperationException: the element is covered by another window — nothing was clicked`. `MultiSelect` checks **all** targets before it presses Ctrl, and each one again right before its click (a failure then stops the run, releases Ctrl and lists what was already clicked).
+- **Safe click point**: before **any** mouse input on the element path — mouse-first clicks, mouse method and fallback, click-to-focus, non-left/multi clicks, `MultiSelect` — one check (`ActionGuards.ClickPoint`) decides whether and where the mouse may click:
+  1. **Interactive desktop**: the process must be able to inject input, i.e. there is a foreground window (`GetForegroundWindow() != 0`). A disconnected or non-rendered session has none; only UIA patterns work there. Otherwise `InvalidOperationException: no interactive desktop (session disconnected or not rendered) — nothing was clicked`.
+  2. **Visible area**: the element's current rectangle has an area; otherwise `the element has no visible area — nothing was clicked`.
+  3. **Own window**: the top-level window at the click point (centre of that rectangle) is the window the element was resolved in (§2) — plain Win32, `GetAncestor(WindowFromPoint(point), GA_ROOT) == resolved window`; otherwise `InvalidOperationException: the element is covered by another window — nothing was clicked`. This refuses a point covered by another application **and** one covered by a popup, menu or dialog of the same application. UIA's `FromPoint` is deliberately not used: it is unreliable in popups, menus and dialogs (see Evidence), costs a cross-process call and cannot answer while the application is busy.
+
+  `MultiSelect` checks **all** targets before it presses Ctrl, and each one again right before its click (a failure then stops the run, releases Ctrl and lists what was already clicked).
 - **Keyboard focus**: keys are only sent once the target — or one of its descendants; a ComboBox's inner Edit counts — is confirmed to hold the keyboard focus (see Type).
 - **Live reads**: a read that fails *before* the action (the element vanished) ends in `ElementNotFound` with nothing done. No read *after* an action was sent (read-back, rectangle, focus, hit-test, signature) can turn the executed action into an error.
 
 ### Click (`method=auto`)
 
-| Element type | Pattern tried first |
-|---|---|
-| Button, SplitButton, Hyperlink, MenuItem without children | Invoke |
-| MenuItem with children, ComboBox | ExpandCollapse (Expand; Collapse when already expanded) |
-| CheckBox | Toggle |
-| RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select |
+| Element type | Tried first | Otherwise |
+|---|---|---|
+| Button, SplitButton, Hyperlink, MenuItem without children | **mouse click**, when the click point is safe (Guards) | Invoke |
+| MenuItem with children, ComboBox | ExpandCollapse (Expand; Collapse when already expanded) | mouse click when the pattern is not supported |
+| CheckBox | Toggle | mouse click when the pattern is not supported |
+| RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select | mouse click when the pattern is not supported or the select changed nothing |
+| any other type | mouse click | — |
 
-Then verify (§4). The mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` call was made but nothing changed (the docking-tab case from the spike; if the element can no longer be clicked safely at that point, the result stays `via SelectionItem — effect: unchanged`).
+Then verify (§4).
 
-A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never uses the mouse (error only when the element has no usable pattern); `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
+**Why Invoke-type controls are clicked with the mouse first** (acceptance on MCS, 2026-10-01): an `Invoke` whose handler opens a modal dialog (WinForms `ShowDialog()`) does not return until the dialog is closed. While that call is pending, **every** UI Automation request to that application times out — for this server and for any other UIA client — so the dialog that was just opened can neither be observed nor operated by element id (`Observe` came back empty after 4 s, a `FindAll` took 66 s). Waiting longer does not help; the call only returns when the dialog is gone. A mouse click has no such after-effect, so for the control types whose click pattern is `Invoke` the mouse is used whenever it can click safely (interactive desktop, visible area, own window — see Guards), and `Invoke` only when it cannot: in a disconnected or non-rendered session, for an element without visible area, or when the click point is covered. A mouse click that changed nothing is reported as `via mouse — effect: unchanged` and is **not** followed by an `Invoke` (the button could be pressed twice). When there is no safe click point and the element does not support `Invoke` either, the call fails with the reason the mouse cannot be used. Toggle, SelectionItem and ExpandCollapse stay pattern-first.
+
+For the pattern-first types, the mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` call was made but nothing changed (the docking-tab case from the spike; if the element can no longer be clicked safely at that point, the result stays `via SelectionItem — effect: unchanged`).
+
+A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never uses the mouse (error only when the element has no usable pattern) — the way to force `Invoke` on a button; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
 
 ### Type
 
