@@ -25,9 +25,12 @@ public class ObservationBuilderTests
         int index, int? parent, int depth, int window, string controlType, string name,
         string automationId = "", int x = 0, int y = 0, int w = 10, int h = 10,
         bool enabled = true, bool focused = false, string? value = null, string? toggle = null,
-        bool selected = false, string? expand = null, bool? hitVisible = true) =>
+        bool selected = false, string? expand = null, bool? hitVisible = true, bool password = false) =>
         new(index, parent, depth, window, controlType, name, automationId,
-            new Rectangle(x, y, w, h), enabled, focused, value, toggle, selected, expand, hitVisible);
+            new Rectangle(x, y, w, h), enabled, focused, value, toggle, selected, expand, hitVisible)
+        {
+            Password = password,
+        };
 
     [Fact]
     public void DropsHitInvisibleSubtree()
@@ -380,6 +383,138 @@ public class ObservationBuilderTests
         Assert.NotEqual(baseline, toggleChanged);
         Assert.NotEqual(baseline, selectedChanged);
         Assert.NotEqual(baseline, enabledChanged);
+    }
+
+    // --- observation content (F5, F6, F7) ----------------------------------------------------------
+
+    [Theory]
+    [InlineData("Edit")]
+    [InlineData("ComboBox")]
+    [InlineData("Spinner")]
+    [InlineData("Slider")]
+    [InlineData("Document")]
+    public void EmptyUnnamedInput_IsAlwaysEmitted(string inputType)
+    {
+        // An empty unnamed input field is exactly what an agent wants to type into; it needs an id.
+        var windows = new[] { Window(1, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            Node(1, 0, 1, 0, inputType, "", value: null),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var element = Assert.Single(observation.Elements);
+        Assert.Equal(inputType, element.Type);
+        Assert.Equal("", element.Name);
+        Assert.Null(element.Value);
+        Assert.False(string.IsNullOrEmpty(element.Id));
+    }
+
+    [Fact]
+    public void EmptyUnnamedEdit_StillGetsItsLabelFromThePrecedingText()
+    {
+        var windows = new[] { Window(1, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            Node(1, 0, 1, 0, "Text", "Serial number", y: 10),
+            Node(2, 0, 1, 0, "Edit", "", y: 20, value: null),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var edit = Assert.Single(observation.Elements);
+        Assert.Equal("Serial number", edit.Label);
+    }
+
+    [Theory]
+    [InlineData("Button")]
+    [InlineData("MenuItem")]
+    [InlineData("ListItem")]
+    public void EmptyUnnamedNonInput_IsStillSkipped(string type)
+    {
+        var windows = new[] { Window(1, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            Node(1, 0, 1, 0, type, "", value: null),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Empty(observation.Elements);
+    }
+
+    [Fact]
+    public void PasswordNode_ValueIsNeverMapped_AndNotPartOfTheSignature()
+    {
+        Observation Build(string? value) => ObservationBuilder.Build(
+            [Window(1, "Login")],
+            [
+                Node(0, null, 0, 0, "Window", "Login", hitVisible: null),
+                Node(1, 0, 1, 0, "Edit", "Password", value: value, password: true),
+            ],
+            150, Timings, budgetExceeded: false);
+
+        var withSecret = Build("hunter2");
+
+        var element = Assert.Single(withSecret.Elements);
+        Assert.Null(element.Value);
+        Assert.Equal(Build("another secret").Signature, withSecret.Signature);
+        Assert.Equal(Build(null).Signature, withSecret.Signature);
+    }
+
+    [Fact]
+    public void Texts_AreCappedAt80_AndTheCutSetsTruncated()
+    {
+        ObservedNode[] TextNodes(int count) =>
+        [
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            .. Enumerable.Range(0, count).Select(i => Node(i + 1, 0, 1, 0, "Text", $"Text {i:000}", y: i)),
+        ];
+
+        var windows = new[] { Window(1, "Main") };
+
+        var atLimit = ObservationBuilder.Build(windows, TextNodes(80), 150, Timings, budgetExceeded: false);
+        Assert.Equal(80, atLimit.Texts.Count);
+        Assert.False(atLimit.Truncated);
+
+        var beyond = ObservationBuilder.Build(windows, TextNodes(100), 150, Timings, budgetExceeded: false);
+        Assert.Equal(80, beyond.Texts.Count);
+        Assert.Equal("Text 000", beyond.Texts[0]);
+        Assert.Equal("Text 079", beyond.Texts[^1]);
+        Assert.True(beyond.Truncated);
+    }
+
+    [Fact]
+    public void Texts_DuplicatesDoNotCountTowardsTheCap()
+    {
+        var nodes = new List<ObservedNode> { Node(0, null, 0, 0, "Window", "Main", hitVisible: null) };
+        for (var i = 0; i < 200; i++)
+            nodes.Add(Node(nodes.Count, 0, 1, 0, "Text", $"Text {i % 80:000}", y: i));
+
+        var observation = ObservationBuilder.Build([Window(1, "Main")], nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Equal(80, observation.Texts.Count);
+        Assert.False(observation.Truncated);
+    }
+
+    [Fact]
+    public void Signature_UsesTheFullValue_AlsoBeyondTheDisplayLimit()
+    {
+        string Signature(string value) => ObservationBuilder.Build(
+            [Window(1, "Main")],
+            [
+                Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+                Node(1, 0, 1, 0, "Document", "Editor", value: value),
+            ],
+            150, Timings, budgetExceeded: false).Signature;
+
+        var longText = new string('x', 5000);
+
+        Assert.NotEqual(Signature(longText + "a"), Signature(longText + "b"));
     }
 
     [Fact]

@@ -75,9 +75,13 @@ Observe(
   - state: `value`, `toggle`, `selected`, `expanded`, `enabled` (only emitted when `false`)
   - `rect` (JSON only)
   - actionable types: Button, SplitButton, CheckBox, RadioButton, ComboBox, Edit, Document, Spinner, Slider, Hyperlink, MenuItem, TabItem, ListItem, TreeItem, DataItem, HeaderItem
-- **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only
-- **signature**: hash over (window handles + titles, and for every emitted element: id, name, value, toggle, selected, expanded, enabled)
-- **truncated**: `true` when `max_elements` or the time budget cut the result
+  - an element with neither a name nor a value is skipped — **except input types** (Edit, ComboBox, Spinner, Slider, Document), which are always emitted: an empty unnamed field is exactly what gets typed into (`label` is derived as usual; markdown renders the empty name as `''`)
+  - **password fields** (UIA `IsPassword`): the `value` is never collected, so it is neither emitted nor part of the signature
+- **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only; at most 80 entries
+- **signature**: hash over (window handles + titles, and for every emitted element: id, name, value, toggle, selected, expanded, enabled) — always over the **full** value, independent of the display limits below
+- **truncated**: `true` when `max_elements`, the 80-texts cap or the time budget cut the result
+
+**Display limits** (both formats): `value` at most 200 characters; `name`, `label`, `panel` and each text at most 120. A longer string keeps its first N characters followed by `…(+n chars)` (n = characters left out). In **markdown**, carriage return, line feed and tab inside names, labels, panels, values, texts and window titles are rendered as the two-character escapes `\r`, `\n`, `\t` (any other control or line-separator character as `\uXXXX`) — one line per element is an invariant of the format. **JSON** keeps the real characters (JSON escaping handles them) and applies the same truncation.
 - **timings**: `walk_ms`, `hit_ms`, `total_ms`
 
 ### Markdown format (default)
@@ -109,7 +113,7 @@ When a drop-down or dialog is open, its window block comes first with its own he
 ### Collection (`ObservationService`)
 
 1. Resolve the target windows (EnumWindows z-order, visible, owned by the target pid(s)).
-2. Per window: one `CacheRequest` with `TreeScope.Subtree`, tree filter `IsControlElement = true`, properties ControlType, Name, AutomationId, IsEnabled, HasKeyboardFocus, IsOffscreen, BoundingRectangle, RuntimeId, Invoke availability, Value, ToggleState, IsSelected, ExpandCollapseState. Walk `CachedChildren`; drop offscreen and ≤ 1 px nodes (and their subtrees).
+2. Per window: one `CacheRequest` with `TreeScope.Subtree`, tree filter `IsControlElement = true`, properties ControlType, Name, AutomationId, IsEnabled, HasKeyboardFocus, IsOffscreen, BoundingRectangle, IsPassword, RuntimeId, Invoke availability, Value, ToggleState, IsSelected, ExpandCollapseState. Walk `CachedChildren`; drop offscreen and ≤ 1 px nodes (and their subtrees).
 3. Visibility: hit-test (`FromPoint` at the element centre, match by RuntimeId against the node, its descendants and ancestors) **only** for nodes of the bottom-most main window; nodes of windows above it are visible; a `TabItem` is visible when its `Tab` parent is.
 4. Build the state (pure function over the node list — see §6): actionable elements, labels, panels, texts, ids, signature.
 5. Budget: `CancellationToken` plus a hard 5 s walk budget; on overrun return what was collected with `truncated=true`.
@@ -181,7 +185,7 @@ Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x')
 - All tools keep the `[ERROR] Type: message` convention; `ErrorFlagFilter` sets `IsError`.
 - New error cases: `ElementNotFound` (stale/removed id), `ProcessNotFound` (scope=process), `ObservationTimeout` is not an error — it yields `truncated=true`.
 - `max_elements` clamp 10…500; `settle_ms` clamp 0…2000.
-- `Observe` is read-only and exposes only what `Snapshot` already exposes; no new security surface.
+- `Observe` is read-only, but it exposes more than `Snapshot` does: **control values** (the text of edit fields and documents, selected items) in addition to names and rectangles. That is a new read surface for whoever holds the API key. Password fields (UIA `IsPassword`) are excluded: the collector drops their value, so it reaches neither the observation nor the signature, and `Type` on such a field does not read the value back (it reports `changed`/`unchanged` from the signature instead of `value_verified`). Values of ordinary fields are shown truncated (§1) but are otherwise not filtered — an application that shows a secret in a plain text field shows it to `Observe` as well.
 
 ## 6. Code structure
 

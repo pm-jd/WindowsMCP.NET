@@ -11,7 +11,12 @@ public sealed record ObservedWindow(nint Handle, string Title, string ClassName,
 /// <param name="Parent">Index of the parent <see cref="ObservedNode"/> in the same observation, or null for a root.</param>
 /// <param name="Window">Index into the observation's <see cref="ObservedWindow"/> list.</param>
 /// <param name="HitVisible">Result of hit-testing the element's midpoint; null means it wasn't hit-tested.</param>
-public sealed record ObservedNode(int Index, int? Parent, int Depth, int Window, string ControlType, string Name, string AutomationId, Rectangle Rect, bool Enabled, bool Focused, string? Value, string? Toggle, bool Selected, string? Expand, bool? HitVisible);
+public sealed record ObservedNode(int Index, int? Parent, int Depth, int Window, string ControlType, string Name, string AutomationId, Rectangle Rect, bool Enabled, bool Focused, string? Value, string? Toggle, bool Selected, string? Expand, bool? HitVisible)
+{
+    /// <summary>The control is a password field (UIA <c>IsPassword</c>). Its value is never collected,
+    /// emitted or hashed into the signature.</summary>
+    public bool Password { get; init; }
+}
 
 /// <summary>An actionable element surfaced to the caller, with the locator needed to act on it later.</summary>
 public sealed record ObservedElement(string Id, string Type, string Name, string? Label, string? Panel, string? Window, string? Value, string? Toggle, bool Selected, string? Expand, bool Enabled, Rectangle Rect, ElementLocator Locator)

@@ -37,6 +37,17 @@ public static class ObservationBuilder
         "Edit", "ComboBox", "Spinner", "Slider"
     };
 
+    /// <summary>Input controls are emitted even when they have neither a name nor a value: an empty
+    /// unnamed field is exactly what an agent wants to type into, and it needs an id for that.</summary>
+    private static readonly HashSet<string> InputTypes = new(StringComparer.Ordinal)
+    {
+        "Edit", "ComboBox", "Spinner", "Slider", "Document"
+    };
+
+    /// <summary>Upper bound for the non-actionable context texts of one observation; more than that
+    /// sets <see cref="Observation.Truncated"/>.</summary>
+    public const int MaxTexts = 80;
+
     /// <summary>
     /// Builds the <see cref="Observation"/> for one collection pass. <paramref name="windows"/> must
     /// be topmost-first; <paramref name="nodes"/> must have <see cref="ObservedNode.Index"/> equal to
@@ -73,7 +84,7 @@ public static class ObservationBuilder
                 continue;
             if (!ActionableTypes.Contains(node.ControlType))
                 continue;
-            if (node.Name.Length == 0 && string.IsNullOrEmpty(node.Value))
+            if (node.Name.Length == 0 && string.IsNullOrEmpty(EmittedValue(node)) && !InputTypes.Contains(node.ControlType))
                 continue;
 
             var window = windows[node.Window];
@@ -106,7 +117,7 @@ public static class ObservationBuilder
 
             var element = new ObservedElement(
                 id, node.ControlType, node.Name, label, panel, windowTitle,
-                node.Value, node.Toggle, node.Selected, node.Expand, node.Enabled, node.Rect, locator)
+                EmittedValue(node), node.Toggle, node.Selected, node.Expand, node.Enabled, node.Rect, locator)
             {
                 WindowHandle = window.Handle,
                 Transient = mainWindowByPid[window.Pid] != node.Window,
@@ -126,14 +137,27 @@ public static class ObservationBuilder
             .ThenBy(n => n.Rect.X);
         foreach (var node in textNodes)
         {
-            if (seenTexts.Add(node.Name))
-                texts.Add(node.Name);
+            if (!seenTexts.Add(node.Name))
+                continue;
+
+            if (texts.Count == MaxTexts)
+            {
+                truncated = true; // more distinct texts exist than are reported
+                break;
+            }
+
+            texts.Add(node.Name);
         }
 
         var signature = ComputeSignature(windows, elements);
 
         return new Observation(windows, focusId, elements, texts, signature, truncated, timings);
     }
+
+    /// <summary>The value an element may carry out of the builder: never that of a password field
+    /// (the collector already withholds it; this keeps the rule in the node → element mapping too, so
+    /// a secret can reach neither the output nor the signature).</summary>
+    private static string? EmittedValue(ObservedNode node) => node.Password ? null : node.Value;
 
     /// <summary>
     /// First 8 lower-case hex characters of a SHA-256 hash over window <c>Handle+Title</c> and, per

@@ -149,6 +149,131 @@ public class ObservationFormatterTests
         Assert.Equal("", valueProp.GetString());
     }
 
+    // --- display limits and escaping (F6, F7) ------------------------------------------------------
+
+    private static JsonElement JsonOf(Observation observation) =>
+        ToolHelpers.JsonResult(ObservationFormatter.ToJsonEnvelope(observation)).StructuredContent!.Value;
+
+    [Theory]
+    [InlineData("short", 10, "short")]
+    [InlineData("exactly10!", 10, "exactly10!")]
+    [InlineData("exactly10!+", 10, "exactly10!…(+1 chars)")]
+    [InlineData("", 10, "")]
+    public void Clip_KeepsUpToMax_ThenAppendsTheRemainderCount(string input, int max, string expected) =>
+        Assert.Equal(expected, ObservationFormatter.Clip(input, max));
+
+    [Fact]
+    public void Clip_DoesNotSplitASurrogatePair()
+    {
+        var input = "ab😀cd"; // the emoji is two UTF-16 chars at index 2 and 3
+
+        Assert.Equal("ab…(+4 chars)", ObservationFormatter.Clip(input, 3));
+        Assert.Equal("ab😀…(+2 chars)", ObservationFormatter.Clip(input, 4));
+    }
+
+    [Theory]
+    [InlineData("a\nb", @"a\nb")]
+    [InlineData("a\r\nb", @"a\r\nb")]
+    [InlineData("a\tb", @"a\tb")]
+    [InlineData("a\u2028b\u0085c\u0007d", @"a\u2028b\u0085c\u0007d")]
+    [InlineData(@"C:\new\table", @"C:\new\table")] // ordinary text, backslashes included, is left alone
+    public void EscapeControl_RendersControlCharactersAsEscapes(string input, string expected) =>
+        Assert.Equal(expected, ObservationFormatter.EscapeControl(input));
+
+    [Fact]
+    public void Markdown_ControlCharactersAnywhere_NeverBreakTheOneLinePerElementLayout()
+    {
+        var windows = new[] { Window("Main\nwindow") };
+        var elements = new[]
+        {
+            Element("e1aaa", "Edit", "na\nme", label: "la\tbel", panel: "pa\r\nnel", value: "line 1\r\nline 2\tend"),
+            Element("e2bbb", "Button", "OK"),
+        };
+        var observation = MakeObservation(windows, elements, texts: ["first\nsecond", "plain"]);
+
+        var lines = ObservationFormatter.ToMarkdown(observation).Split('\n');
+
+        // heading, blank, two element lines, blank, texts, footer — nothing else.
+        Assert.Equal(7, lines.Length);
+        Assert.Equal(@"## Main\nwindow  (app.exe, pid 100)", lines[0]);
+        Assert.Equal(@"e1aaa  Edit 'na\nme'  label='la\tbel'  @pa\r\nnel  value=line 1\r\nline 2\tend", lines[2]);
+        Assert.Equal("e2bbb  Button 'OK'", lines[3]);
+        Assert.Equal(@"texts: first\nsecond · plain", lines[5]);
+        Assert.DoesNotContain(lines, l => l.Contains('\r') || l.Contains('\t'));
+    }
+
+    [Fact]
+    public void Json_KeepsRealControlCharacters()
+    {
+        var windows = new[] { Window("Main") };
+        var elements = new[] { Element("e1", "Edit", "na\nme", label: "la\tbel", value: "line 1\r\nline 2") };
+        var json = JsonOf(MakeObservation(windows, elements, texts: ["first\nsecond"]));
+
+        var element = json.GetProperty("elements")[0];
+        Assert.Equal("na\nme", element.GetProperty("name").GetString());
+        Assert.Equal("la\tbel", element.GetProperty("label").GetString());
+        Assert.Equal("line 1\r\nline 2", element.GetProperty("value").GetString());
+        Assert.Equal("first\nsecond", json.GetProperty("texts")[0].GetString());
+    }
+
+    [Fact]
+    public void Value_LongerThan200_IsTruncatedInMarkdownAndJson()
+    {
+        var value = new string('a', 200) + new string('b', 4800);
+        var windows = new[] { Window("Main") };
+        var observation = MakeObservation(windows, [Element("e1", "Document", "Editor", value: value)]);
+        var expected = new string('a', 200) + "…(+4800 chars)";
+
+        var markdown = ObservationFormatter.ToMarkdown(observation);
+        var line = Assert.Single(markdown.Split('\n'), l => l.StartsWith("e1 ", StringComparison.Ordinal));
+        Assert.Equal($"e1     Document 'Editor'  value={expected}", line);
+
+        Assert.Equal(expected, JsonOf(observation).GetProperty("elements")[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void Value_OfExactly200_IsNotTruncated()
+    {
+        var value = new string('a', 200);
+        var observation = MakeObservation([Window("Main")], [Element("e1", "Edit", "Field", value: value)]);
+
+        Assert.Contains($"value={value}", ObservationFormatter.ToMarkdown(observation).Split('\n')[2], StringComparison.Ordinal);
+        Assert.DoesNotContain("…", ObservationFormatter.ToMarkdown(observation), StringComparison.Ordinal);
+        Assert.Equal(value, JsonOf(observation).GetProperty("elements")[0].GetProperty("value").GetString());
+    }
+
+    [Fact]
+    public void NamesLabelsPanelsAndTexts_LongerThan120_AreTruncatedInMarkdownAndJson()
+    {
+        string Long(char c) => new string(c, 120) + "tail";
+        string Clipped(char c) => new string(c, 120) + "…(+4 chars)";
+        var windows = new[] { Window("Main") };
+        var elements = new[] { Element("e1", "Edit", Long('n'), label: Long('l'), panel: Long('p')) };
+        var observation = MakeObservation(windows, elements, texts: [Long('t'), "short"]);
+
+        var lines = ObservationFormatter.ToMarkdown(observation).Split('\n');
+        Assert.Equal($"e1     Edit '{Clipped('n')}'  label='{Clipped('l')}'  @{Clipped('p')}", lines[2]);
+        Assert.Equal($"texts: {Clipped('t')} · short", lines[4]);
+
+        var json = JsonOf(observation);
+        var element = json.GetProperty("elements")[0];
+        Assert.Equal(Clipped('n'), element.GetProperty("name").GetString());
+        Assert.Equal(Clipped('l'), element.GetProperty("label").GetString());
+        Assert.Equal(Clipped('p'), element.GetProperty("panel").GetString());
+        Assert.Equal(Clipped('t'), json.GetProperty("texts")[0].GetString());
+        Assert.Equal("short", json.GetProperty("texts")[1].GetString());
+    }
+
+    [Fact]
+    public void Markdown_EmptyName_IsRenderedAsEmptyQuotes()
+    {
+        var observation = MakeObservation([Window("Main")], [Element("e1abc", "Edit", "", label: "Serial number")]);
+
+        var markdown = ObservationFormatter.ToMarkdown(observation);
+
+        Assert.Contains("e1abc  Edit ''  label='Serial number'", markdown.Split('\n'));
+    }
+
     [Fact]
     public void Markdown_GroupsByWindow_EachElementOnce()
     {

@@ -83,7 +83,11 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
 
     public bool TrySetValue(string value) => Attempt(WritableValuePattern, p => p.SetValue(value));
 
-    public string? ReadValue() => Guard(() => el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault, null);
+    /// <summary>The element's current value — never that of a password field: <see langword="null"/>
+    /// there, so <see cref="ActionExecutor.Type"/> verifies by the signature and the secret is not read.</summary>
+    public string? ReadValue() => Guard(
+        () => el.Properties.IsPassword.ValueOrDefault ? null : el.Patterns.Value.PatternOrDefault?.Value.ValueOrDefault,
+        null);
 
     public bool TryFocus()
     {

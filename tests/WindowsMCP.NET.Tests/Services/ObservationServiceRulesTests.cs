@@ -26,6 +26,17 @@ public class ObservationServiceRulesTests
         Assert.Equal(expected, ObservationService.IsCollectible(isOffscreen, rect));
     }
 
+    // --- collected value (F5): a password field's value never leaves the collector ---------------------
+
+    [Theory]
+    [InlineData(false, "90,000", "90,000")]
+    [InlineData(false, "", null)]
+    [InlineData(false, null, null)]
+    [InlineData(true, "hunter2", null)]
+    [InlineData(true, "", null)]
+    public void CollectedValue_IsNullForPasswordFields_AndForEmptyValues(bool isPassword, string? raw, string? expected) =>
+        Assert.Equal(expected, ObservationService.CollectedValue(isPassword, raw));
+
     // --- window affinity (F4): matching = visible windows of the locator's process name and class, z-order ---
 
     [Fact]

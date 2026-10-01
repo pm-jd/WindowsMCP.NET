@@ -46,6 +46,11 @@ public sealed class ObservationService : IDisposable
     internal static bool IsCollectible(bool isOffscreen, Rectangle rect) =>
         !isOffscreen && rect.Width > 1 && rect.Height > 1;
 
+    /// <summary>The value the collector keeps for a node: nothing for a password field — its content
+    /// must not reach the observation, the signature or a log — and nothing for an empty value.</summary>
+    internal static string? CollectedValue(bool isPassword, string? rawValue) =>
+        isPassword || string.IsNullOrEmpty(rawValue) ? null : rawValue;
+
     public ObservationService(ILogger<ObservationService> logger)
     {
         _logger = logger;
@@ -329,6 +334,7 @@ public sealed class ObservationService : IDisposable
                  {
                      lib.Element.ControlType, lib.Element.Name, lib.Element.AutomationId, lib.Element.IsEnabled,
                      lib.Element.HasKeyboardFocus, lib.Element.IsOffscreen, lib.Element.BoundingRectangle,
+                     lib.Element.IsPassword,
                      lib.Element.RuntimeId, _automation.PatternLibrary.InvokePattern.AvailabilityProperty!,
                      lib.Value.Value, lib.Toggle.ToggleState, lib.SelectionItem.IsSelected,
                      lib.ExpandCollapse.ExpandCollapseState,
@@ -357,9 +363,10 @@ public sealed class ObservationService : IDisposable
         var frameworkElement = element.FrameworkAutomationElement;
         var lib = _automation.PropertyLibrary;
 
-        var value = frameworkElement.TryGetPropertyValue<string>(lib.Value.Value, out var rawValue) && !string.IsNullOrEmpty(rawValue)
-            ? rawValue
-            : null;
+        var isPassword = properties.IsPassword.ValueOrDefault;
+        var value = CollectedValue(
+            isPassword,
+            frameworkElement.TryGetPropertyValue<string>(lib.Value.Value, out var rawValue) ? rawValue : null);
         var toggle = frameworkElement.TryGetPropertyValue<ToggleState>(lib.Toggle.ToggleState, out var toggleState)
             ? toggleState.ToString()
             : null;
@@ -377,7 +384,10 @@ public sealed class ObservationService : IDisposable
             properties.IsEnabled.ValueOrDefault,
             properties.HasKeyboardFocus.ValueOrDefault,
             value, toggle, selected, expand,
-            HitVisible: null));
+            HitVisible: null)
+        {
+            Password = isPassword,
+        });
 
         var runtimeId = properties.RuntimeId.ValueOrDefault;
         if (runtimeId is { Length: > 0 })

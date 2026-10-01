@@ -11,6 +11,18 @@ namespace WindowsMcpNet.Services;
 /// </summary>
 public static class ObservationFormatter
 {
+    /// <summary>Longest value shown for an element; the rest is replaced by <c>…(+n chars)</c>. The
+    /// signature is computed from the full value, so a change beyond this limit is still detected.</summary>
+    public const int MaxValueChars = 200;
+
+    /// <summary>Longest name, label, panel or context text shown, truncated the same way.</summary>
+    public const int MaxNameChars = 120;
+
+    // Unicode line breaks that are not control characters (written as numbers so that no editor or
+    // tool can turn them into the characters themselves).
+    private const char LineSeparator = (char)0x2028;
+    private const char ParagraphSeparator = (char)0x2029;
+
     /// <summary>
     /// One block per window (topmost first): a heading, a `focus:` line after the first heading when
     /// set, then its elements. An element belongs to the window whose <see cref="ObservedWindow.Title"/>
@@ -47,7 +59,7 @@ public static class ObservationFormatter
             ["windows"] = o.Windows.Select(ToWindowJson).ToList(),
             ["focus"] = o.FocusId,
             ["elements"] = o.Elements.Select(ToElementJson).ToList(),
-            ["texts"] = o.Texts,
+            ["texts"] = o.Texts.Select(t => Clip(t, MaxNameChars)).ToList(),
             ["signature"] = o.Signature,
             ["truncated"] = o.Truncated,
             ["timings"] = new Dictionary<string, object?>
@@ -119,7 +131,7 @@ public static class ObservationFormatter
     private static string BuildHeading(ObservedWindow w)
     {
         var sb = new StringBuilder()
-            .Append("## ").Append(w.Title).Append("  (").Append(w.Process).Append(", pid ").Append(w.Pid).Append(')');
+            .Append("## ").Append(EscapeControl(w.Title)).Append("  (").Append(w.Process).Append(", pid ").Append(w.Pid).Append(')');
         if (w.Foreground) sb.Append(" · foreground");
         if (w.Modal) sb.Append(" · modal");
         return sb.ToString();
@@ -132,13 +144,13 @@ public static class ObservationFormatter
         // the type instead of fusing with it.
         var idWidth = Math.Max(7, e.Id.Length + 2);
         var sb = new StringBuilder()
-            .Append(e.Id.PadRight(idWidth)).Append(e.Type).Append(" '").Append(e.Name).Append('\'');
+            .Append(e.Id.PadRight(idWidth)).Append(e.Type).Append(" '").Append(Line(e.Name, MaxNameChars)).Append('\'');
 
         // Symmetric with ToElementJson: presence is null-checked, not IsNullOrEmpty, so an empty
         // (but non-null) string still renders its "key=" prefix in both renderers.
-        if (e.Label is not null) sb.Append("  label='").Append(e.Label).Append('\'');
-        if (e.Panel is not null) sb.Append("  @").Append(e.Panel);
-        if (e.Value is not null) sb.Append("  value=").Append(e.Value);
+        if (e.Label is not null) sb.Append("  label='").Append(Line(e.Label, MaxNameChars)).Append('\'');
+        if (e.Panel is not null) sb.Append("  @").Append(Line(e.Panel, MaxNameChars));
+        if (e.Value is not null) sb.Append("  value=").Append(Line(e.Value, MaxValueChars));
         if (e.Toggle is not null) sb.Append("  toggle=").Append(e.Toggle);
         if (e.Selected) sb.Append("  selected");
         if (e.Expand == "Expanded") sb.Append("  expanded");
@@ -151,7 +163,7 @@ public static class ObservationFormatter
     {
         var lines = new List<string>();
         if (o.Texts.Count > 0)
-            lines.Add($"texts: {string.Join(" · ", o.Texts)}");
+            lines.Add($"texts: {string.Join(" · ", o.Texts.Select(t => Line(t, MaxNameChars)))}");
 
         var footer = $"signature {o.Signature} · {o.Elements.Count} elements · {o.Timings.TotalMs} ms";
         if (o.Truncated) footer += " · truncated";
@@ -176,13 +188,13 @@ public static class ObservationFormatter
         {
             ["id"] = e.Id,
             ["type"] = e.Type,
-            ["name"] = e.Name,
+            ["name"] = Clip(e.Name, MaxNameChars),
         };
 
-        if (e.Label is not null) dict["label"] = e.Label;
-        if (e.Panel is not null) dict["panel"] = e.Panel;
+        if (e.Label is not null) dict["label"] = Clip(e.Label, MaxNameChars);
+        if (e.Panel is not null) dict["panel"] = Clip(e.Panel, MaxNameChars);
         if (e.Window is not null) dict["window"] = e.Window;
-        if (e.Value is not null) dict["value"] = e.Value;
+        if (e.Value is not null) dict["value"] = Clip(e.Value, MaxValueChars);
         if (e.Toggle is not null) dict["toggle"] = e.Toggle;
         if (e.Selected) dict["selected"] = true;
         if (e.Expand == "Expanded") dict["expanded"] = true;
@@ -190,6 +202,54 @@ public static class ObservationFormatter
         dict["rect"] = ToRectArray(e.Rect);
 
         return dict;
+    }
+
+    /// <summary>Markdown rendering of one piece of UI text: limited to <paramref name="maxChars"/> and
+    /// free of line breaks and tabs, so that one element always stays one line.</summary>
+    private static string Line(string text, int maxChars) => EscapeControl(Clip(text, maxChars));
+
+    /// <summary>At most <paramref name="maxChars"/> characters of <paramref name="text"/>; a longer text
+    /// keeps its first <paramref name="maxChars"/> characters followed by <c>…(+n chars)</c> with the
+    /// number of characters left out. Never cuts a surrogate pair in half.</summary>
+    internal static string Clip(string text, int maxChars)
+    {
+        if (text.Length <= maxChars)
+            return text;
+
+        var kept = maxChars > 0 && char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
+        return $"{text.AsSpan(0, kept)}…(+{text.Length - kept} chars)";
+    }
+
+    /// <summary>Renders carriage return, line feed and tab as the two-character escapes backslash-r,
+    /// backslash-n and backslash-t, and any other control or line-separator character as a
+    /// backslash-u escape. Everything else — backslashes included — is left as it is.</summary>
+    internal static string EscapeControl(string text)
+    {
+        StringBuilder? escaped = null;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            var escape = c switch
+            {
+                '\r' => @"\r",
+                '\n' => @"\n",
+                '\t' => @"\t",
+                LineSeparator or ParagraphSeparator => $@"\u{(int)c:x4}",
+                _ when char.IsControl(c) => $@"\u{(int)c:x4}",
+                _ => null,
+            };
+
+            if (escape is null)
+            {
+                escaped?.Append(c);
+                continue;
+            }
+
+            escaped ??= new StringBuilder(text.Length + 8).Append(text, 0, i);
+            escaped.Append(escape);
+        }
+
+        return escaped?.ToString() ?? text;
     }
 
     private static int[] ToRectArray(Rectangle r) => [r.X, r.Y, r.Width, r.Height];
