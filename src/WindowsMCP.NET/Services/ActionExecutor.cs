@@ -98,7 +98,10 @@ public sealed class ActionExecutor(IInputDriver input)
                 if (signature() != before)
                     return new ActionOutcome(via, ActionEffect.Changed);
 
-                // Pattern "succeeded" but nothing observably changed — fall back to the mouse.
+                // Unchanged: only SelectionItem (idempotent Select) may retry with the mouse. A second
+                // Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
+                if (via != "SelectionItem")
+                    return new ActionOutcome(via, ActionEffect.Unchanged);
             }
         }
 
@@ -127,7 +130,12 @@ public sealed class ActionExecutor(IInputDriver input)
         if (t.CanSetValue && t.TrySetValue(expected))
         {
             if (pressEnter)
+            {
+                // SetValue does not move focus; make sure Enter reaches the target.
+                if (!t.TryFocus())
+                    input.LeftClick(Centre(t.CurrentRect));
                 input.PressEnter();
+            }
             via = "ValuePattern";
         }
         else

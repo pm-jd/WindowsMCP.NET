@@ -141,11 +141,11 @@ New optional parameter `element: string?` on `Click`, `Type` and on every `Perfo
 | CheckBox | Toggle |
 | RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select |
 
-Then verify (§4). If the effect is `unchanged` (or the pattern is unsupported), click the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path and verify again. `method=pattern` never falls back; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
+Then verify (§4). The mouse fallback (click the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the pattern is unsupported or its call fails, and — because `Select` is idempotent — when a `SelectionItem` call reports success but nothing changed (the docking-tab case from the spike). After a successful `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never falls back; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
 
 ### Type
 
-1. If `ValuePattern` is supported and not read-only: `SetValue(clear ? text : current + text)`; `press_enter` sends Enter afterwards via keyboard.
+1. If `ValuePattern` is supported and not read-only: `SetValue(clear ? text : current + text)`; `press_enter` sends Enter afterwards via keyboard. The target is focused first (`SetFocus`, mouse click on failure) so Enter reaches it.
 2. Otherwise: focus the element (`SetFocus`, mouse click on failure), then the existing keyboard path (`clear` → Ctrl+A, Delete).
 3. Read back `ValuePattern.Value` (when available): equal after trimming → `value_verified`, else `value_mismatch` (reported, not thrown). `\n`/`\t` handling stays as today for the keyboard path.
 

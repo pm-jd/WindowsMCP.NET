@@ -8,7 +8,7 @@ namespace WindowsMcpNet.Tests.Services;
 /// <summary>
 /// <see cref="ActionExecutor"/> against hand-written fakes for <see cref="IActionTarget"/> and
 /// <see cref="IInputDriver"/> — no FlaUI/UIA dependency, so these run without a desktop session.
-/// <paramref name="settleMs"/>-style delays are always 0 in these tests so the suite stays fast.
+/// Both fakes append to one shared ordered call log; settle delays are always 0.
 /// </summary>
 public class ActionExecutorTests
 {
@@ -17,179 +17,280 @@ public class ActionExecutorTests
     [Fact]
     public void Click_Button_UsesInvoke_Changed()
     {
-        var target = new FakeActionTarget { ControlType = "Button" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("Invoke", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Invoke"], target.Calls);
-        Assert.Empty(input.LeftClicks);
+        Assert.Equal(["Invoke"], log);
     }
 
     [Fact]
     public void Click_RadioButton_UsesSelectionItem()
     {
-        var target = new FakeActionTarget { ControlType = "RadioButton" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "RadioButton" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("SelectionItem", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Select"], target.Calls);
+        Assert.Equal(["Select"], log);
     }
 
     [Fact]
     public void Click_CheckBox_UsesToggle()
     {
-        var target = new FakeActionTarget { ControlType = "CheckBox" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("Toggle", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Toggle"], target.Calls);
+        Assert.Equal(["Toggle"], log);
     }
 
     [Fact]
     public void Click_MenuItemWithChildren_UsesExpandCollapse()
     {
-        var target = new FakeActionTarget { ControlType = "MenuItem", HasChildren = true };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "MenuItem", HasChildren = true };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("ExpandCollapse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["ExpandCollapse"], target.Calls);
+        Assert.Equal(["ExpandCollapse"], log);
     }
 
     [Fact]
     public void Click_MenuItemWithoutChildren_UsesInvoke()
     {
-        var target = new FakeActionTarget { ControlType = "MenuItem", HasChildren = false };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "MenuItem", HasChildren = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("Invoke", outcome.Via);
-        Assert.Equal(["Invoke"], target.Calls);
+        Assert.Equal(["Invoke"], log);
     }
 
     [Fact]
     public void Click_ComboBox_UsesExpandCollapse()
     {
-        var target = new FakeActionTarget { ControlType = "ComboBox" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "ComboBox" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("ExpandCollapse", outcome.Via);
-        Assert.Equal(["ExpandCollapse"], target.Calls);
+        Assert.Equal(["ExpandCollapse"], log);
     }
 
     [Fact]
     public void Click_PatternUnchanged_FallsBackToMouseAtCurrentRectCentre()
     {
-        var target = new FakeActionTarget { ControlType = "Button", CurrentRect = new Rectangle(100, 200, 40, 20) };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", CurrentRect = new Rectangle(100, 200, 40, 20) };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         // before, after-pattern (unchanged), after-mouse (changed).
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A", "B"), settleMs: 0);
 
         Assert.Equal("mouse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal([new Point(120, 210)], input.LeftClicks);
+        Assert.Equal(["Select", "LeftClick:120,210"], log);
     }
 
     [Fact]
-    public void Click_NoPatternForControlType_FallsBackToMouse()
+    public void Click_InvokeUnchanged_DoesNotFallBack()
     {
-        var target = new FakeActionTarget { ControlType = "Edit", CurrentRect = new Rectangle(0, 0, 10, 10) };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("Invoke", outcome.Via);
+        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
+        Assert.Equal(["Invoke"], log);
+    }
+
+    [Fact]
+    public void Click_ToggleUnchanged_DoesNotFallBack()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("Toggle", outcome.Via);
+        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
+        Assert.Equal(["Toggle"], log);
+    }
+
+    [Fact]
+    public void Click_ExpandCollapseUnchanged_DoesNotFallBack()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "ComboBox" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("ExpandCollapse", outcome.Via);
+        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
+        Assert.Equal(["ExpandCollapse"], log);
+    }
+
+    [Fact]
+    public void Click_PatternFails_Auto_FallsBackToMouse()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", InvokeResult = false, CurrentRect = new Rectangle(0, 0, 20, 10) };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("mouse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Empty(target.Calls);
-        Assert.Single(input.LeftClicks);
+        Assert.Equal(["Invoke", "LeftClick:10,5"], log);
+    }
+
+    [Fact]
+    public void Click_NoPatternForControlType_FallsBackToMouse()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Edit", CurrentRect = new Rectangle(0, 0, 10, 10) };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal("mouse", outcome.Via);
+        Assert.Equal(ActionEffect.Changed, outcome.Effect);
+        Assert.Equal(["LeftClick:5,5"], log);
+    }
+
+    [Fact]
+    public void Click_Fallback_UsesRectAtClickTime()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log)
+        {
+            ControlType = "TabItem",
+            CurrentRect = new Rectangle(0, 0, 10, 10),
+            RectAfterPattern = new Rectangle(300, 400, 20, 20),
+        };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A", "B"), settleMs: 0);
+
+        Assert.Equal(["Select", "LeftClick:310,410"], log);
     }
 
     [Fact]
     public void Click_MethodPattern_NoFallback()
     {
-        var target = new FakeActionTarget { ControlType = "Button" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Pattern, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal("Invoke", outcome.Via);
         Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
-        Assert.Empty(input.LeftClicks);
+        Assert.Equal(["Invoke"], log);
     }
 
     [Fact]
     public void Click_MethodPattern_NoUsablePattern_Throws()
     {
-        var target = new FakeActionTarget { ControlType = "Edit" };
-        var executor = new ActionExecutor(new FakeInputDriver());
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Edit" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => executor.Click(target, ActionMethod.Pattern, signature: null, settleMs: 0));
 
         Assert.Contains("Edit", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(log);
     }
 
     [Fact]
     public void Click_MethodPattern_PatternFails_Throws()
     {
-        var target = new FakeActionTarget { ControlType = "Button", InvokeResult = false };
-        var executor = new ActionExecutor(new FakeInputDriver());
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", InvokeResult = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         Assert.Throws<InvalidOperationException>(
             () => executor.Click(target, ActionMethod.Pattern, signature: null, settleMs: 0));
+        Assert.Equal(["Invoke"], log);
     }
 
     [Fact]
     public void Click_MethodMouse_SkipsPattern()
     {
-        var target = new FakeActionTarget { ControlType = "Button", CurrentRect = new Rectangle(0, 0, 10, 10) };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", CurrentRect = new Rectangle(0, 0, 10, 10) };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Mouse, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("mouse", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Empty(target.Calls);
-        Assert.Single(input.LeftClicks);
+        Assert.Equal(["LeftClick:5,5"], log);
+    }
+
+    [Fact]
+    public void Click_Mouse_Unchanged()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Mouse, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("mouse", outcome.Via);
+        Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
+    }
+
+    [Fact]
+    public void Click_Mouse_NoSignature_NotVerified()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Click(target, ActionMethod.Mouse, signature: null, settleMs: 0);
+
+        Assert.Equal("mouse", outcome.Via);
+        Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
+        Assert.Equal(["LeftClick:5,5"], log);
     }
 
     [Fact]
     public void Click_NoSignature_NotVerified()
     {
-        var target = new FakeActionTarget { ControlType = "Button" };
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button" };
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Click(target, ActionMethod.Auto, signature: null, settleMs: 0);
 
         Assert.Equal("Invoke", outcome.Via);
         Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
-        Assert.Empty(input.LeftClicks);
+        Assert.Equal(["Invoke"], log);
     }
 
     // --- Type ------------------------------------------------------------------------------------
@@ -197,27 +298,28 @@ public class ActionExecutorTests
     [Fact]
     public void Type_ValuePattern_Verified()
     {
-        var target = new FakeActionTarget { CanSetValue = true };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
         target.ReadValues.Enqueue("existing"); // previous, read before acting
         target.ReadValues.Enqueue("existingHello"); // read-back after acting
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Type(target, "Hello", clear: false, pressEnter: false, SignatureSequence("A"), settleMs: 0);
 
         Assert.Equal("ValuePattern", outcome.Via);
         Assert.Equal(ActionEffect.ValueVerified, outcome.Effect);
         Assert.Equal("existingHello", target.LastSetValue);
-        Assert.Empty(input.TypedTexts);
+        Assert.Equal(["SetValue"], log);
     }
 
     [Fact]
     public void Type_ReadBackMismatch_ReportsMismatch()
     {
-        var target = new FakeActionTarget { CanSetValue = true };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
         target.ReadValues.Enqueue(""); // previous
         target.ReadValues.Enqueue("unexpected"); // read-back after acting
-        var executor = new ActionExecutor(new FakeInputDriver());
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Type(target, "Hello", clear: true, pressEnter: false, SignatureSequence("A"), settleMs: 0);
 
@@ -227,64 +329,138 @@ public class ActionExecutorTests
     }
 
     [Fact]
+    public void Type_ReadBack_TrimmedEquality()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue(null);
+        target.ReadValues.Enqueue(" abc \r\n");
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Type(target, "abc", clear: true, pressEnter: false, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal(ActionEffect.ValueVerified, outcome.Effect);
+    }
+
+    [Fact]
+    public void Type_SetValueFails_UsesKeyboard()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, SetValueResult = false };
+        target.ReadValues.Enqueue(null);
+        target.ReadValues.Enqueue(null);
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Type(target, "Hello", clear: false, pressEnter: false, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal("keyboard", outcome.Via);
+        Assert.Equal(["SetValue", "Focus", "TypeText:Hello|False|False"], log);
+    }
+
+    [Fact]
     public void Type_NoValuePattern_UsesKeyboard()
     {
-        var target = new FakeActionTarget { CanSetValue = false, CurrentRect = new Rectangle(5, 5, 10, 10) };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false };
         target.ReadValues.Enqueue(null); // previous
         target.ReadValues.Enqueue(null); // no read-back available -> falls back to signature compare
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Type(target, "Hello", clear: false, pressEnter: false, SignatureSequence("A", "B"), settleMs: 0);
 
         Assert.Equal("keyboard", outcome.Via);
         Assert.Equal(ActionEffect.Changed, outcome.Effect);
-        Assert.Equal(["Focus"], target.Calls);
-        Assert.Equal([("Hello", false, false)], input.TypedTexts);
-        Assert.Empty(input.LeftClicks);
+        Assert.Equal(["Focus", "TypeText:Hello|False|False"], log);
     }
 
     [Fact]
     public void Type_NoValuePattern_FocusFails_ClicksBeforeTyping()
     {
-        var target = new FakeActionTarget { CanSetValue = false, CurrentRect = new Rectangle(5, 5, 10, 10), FocusResult = false };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false, CurrentRect = new Rectangle(5, 5, 10, 10), FocusResult = false };
         target.ReadValues.Enqueue(null);
         target.ReadValues.Enqueue(null);
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Type(target, "Hi", clear: false, pressEnter: false, SignatureSequence("A", "A"), settleMs: 0);
 
         Assert.Equal("keyboard", outcome.Via);
         Assert.Equal(ActionEffect.Unchanged, outcome.Effect);
-        Assert.Equal([new Point(10, 10)], input.LeftClicks);
+        Assert.Equal(["Focus", "LeftClick:10,10", "TypeText:Hi|False|False"], log);
+    }
+
+    [Fact]
+    public void Type_Keyboard_WithReadBack_VerifiesValue()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false };
+        target.ReadValues.Enqueue("x");
+        target.ReadValues.Enqueue("xabc");
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Type(target, "abc", clear: false, pressEnter: false, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal("keyboard", outcome.Via);
+        Assert.Equal(ActionEffect.ValueVerified, outcome.Effect);
+    }
+
+    [Fact]
+    public void Type_Keyboard_WithReadBack_Mismatch()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false };
+        target.ReadValues.Enqueue("x");
+        target.ReadValues.Enqueue("xab");
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        var outcome = executor.Type(target, "abc", clear: false, pressEnter: false, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal(ActionEffect.ValueMismatch, outcome.Effect);
     }
 
     [Fact]
     public void Type_NoSignature_NotVerified()
     {
-        var target = new FakeActionTarget { CanSetValue = true };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
         target.ReadValues.Enqueue(null);
         target.ReadValues.Enqueue(null);
-        var executor = new ActionExecutor(new FakeInputDriver());
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         var outcome = executor.Type(target, "Hi", clear: false, pressEnter: false, signature: null, settleMs: 0);
 
+        Assert.Equal("ValuePattern", outcome.Via);
         Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
+        Assert.Equal("Hi", target.LastSetValue);
+        Assert.Equal(["SetValue"], log);
     }
 
     [Fact]
-    public void Type_ValuePattern_PressEnter_SendsEnterViaInputDriver()
+    public void Type_ValuePattern_PressEnter_FocusesTargetFirst()
     {
-        var target = new FakeActionTarget { CanSetValue = true };
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
         target.ReadValues.Enqueue(null);
         target.ReadValues.Enqueue("Hi");
-        var input = new FakeInputDriver();
-        var executor = new ActionExecutor(input);
+        var executor = new ActionExecutor(new FakeInputDriver(log));
 
         executor.Type(target, "Hi", clear: false, pressEnter: true, SignatureSequence("A"), settleMs: 0);
 
-        Assert.Equal(1, input.PressEnterCalls);
+        Assert.Equal(["SetValue", "Focus", "PressEnter"], log);
+    }
+
+    [Fact]
+    public void Type_ValuePattern_PressEnter_FocusFails_ClicksFirst()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, FocusResult = false, CurrentRect = new Rectangle(0, 0, 30, 10) };
+        target.ReadValues.Enqueue(null);
+        target.ReadValues.Enqueue("Hi");
+        var executor = new ActionExecutor(new FakeInputDriver(log));
+
+        executor.Type(target, "Hi", clear: false, pressEnter: true, SignatureSequence("A"), settleMs: 0);
+
+        Assert.Equal(["SetValue", "Focus", "LeftClick:15,5", "PressEnter"], log);
     }
 
     // --- ToWire ----------------------------------------------------------------------------------
@@ -308,11 +484,13 @@ public class ActionExecutorTests
         return () => queue.Dequeue();
     }
 
-    private sealed class FakeActionTarget : IActionTarget
+    /// <summary>Both fakes append to one shared, ordered log so cross-object call order is assertable.</summary>
+    private sealed class FakeActionTarget(List<string> log) : IActionTarget
     {
         public string ControlType { get; init; } = "Edit";
         public bool HasChildren { get; init; }
-        public Rectangle CurrentRect { get; init; } = new(0, 0, 10, 10);
+        public Rectangle CurrentRect { get; set; } = new(0, 0, 10, 10);
+        public Rectangle? RectAfterPattern { get; init; }
         public bool CanSetValue { get; init; }
 
         public bool InvokeResult { get; init; } = true;
@@ -324,33 +502,36 @@ public class ActionExecutorTests
 
         public Queue<string?> ReadValues { get; } = new();
         public string? LastSetValue { get; private set; }
-        public List<string> Calls { get; } = [];
 
-        public bool TryInvoke() { Calls.Add("Invoke"); return InvokeResult; }
-        public bool TryExpandCollapse() { Calls.Add("ExpandCollapse"); return ExpandCollapseResult; }
-        public bool TryToggle() { Calls.Add("Toggle"); return ToggleResult; }
-        public bool TrySelect() { Calls.Add("Select"); return SelectResult; }
+        public bool TryInvoke() => Pattern("Invoke", InvokeResult);
+        public bool TryExpandCollapse() => Pattern("ExpandCollapse", ExpandCollapseResult);
+        public bool TryToggle() => Pattern("Toggle", ToggleResult);
+        public bool TrySelect() => Pattern("Select", SelectResult);
 
         public bool TrySetValue(string value)
         {
-            Calls.Add("SetValue");
+            log.Add("SetValue");
             LastSetValue = value;
             return SetValueResult;
         }
 
         public string? ReadValue() => ReadValues.Count > 0 ? ReadValues.Dequeue() : null;
 
-        public bool TryFocus() { Calls.Add("Focus"); return FocusResult; }
+        public bool TryFocus() { log.Add("Focus"); return FocusResult; }
+
+        private bool Pattern(string name, bool result)
+        {
+            log.Add(name);
+            if (RectAfterPattern is { } r)
+                CurrentRect = r;
+            return result;
+        }
     }
 
-    private sealed class FakeInputDriver : IInputDriver
+    private sealed class FakeInputDriver(List<string> log) : IInputDriver
     {
-        public List<Point> LeftClicks { get; } = [];
-        public List<(string Text, bool Clear, bool PressEnter)> TypedTexts { get; } = [];
-        public int PressEnterCalls { get; private set; }
-
-        public void LeftClick(Point p) => LeftClicks.Add(p);
-        public void TypeText(string text, bool clear, bool pressEnter) => TypedTexts.Add((text, clear, pressEnter));
-        public void PressEnter() => PressEnterCalls++;
+        public void LeftClick(Point p) => log.Add($"LeftClick:{p.X},{p.Y}");
+        public void TypeText(string text, bool clear, bool pressEnter) => log.Add($"TypeText:{text}|{clear}|{pressEnter}");
+        public void PressEnter() => log.Add("PressEnter");
     }
 }
