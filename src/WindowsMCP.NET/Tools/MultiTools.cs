@@ -39,7 +39,7 @@ public static class MultiTools
 
             var targets = ResolveTargets(uiTreeService, labels, locs);
             if (targets.Count == 0)
-                throw new ArgumentException("No targets specified. Provide 'labels', 'locs' or 'elements'.");
+                throw new ArgumentException("No targets specified. Provide 'labels' or 'locs'.");
 
             if (press_ctrl)
                 InputFactory.Send(InputFactory.Key(VK_CONTROL, keyUp: false));

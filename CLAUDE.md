@@ -8,7 +8,7 @@ Windows desktop automation MCP server for Claude Code. Provides 21 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (355 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
+# Unit tests (465 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
 # filter with --filter-trait / --filter-not-trait "Category=..." instead of the old --filter syntax.
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
@@ -33,7 +33,10 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 - **Services**: Singletons injected as tool method parameters (`DesktopService`, `UiTreeService`, `ScreenCaptureService`)
 - **Error handling**: All tools wrap their body in try-catch, returning `[ERROR] ExceptionType: message` instead of throwing (the SDK forwards only `McpException` messages; any other exception becomes a generic "An error occurred invoking" text, unchanged through SDK 2.x). A central `ErrorFlagFilter` (`Server/ErrorFlagFilter.cs`) detects this prefix and sets `CallToolResult.IsError=true` so clients can branch on the protocol flag instead of string-matching the body
 - **Security**: API key auth (Bearer token, constant-time compare), optional IP allowlist (plain or CIDR, IPv4/IPv6), optional HTTPS. `/health` is anonymous but returns liveness only; details (version, host, PID, tool count) require the key. Auto-update verifies the release's `.sha256` before swapping the exe
-- **Verified element actions**: element-id actions (`ActionExecutor`) try UIA patterns first and fall back to the mouse where safe; success is judged by the signature of the element's own process (visible top-level windows, hash of actionable elements) before vs. after the action, giving `effect`
+- **Verified element actions**: element-id actions (`ActionExecutor`) try UIA patterns first and use the mouse/keyboard where the element has no pattern; success is judged by the signature of the process owning the element's window (visible top-level windows, hash of actionable elements) before vs. after the action — for `Type` by the value read-back — giving `effect`. Two rules hold on every element path: **input never reaches anything but the resolved target, and no action is performed twice** — when in doubt the action is refused with an `[ERROR]` and nothing is done:
+  - refused before anything is sent: element in a window disabled by a modal dialog (`ElementTargets.Resolve`), disabled target, click point covered by another process's window (`ActionGuards.ClickPoint` — the one place a mouse coordinate for an element comes from), keyboard focus not confirmed on the target (no key is sent without it)
+  - a UIA pattern call that throws or does not return within 2 s (`PatternCall`) counts as attempted: it is verified and never repeated with the mouse; `IActionTarget.Try*` is `false` only when the pattern is unsupported
+  - reads before the action fail as `ElementNotFoundException` with nothing done; no read after an action (read-back, rect, focus, hit-test, signature) may turn the executed action into an error
 - **Cancellation & progress**: async tools take a `CancellationToken` (bound to the client's request; PowerShell/Notification kill their child process on cancel); `Perform` reports one progress notification per step via `IProgress<ProgressNotificationValue>`
 
 ## Tools (21)
@@ -41,8 +44,8 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | Tool | Purpose |
 |------|---------|
 | **Context** | Get system state (active window, screenshot, UI tree, clipboard, processes) |
-| **Observe** | Compact state of the foreground app (windows, focus, actionable elements with stable ids, optional JPEG) for precise interaction |
-| **Perform** | Execute batched UI action chains (click, type, shortcut, scroll, move, wait); steps accept `element` ids, report `effect`, stop after 3 element steps without visible change |
+| **Observe** | Compact state of the foreground app (windows, focus, actionable elements with stable ids, optional JPEG) for precise interaction. Values ≤ 200 chars, names/texts ≤ 120 (`…(+n chars)`), ≤ 80 texts; password values are never collected; a failed screenshot is reported in a text block, not as an error |
+| **Perform** | Execute batched UI action chains (click, type, shortcut, scroll, move, wait); click/type steps accept `element` ids (rejected on other steps), report `effect`, stop after 3 element steps without visible change |
 | **Snapshot** | Capture screenshot + build UI element tree with numbered labels |
 | **Screenshot** | Fast screenshot without rebuilding UI tree |
 | **Click** | Click at coordinates, a labeled UI element or an `Observe` element id (`element`; pattern-first, reports `effect`) |
@@ -64,7 +67,9 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 
 ## Key Patterns
 
-- **Observe → act by element id**: `Observe` returns stable ids; pass them as `element` to Click/Type/Perform/MultiSelect/MultiEdit. Actions try UIA patterns first, fall back to the mouse where safe, and report `effect` (changed/unchanged/value_verified/value_mismatch/not_verified). `Perform` stops after 3 element steps without visible change (`stop_on_stall`).
+- **Observe → act by element id**: `Observe` returns stable ids; pass them as `element` to Click/Type/Perform (click and type steps)/MultiSelect/MultiEdit. Actions try UIA patterns first, use the mouse/keyboard where the element has no pattern, and report `effect` (changed/unchanged/value_verified/value_mismatch/not_verified). `Perform` stops after 3 element steps without visible change (`stop_on_stall`).
+- **Element ids have window affinity**: an id resolves only in the window it was observed in while that window exists; ids of transient windows (popup, menu, dialog) die with their window, main-window ids fall back to same-class windows of the process name (survive an app restart). Identical locators in one observation (two same-class windows) get ids derived from locator + window handle. `ObservationStore` keeps `StoredElement(Locator, WindowHandle, Transient)`; `ObservationService.FindLive` returns the element with the hwnd it was found in
+- **Observation content rules** (`ObservationBuilder`/`ObservationFormatter`, pure and unit-tested): input types (Edit, ComboBox, Spinner, Slider, Document) are emitted even when unnamed and empty; markdown is strictly one line per element (`\r`/`\n`/`\t` escaped); display truncation never affects the signature (full value)
 - **Efficient UI workflow**: Use `Context` to get state, then `Perform` to batch actions (2 calls instead of 5+)
 - **Label-based interaction**: `Snapshot` assigns numbered labels to UI elements; `Click`/`Type` reference labels
 - **Binary file transfer**: Use `read_base64`/`write_base64` for cross-machine binary file operations (1MB limit)
@@ -81,7 +86,8 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 src/WindowsMCP.NET/
   Tools/           # MCP tool implementations (static classes)
   Services/        # Singletons: DesktopService, ScreenCaptureService, UiTreeService, UiAutomationService,
-                   # ObservationService (UIA collection), ObservationBuilder (pure filter/ids/signature), ObservationStore (id lookup), ActionExecutor (pattern-first actions)
+                   # ObservationService (UIA collection, live resolution), ObservationBuilder (pure filter/ids/signature), ObservationStore (id lookup),
+                   # ActionExecutor + ActionGuards (pattern-first actions, input guards), FlaUiActionTarget/PatternCall (live element, time-limited pattern calls)
   Native/          # P/Invoke: User32, Kernel32; InputFactory (shared SendInput builders, text→keystrokes)
   Models/          # WindowInfo, UiElementNode, AnnotatedTree, Observation, ObservedNode, ElementLocator
   Config/          # AppConfig, CliParser, ConfigManager

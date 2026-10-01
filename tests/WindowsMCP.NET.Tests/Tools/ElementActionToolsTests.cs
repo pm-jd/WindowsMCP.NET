@@ -109,6 +109,16 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     }
 
     [Fact]
+    public void MultiSelect_WithoutLabelsLocsOrElements_KeepsLegacyError() =>
+        Assert.Equal("[ERROR] ArgumentException: No targets specified. Provide 'labels' or 'locs'.",
+            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), ct: Ct));
+
+    [Fact]
+    public void MultiSelect_EmptyElements_FallsThroughToTheLegacyError() =>
+        Assert.Equal("[ERROR] ArgumentException: No targets specified. Provide 'labels' or 'locs'.",
+            MultiTools.MultiSelect(Ui, Svc, new ObservationStore(), elements: [], ct: Ct));
+
+    [Fact]
     public void Click_WithoutLabelOrLocOrElement_KeepsLegacyError() =>
         Assert.Equal("[ERROR] ArgumentException: Either 'label' or 'loc' ([x, y]) must be provided.",
             InputTools.Click(Ui, Svc, new ObservationStore(), SafeExecutor(), ct: Ct));

@@ -464,6 +464,64 @@ public class ActionExecutorTests
         Assert.Equal(["SetValue", "Focus", "LeftClick:15,5", "PressEnter"], log);
     }
 
+    // --- Type takes the before-signature only when the read-back may not decide (F11) ----------------
+
+    [Fact]
+    public void Type_ReadableValue_WithoutEnter_NeverWalksTheUiForASignature()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("x");     // previous: the value is readable
+        target.ReadValues.Enqueue("xabc");  // read-back decides
+
+        var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, LoggedSignature(log), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.ValueVerified), outcome);
+        Assert.Equal(["SetValue"], log); // no "sig": one full UI walk saved per field
+    }
+
+    [Fact]
+    public void Type_UnreadableValue_TakesTheSignatureBeforeAndAfter()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = false };
+        target.ReadValues.Enqueue(null);
+        target.ReadValues.Enqueue(null);
+
+        var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, LoggedSignature(log, "A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("keyboard", ActionEffect.Changed), outcome);
+        Assert.Equal(["sig", "Focus", "TypeText:abc|False|False", "sig"], log);
+    }
+
+    [Fact]
+    public void Type_WithEnter_KeepsTheBaseline_BecauseEnterMayTakeTheElementAway()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("");    // readable before …
+        target.ReadValues.Enqueue(null);  // … gone after Enter closed the dialog
+
+        var outcome = Executor(log).Type(target, "abc", clear: true, pressEnter: true, LoggedSignature(log, "A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.Changed), outcome);
+        Assert.Equal(["sig", "SetValue", "Focus", "PressEnter", "sig"], log);
+    }
+
+    [Fact]
+    public void Type_ReadableBefore_UnreadableAfter_WithoutBaseline_IsNotVerified()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true };
+        target.ReadValues.Enqueue("x");
+        target.ReadValues.Enqueue(null);
+
+        var outcome = Executor(log).Type(target, "abc", clear: false, pressEnter: false, LoggedSignature(log), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("ValuePattern", ActionEffect.NotVerified), outcome);
+        Assert.Equal(["SetValue"], log);
+    }
+
     // --- Guards: disabled targets (F1) -------------------------------------------------------------
 
     [Theory]

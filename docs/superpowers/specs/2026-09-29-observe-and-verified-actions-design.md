@@ -174,8 +174,9 @@ Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x')
 
 ## 4. Verification and stall detection
 
-- **Signature**: after resolving the element and before acting, compute the scope signature (same collection as `Observe` without hit-testing and without formatting); after acting wait `settle_ms` (default 300, max 2000) and compute it again.
-- **effect**: `changed` (signatures differ), `unchanged`, `value_verified`, `value_mismatch`.
+- **Signature**: after resolving the element and before acting, compute the signature of **the process that owns the window the element was resolved in** (its pid — all visible top-level windows of exactly that process instance; same collection as `Observe` without hit-testing and without formatting; it is *not* the scope of the last `Observe`: pattern actions do not bring the application to the foreground, and with two instances of one application only the instance acted on may be watched). After acting wait `settle_ms` (default 300, max 2000) and compute it again. A failing signature walk after the action never fails the action (it counts as a constant).
+- `Type` judges by the value read-back and needs the signature only as a fallback: the before-signature is computed only when the value is not readable up front (no ValuePattern, password field) or `press_enter` follows (Enter may take the element away). A field that was readable before, is not readable afterwards and has no baseline reports `not_verified`.
+- **effect**: `changed` (signatures differ), `unchanged`, `value_verified`, `value_mismatch`, `not_verified` (verification off, or nothing to compare against).
 - **verify** parameter: default `true` when `element` is used, `false` otherwise (label/loc behaviour unchanged).
 - **Perform**: each click and type step re-resolves its `element`; new options `verify` (default `true` for element steps) and `stop_on_stall` (default `true`): three consecutive element steps with `effect=unchanged` stop the run with `Stopped after step N: no visible change for 3 steps (stall).`. Step result lines gain the effect. Progress notifications unchanged.
 - A step whose pattern "succeeded" but whose mouse fallback also produced `unchanged` is reported as `OK — effect: unchanged` (not an error); only stall detection turns it into a stop.
@@ -198,8 +199,11 @@ src/WindowsMCP.NET/
   Services/
     ObservationService.cs      — UIA collection (CacheRequest, hit-test) → List<ObservedNode>; STA thread
     ObservationBuilder.cs      — pure: nodes → Observation (filter, visibility rules, label/panel, texts, ids, signature)
-    ObservationStore.cs        — id → locator LRU; live resolution
-    ActionExecutor.cs          — pattern-first actions, mouse fallback, ValuePattern read-back, effect
+    ObservationStore.cs        — id → (locator, window handle, transient) LRU
+    ActionExecutor.cs          — pattern-first actions, mouse/keyboard path, ValuePattern read-back, effect;
+                                 ActionGuards (enabled check, verified click point) shared with the tools
+    FlaUiActionTarget.cs       — live element behind the IActionTarget seam (guarded reads)
+    PatternCall.cs             — one UIA pattern call under the 2 s limit ("was a call dispatched?")
   Tools/
     ObserveTools.cs            — [McpServerTool] Observe
     InputTools.cs / PerformTools.cs / MultiTools — new `element`, `method`, `verify`, `settle_ms`, `stop_on_stall`

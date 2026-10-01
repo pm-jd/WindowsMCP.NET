@@ -206,7 +206,8 @@ public sealed class ActionExecutor(IInputDriver input)
     /// SetValue — are only ever sent once the target (or one of its descendants) is confirmed to hold
     /// the keyboard focus; otherwise this throws and no key is sent. Verification prefers reading the
     /// value back (trimmed equality against the expected text) and falls back to the
-    /// <paramref name="signature"/> comparison only when no read-back is available; a
+    /// <paramref name="signature"/> comparison only when no read-back is available — the baseline for
+    /// that comparison is taken only when the value is not readable up front or Enter follows; a
     /// <see langword="null"/> signature disables verification.
     /// </summary>
     public ActionOutcome Type(IActionTarget t, string text, bool clear, bool pressEnter, Func<string>? signature, int settleMs)
@@ -216,8 +217,13 @@ public sealed class ActionExecutor(IInputDriver input)
         ActionGuards.EnsureEnabled(t);
 
         var previous = t.ReadValue();
-        var before = signature?.Invoke();
         var expected = clear ? text : (previous ?? "") + text;
+
+        // The baseline signature costs a full UI walk and is only the fallback for a read-back that
+        // cannot decide. A readable value will decide — unless Enter follows, which may take the
+        // element away (submit, close the dialog). So it is taken only in those two cases.
+        var needsBaseline = signature is not null && (previous is null || pressEnter);
+        var before = needsBaseline ? signature!() : null;
 
         string via;
         if (t.CanSetValue && t.TrySetValue(expected))
@@ -257,7 +263,9 @@ public sealed class ActionExecutor(IInputDriver input)
             return new ActionOutcome(via, effect);
         }
 
-        return new ActionOutcome(via, CompareEffect(signature, before));
+        // The value was readable before and is not any more, and no baseline was taken: nothing to
+        // compare against.
+        return new ActionOutcome(via, needsBaseline ? CompareEffect(signature, before) : ActionEffect.NotVerified);
     }
 
     /// <summary>
