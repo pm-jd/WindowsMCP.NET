@@ -339,6 +339,26 @@ public class ObservationBuilderTests
         Assert.Equal(150, observation.Elements.Count);
         Assert.True(observation.Truncated);
         Assert.Equal(10, observation.Elements.Count(e => e.Window == "Popup"));
+        Assert.Equal(450, observation.Omitted); // 600 actionable elements, 150 listed (AF5)
+    }
+
+    [Fact]
+    public void Omitted_CountsOnlyElementsCutByMaxElements()
+    {
+        ObservedNode[] Buttons(int count) =>
+        [
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            .. Enumerable.Range(0, count).Select(i => Node(i + 1, 0, 1, 0, "Button", $"B{i}", y: i)),
+        ];
+        var windows = new[] { Window(1, "Main") };
+
+        Assert.Equal(0, ObservationBuilder.Build(windows, Buttons(150), 150, Timings, budgetExceeded: false).Omitted);
+        Assert.Equal(1, ObservationBuilder.Build(windows, Buttons(151), 150, Timings, budgetExceeded: false).Omitted);
+
+        // Truncated for another reason (time budget): nothing is known to be missing, so no count.
+        var budget = ObservationBuilder.Build(windows, Buttons(5), 150, Timings, budgetExceeded: true);
+        Assert.True(budget.Truncated);
+        Assert.Equal(0, budget.Omitted);
     }
 
     [Fact]

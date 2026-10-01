@@ -152,7 +152,10 @@ public static class ObservationBuilder
 
         var signature = ComputeSignature(windows, elements);
 
-        return new Observation(windows, focusId, elements, texts, signature, truncated, timings);
+        return new Observation(windows, focusId, elements, texts, signature, truncated, timings)
+        {
+            Omitted = ordered.Count - trimmed.Count,
+        };
     }
 
     /// <summary>The value an element may carry out of the builder: never that of a password field

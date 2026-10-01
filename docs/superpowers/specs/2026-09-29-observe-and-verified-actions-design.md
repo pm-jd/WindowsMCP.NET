@@ -81,6 +81,7 @@ Observe(
 - **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only; at most 80 entries
 - **signature**: hash over (window handles + titles + the unreadable flag, and for every emitted element: id, name, value, toggle, selected, expanded, enabled) — always over the **full** value, independent of the display limits below. Unreadable windows are part of it: readable → unreadable is a change, and an observation whose windows do not answer never has the signature of an empty one
 - **truncated**: `true` when `max_elements`, the 80-texts cap or the time budget cut the result
+- **omitted**: the number of actionable elements that were found but not listed because of `max_elements` (0 when the cut had another reason). The markdown footer then reads `… · truncated: 132 more elements (max_elements=150)` instead of the bare `… · truncated`, so the caller knows how much is missing and which parameter to raise (a real MCS program screen has 282 actionable elements)
 - **timings**: `walk_ms`, `hit_ms`, `total_ms`
 
 **Display limits** (both formats): `value` at most 200 characters; `name`, `label`, `panel` and each text at most 120. A longer string keeps its first N characters followed by `…(+n chars)` (n = characters left out). In **markdown**, carriage return, line feed and tab inside names, labels, panels, values, texts and window titles are rendered as the two-character escapes `\r`, `\n`, `\t` (any other control or line-separator character as `\uXXXX`) — one line per element is an invariant of the format. **JSON** keeps the real characters (JSON escaping handles them) and applies the same truncation.
@@ -116,7 +117,7 @@ signature 3c1f07aa · 0 elements · 2040 ms
 ### JSON format
 
 `ToolHelpers.JsonResult` envelope with `structuredContent`; shape documented inline in the `format` parameter description (project convention):
-`{windows:[{title,process,pid,foreground,modal,unreadable?,rect:[x,y,w,h]}], focus:"e9K1", elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?,expanded?,enabled?,rect:[x,y,w,h]}], texts:[…], signature, truncated, timings:{walk_ms,hit_ms,total_ms}}` (`unreadable` is only emitted when `true`)
+`{windows:[{title,process,pid,foreground,modal,unreadable?,rect:[x,y,w,h]}], focus:"e9K1", elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?,expanded?,enabled?,rect:[x,y,w,h]}], texts:[…], signature, truncated, omitted, timings:{walk_ms,hit_ms,total_ms}}` (`unreadable` is only emitted when `true`; `omitted` is always emitted, `0` when nothing was cut by `max_elements`)
 
 ### Screenshot
 

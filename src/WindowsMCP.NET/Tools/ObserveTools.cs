@@ -21,6 +21,7 @@ public static class ObserveTools
                  "format=json shape: {windows:[{title,process,pid,foreground,modal,unreadable?,rect:[x,y,w,h]}], " +
                  "focus:string|null, elements:[{id,type,name,label?,panel?,window?,value?,toggle?,selected?," +
                  "expanded?,enabled?,rect:[x,y,w,h]}], texts:[string], signature:string, truncated:bool, " +
+                 "omitted:int (elements found but not listed because of max_elements), " +
                  "timings:{walk_ms,hit_ms,total_ms}}. Set screenshot=true to also attach a downscaled JPEG " +
                  "of the observed windows.")]
     public static CallToolResult Observe(

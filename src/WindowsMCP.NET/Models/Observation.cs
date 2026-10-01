@@ -41,4 +41,10 @@ public sealed record ObservedElement(string Id, string Type, string Name, string
 public sealed record ObservationTimings(long WalkMs, long HitMs, long TotalMs);
 
 /// <summary>Result of an Observe call: the windows in scope, the actionable elements found, and bookkeeping.</summary>
-public sealed record Observation(IReadOnlyList<ObservedWindow> Windows, string? FocusId, IReadOnlyList<ObservedElement> Elements, IReadOnlyList<string> Texts, string Signature, bool Truncated, ObservationTimings Timings);
+public sealed record Observation(IReadOnlyList<ObservedWindow> Windows, string? FocusId, IReadOnlyList<ObservedElement> Elements, IReadOnlyList<string> Texts, string Signature, bool Truncated, ObservationTimings Timings)
+{
+    /// <summary>Number of actionable elements that were found but not listed because of
+    /// <c>max_elements</c> (0 when nothing was cut there; <see cref="Truncated"/> may still be set by
+    /// the time budget or the texts cap).</summary>
+    public int Omitted { get; init; }
+}

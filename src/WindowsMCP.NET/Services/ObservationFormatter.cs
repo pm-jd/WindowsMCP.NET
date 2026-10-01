@@ -76,6 +76,7 @@ public static class ObservationFormatter
             ["texts"] = o.Texts.Select(t => Clip(t, MaxNameChars)).ToList(),
             ["signature"] = o.Signature,
             ["truncated"] = o.Truncated,
+            ["omitted"] = o.Omitted,
             ["timings"] = new Dictionary<string, object?>
             {
                 ["walk_ms"] = o.Timings.WalkMs,
@@ -189,7 +190,17 @@ public static class ObservationFormatter
         }
 
         var footer = $"signature {o.Signature} · {o.Elements.Count} elements · {o.Timings.TotalMs} ms";
-        if (o.Truncated) footer += " · truncated";
+        if (o.Omitted > 0)
+        {
+            // The cut is made exactly at max_elements, so the number of elements listed IS the limit
+            // that was in effect — the one the caller has to raise to see the rest.
+            footer += $" · truncated: {o.Omitted} more elements (max_elements={o.Elements.Count})";
+        }
+        else if (o.Truncated)
+        {
+            footer += " · truncated";
+        }
+
         lines.Add(footer);
 
         return string.Join("\n", lines);

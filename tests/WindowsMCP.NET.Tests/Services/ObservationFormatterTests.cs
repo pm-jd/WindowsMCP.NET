@@ -90,6 +90,44 @@ public class ObservationFormatterTests
         Assert.EndsWith("· truncated", markdown);
     }
 
+    // --- the truncation footer says how much is missing (AF5) ----------------------------------------
+
+    private static Observation Truncated(int listed, int omitted) =>
+        MakeObservation([Window("Main")],
+            [.. Enumerable.Range(0, listed).Select(i => Element($"e{i:000}", "Button", $"B{i}"))],
+            truncated: true) with { Omitted = omitted };
+
+    [Fact]
+    public void Markdown_Footer_ElementsCutByMaxElements_SaysHowManyMore_AndTheLimit()
+    {
+        // A real MCS program screen: 282 actionable elements, default max_elements=150.
+        var markdown = ObservationFormatter.ToMarkdown(Truncated(listed: 150, omitted: 132));
+
+        Assert.EndsWith(
+            "\nsignature abcd1234 · 150 elements · 15 ms · truncated: 132 more elements (max_elements=150)", markdown);
+    }
+
+    [Fact]
+    public void Markdown_Footer_TruncatedForAnotherReason_KeepsThePlainWord()
+    {
+        // Time budget or the texts cap: no elements are known to be missing.
+        var markdown = ObservationFormatter.ToMarkdown(Truncated(listed: 3, omitted: 0));
+
+        Assert.EndsWith("\nsignature abcd1234 · 3 elements · 15 ms · truncated", markdown);
+    }
+
+    [Fact]
+    public void Json_Omitted_StandsNextToTruncated()
+    {
+        var cut = JsonOf(Truncated(listed: 150, omitted: 132));
+        Assert.True(cut.GetProperty("truncated").GetBoolean());
+        Assert.Equal(132, cut.GetProperty("omitted").GetInt32());
+
+        var complete = JsonOf(MakeObservation([Window("Main")], [Element("e1", "Button", "Open")]));
+        Assert.False(complete.GetProperty("truncated").GetBoolean());
+        Assert.Equal(0, complete.GetProperty("omitted").GetInt32());
+    }
+
     [Fact]
     public void Json_OmitsDefaults()
     {
