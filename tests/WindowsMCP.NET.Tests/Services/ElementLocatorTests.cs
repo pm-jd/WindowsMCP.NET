@@ -79,4 +79,31 @@ public class ElementLocatorTests
         Assert.Equal(a, b);
         Assert.Equal(a.GetHashCode(), b.GetHashCode());
     }
+
+    [Fact]
+    public void Id_WithWindowHandle_DiffersPerWindow_AndIsDeterministic()
+    {
+        var locator = MakeLocator(new LocatorStep("Button", "Open", 0));
+
+        var first = locator.Id(6, 0x1000);
+        var second = locator.Id(6, 0x2000);
+
+        Assert.NotEqual(first, second);
+        Assert.NotEqual(locator.Id(6), first);
+        Assert.Equal(first, MakeLocator(new LocatorStep("Button", "Open", 0)).Id(6, 0x1000));
+        foreach (var id in new[] { first, second })
+        {
+            Assert.Equal(7, id.Length);
+            Assert.StartsWith("e", id, StringComparison.Ordinal);
+            Assert.True(Base32Body.IsMatch(id[1..]), $"'{id}' contains characters outside the base32 alphabet");
+        }
+    }
+
+    [Fact]
+    public void Canonical_IsProcessClassAndPath()
+    {
+        var locator = MakeLocator(new LocatorStep("Pane", "main", 0), new LocatorStep("Button", "Open", 2));
+
+        Assert.Equal("notepad.exe|Notepad|Pane:main:0/Button:Open:2", locator.Canonical());
+    }
 }

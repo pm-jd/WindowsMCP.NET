@@ -14,7 +14,17 @@ public sealed record ObservedWindow(nint Handle, string Title, string ClassName,
 public sealed record ObservedNode(int Index, int? Parent, int Depth, int Window, string ControlType, string Name, string AutomationId, Rectangle Rect, bool Enabled, bool Focused, string? Value, string? Toggle, bool Selected, string? Expand, bool? HitVisible);
 
 /// <summary>An actionable element surfaced to the caller, with the locator needed to act on it later.</summary>
-public sealed record ObservedElement(string Id, string Type, string Name, string? Label, string? Panel, string? Window, string? Value, string? Toggle, bool Selected, string? Expand, bool Enabled, Rectangle Rect, ElementLocator Locator);
+public sealed record ObservedElement(string Id, string Type, string Name, string? Label, string? Panel, string? Window, string? Value, string? Toggle, bool Selected, string? Expand, bool Enabled, Rectangle Rect, ElementLocator Locator)
+{
+    /// <summary>Handle of the top-level window the element was observed in. Not part of the locator
+    /// (and so not of the id, except to tell identical locators apart): it gives the id its window
+    /// affinity when it is resolved later.</summary>
+    public nint WindowHandle { get; init; }
+
+    /// <summary>True when the element is NOT in the bottom-most (main) window of its process in that
+    /// observation — a popup, menu or dialog. Ids of transient elements die with their window.</summary>
+    public bool Transient { get; init; }
+}
 
 /// <summary>Timing breakdown for one Observe call, in milliseconds.</summary>
 public sealed record ObservationTimings(long WalkMs, long HitMs, long TotalMs);

@@ -32,7 +32,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement;
 
     private static ResolvedElement Resolved(IActionTarget target, string describe) =>
-        new(target, describe, new ElementLocator("p", "c", []), 4711);
+        new(target, describe, new ElementLocator("p", "c", []), Pid: 4711, WindowHandle: 0x1234);
 
     /// <summary>Store whose id "e5stl" resolves to a locator naming a process that does not exist, so
     /// <c>store.Get</c> succeeds and <c>FindLive</c> returns null (the realistic stale case).</summary>

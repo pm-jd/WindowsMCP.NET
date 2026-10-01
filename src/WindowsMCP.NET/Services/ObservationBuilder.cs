@@ -90,27 +90,27 @@ public static class ObservationBuilder
         var truncated = budgetExceeded || ordered.Count > maxElements;
         var trimmed = ordered.Take(Math.Max(0, maxElements)).ToList();
 
-        var ids4 = new string[trimmed.Count];
-        for (var i = 0; i < trimmed.Count; i++)
-            ids4[i] = trimmed[i].Locator.Id(4);
-
-        var collisionCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var id in ids4)
-            collisionCounts[id] = collisionCounts.GetValueOrDefault(id) + 1;
+        var ids = AssignIds(trimmed.Select(c => (c.Locator, windows[c.Node.Window].Handle)).ToList());
+        var mainWindowByPid = MainWindowIndexByPid(windows);
 
         var elements = new List<ObservedElement>(trimmed.Count);
         string? focusId = null;
         for (var i = 0; i < trimmed.Count; i++)
         {
             var (node, locator) = trimmed[i];
-            var id = collisionCounts[ids4[i]] > 1 ? locator.Id(6) : ids4[i];
+            var id = ids[i];
+            var window = windows[node.Window];
             var label = ResolveLabel(node, byIndex, childrenByParent, dropped);
             var panel = ResolvePanel(node, byIndex);
-            var windowTitle = node.Window == lastWindowIndex ? null : windows[node.Window].Title;
+            var windowTitle = node.Window == lastWindowIndex ? null : window.Title;
 
             var element = new ObservedElement(
                 id, node.ControlType, node.Name, label, panel, windowTitle,
-                node.Value, node.Toggle, node.Selected, node.Expand, node.Enabled, node.Rect, locator);
+                node.Value, node.Toggle, node.Selected, node.Expand, node.Enabled, node.Rect, locator)
+            {
+                WindowHandle = window.Handle,
+                Transient = mainWindowByPid[window.Pid] != node.Window,
+            };
             elements.Add(element);
 
             if (node.Focused && focusId is null)
@@ -157,6 +157,57 @@ public static class ObservationBuilder
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));
         return LowerHex(hash.AsSpan(0, 4));
+    }
+
+    /// <summary>
+    /// One id per element, unique within the observation. Normally "e" + 4 hash characters of the
+    /// locator. Elements whose locators are IDENTICAL (same path in two windows of the same process
+    /// name and class) cannot be told apart by any locator hash, so their ids are hashed over the
+    /// locator plus the window handle (6 characters). Different locators that merely share the
+    /// 4-character prefix are extended to 6 characters of their own hash.
+    /// </summary>
+    private static string[] AssignIds(List<(ElementLocator Locator, nint WindowHandle)> elements)
+    {
+        var canonicals = new string[elements.Count];
+        var canonicalCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < elements.Count; i++)
+        {
+            canonicals[i] = elements[i].Locator.Canonical();
+            canonicalCounts[canonicals[i]] = canonicalCounts.GetValueOrDefault(canonicals[i]) + 1;
+        }
+
+        var ids = new string[elements.Count];
+        var prefixCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < elements.Count; i++)
+        {
+            if (canonicalCounts[canonicals[i]] > 1)
+            {
+                ids[i] = elements[i].Locator.Id(6, elements[i].WindowHandle);
+                continue;
+            }
+
+            ids[i] = elements[i].Locator.Id(4);
+            prefixCounts[ids[i]] = prefixCounts.GetValueOrDefault(ids[i]) + 1;
+        }
+
+        for (var i = 0; i < elements.Count; i++)
+        {
+            if (canonicalCounts[canonicals[i]] == 1 && prefixCounts[ids[i]] > 1)
+                ids[i] = elements[i].Locator.Id(6);
+        }
+
+        return ids;
+    }
+
+    /// <summary>Index of the bottom-most window of each process — its main window; every window of
+    /// that process stacked above it (popup, menu, dialog) is transient. <paramref name="windows"/>
+    /// is topmost-first, so the last index per pid wins.</summary>
+    private static Dictionary<int, int> MainWindowIndexByPid(IReadOnlyList<ObservedWindow> windows)
+    {
+        var mainWindowByPid = new Dictionary<int, int>();
+        for (var i = 0; i < windows.Count; i++)
+            mainWindowByPid[windows[i].Pid] = i;
+        return mainWindowByPid;
     }
 
     /// <summary>

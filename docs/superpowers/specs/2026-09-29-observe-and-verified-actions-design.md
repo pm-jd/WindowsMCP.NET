@@ -119,14 +119,17 @@ Collections are serialized inside the service (one at a time, like `UiTreeServic
 ## 2. Stable element ids
 
 - **Locator** per element: process name, top-level window class name, and the ancestor path from the window root, one step per level: `(ControlType, AutomationId if non-empty else Name, index among siblings with the same ControlType and key)`.
-- **id** = `"e"` + first 4 characters of a base32 SHA-256 over the locator (collision within one observation → extend to 6 characters for the colliding ids).
-- **Store**: `ObservationStore` (singleton) keeps id → locator for the last 8 observations (LRU). Ids from older observations fail with the stale-id error below.
+- **id** = `"e"` + first 4 characters of a base32 SHA-256 over the locator (collision of different locators within one observation → extend to 6 characters for the colliding ids). Elements whose locators are **identical** within one observation — the same path in two windows of the same process name and class (two Notepad windows, two MCS main windows) — cannot be separated by any locator hash; their ids are hashed over `locator + "|hwnd:" + window handle` (6 characters) so they differ.
+- **Window affinity**: every id remembers the top-level window (handle) it was observed in and whether that window was **transient** — not the bottom-most (main) window of its process in that observation, i.e. a popup, menu or dialog. The handle is not part of the locator and (except for the identical-locator case above) not of the id.
+- **Store**: `ObservationStore` (singleton) keeps id → (locator, window handle, transient) for the last 8 observations (LRU). Ids from older observations fail with the stale-id error below.
 - **Resolution** at action time (fresh UIA calls, no cache):
-  1. Walk the locator path from the live window (FindFirstChild per step with type + key + index).
-  2. Fallback: within the same top-level window, a unique descendant with the same ControlType and key.
-  3. None or ambiguous → `[ERROR] ElementNotFound: element e7Q2 no longer present — call Observe`.
+  1. Candidate windows: when the remembered window is still a visible top-level window of the same process name and class, resolve **only** in that window. When it is gone, a transient id is stale (a remembered dialog button never resolves in a later dialog of the same class); a main-window id falls back to every visible window of that process name and class in z-order (so ids survive an application restart).
+  2. Walk the locator path from the live window (FindFirstChild per step with type + key + index).
+  3. Fallback: within the candidate window(s), a unique descendant with the same ControlType and key.
+  4. None or ambiguous → `[ERROR] ElementNotFound: element e7Q2 no longer present — call Observe`.
+- Resolution returns the element together with the window it was found in; that window's process id scopes verification (§4) and its enabled state is checked before acting (§3).
 
-RuntimeIds are not used for identity: WinForms proxies regenerate them.
+RuntimeIds are not used for identity: WinForms proxies regenerate them. Known limitation: with several same-class windows of one process name and the remembered window gone, a main-window id resolves in the topmost match — agents should act on their latest `Observe`.
 
 ## 3. Actions with element ids
 

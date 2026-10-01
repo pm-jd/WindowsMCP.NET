@@ -1,30 +1,25 @@
 using WindowsMcpNet.Models;
+using WindowsMcpNet.Native;
 using WindowsMcpNet.Services;
 
 namespace WindowsMcpNet.Tools;
 
 /// <summary>An element id resolved against the live UI: the action target, a human-readable
-/// description for result strings, the locator it came from and the owning process id (for
-/// instance-scoped verification).</summary>
-internal sealed record ResolvedElement(IActionTarget Target, string Describe, ElementLocator Locator, int Pid);
+/// description for result strings, the locator it came from, the top-level window it was found in and
+/// that window's process id (for instance-scoped verification).</summary>
+internal sealed record ResolvedElement(IActionTarget Target, string Describe, ElementLocator Locator, int Pid, nint WindowHandle);
 
 /// <summary>Shared id to live element resolution for the element-id paths of Click/Type/MultiSelect/MultiEdit.</summary>
 internal static class ElementTargets
 {
     public static ResolvedElement Resolve(string id, ObservationStore store, ObservationService svc)
     {
-        var locator = store.Get(id);
-        var element = svc.FindLive(locator) ?? throw new ElementNotFoundException(id);
+        var stored = store.Get(id);
+        var (element, hwnd) = svc.FindLive(stored) ?? throw new ElementNotFoundException(id);
+        var locator = stored.Locator;
 
-        int pid;
-        try
-        {
-            pid = element.Properties.ProcessId.Value;
-        }
-        catch (Exception)
-        {
-            throw new ElementNotFoundException(id);
-        }
+        User32.GetWindowThreadProcessId(hwnd, out var windowPid);
+        var pid = (int)windowPid;
 
         string describe;
         try
@@ -37,10 +32,11 @@ internal static class ElementTargets
             describe = id;
         }
 
-        return new ResolvedElement(new FlaUiActionTarget(element), describe, locator, pid);
+        return new ResolvedElement(new FlaUiActionTarget(element), describe, locator, pid, hwnd);
     }
 
-    /// <summary>Verification signature scoped to the element's own process instance (pid).</summary>
+    /// <summary>Verification signature scoped to the process instance (pid) that owns the window the
+    /// element was resolved in.</summary>
     public static Func<string> SignatureFor(ResolvedElement resolved, ObservationService svc, CancellationToken ct) =>
         GuardSignature(() => svc.Signature(resolved.Pid, ct));
 

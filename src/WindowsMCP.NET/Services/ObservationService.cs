@@ -96,49 +96,74 @@ public sealed class ObservationService : IDisposable
     }
 
     /// <summary>
-    /// Resolves a stored <see cref="ElementLocator"/> against the live desktop: walks the path
-    /// step-by-step over live control-view children of a matching window; when that fails, falls back
-    /// to a unique control-view descendant matching the last step's type and key. Fresh UIA calls only
-    /// (no cache) — the live tree may have changed since the locator was captured.
+    /// Resolves a stored element against the live desktop and returns it together with the top-level
+    /// window it was found in. The candidate windows come from <see cref="SelectResolutionWindows"/>
+    /// (window affinity): the window the element was observed in when it is still there, nothing for
+    /// a transient window that is gone, else every visible window of the locator's process name and
+    /// class in z-order. In those windows: walk the locator path step-by-step over live control-view
+    /// children; when that fails, fall back to a unique control-view descendant matching the last
+    /// step's type and key. Fresh UIA calls only (no cache) — the live tree may have changed since
+    /// the locator was captured.
     /// </summary>
-    public AutomationElement? FindLive(ElementLocator locator)
+    public (AutomationElement Element, nint Hwnd)? FindLive(StoredElement stored)
     {
-        ArgumentNullException.ThrowIfNull(locator);
+        ArgumentNullException.ThrowIfNull(stored);
+        var locator = stored.Locator;
 
         lock (_lock)
         {
-            var windows = EnumerateVisibleTopLevelWindows(pid: null)
-                .Where(h => string.Equals(GetProcessName(GetPid(h)), StripExeSuffix(locator.Process), StringComparison.OrdinalIgnoreCase)
-                            && GetClassName(h) == locator.WindowClass)
+            var processName = StripExeSuffix(locator.Process);
+            var matching = EnumerateVisibleTopLevelWindows(pid: null)
+                .Where(h => GetClassName(h) == locator.WindowClass
+                            && string.Equals(GetProcessName(GetPid(h)), processName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            foreach (var handle in windows)
+            var roots = new List<(AutomationElement Root, nint Hwnd)>();
+            foreach (var handle in SelectResolutionWindows(stored.WindowHandle, stored.Transient, matching))
             {
-                var root = TryGetRoot(handle);
-                if (root is null)
-                    continue;
+                if (TryGetRoot(handle) is { } root)
+                    roots.Add((root, handle));
+            }
 
-                var match = WalkPath(root, locator.Path, 0);
-                if (match is not null)
-                    return match;
+            foreach (var (root, hwnd) in roots)
+            {
+                if (TryInWindow(hwnd, () => WalkPath(root, locator.Path, 0)) is { } match)
+                    return (match, hwnd);
             }
 
             if (locator.Path.Count == 0)
                 return null;
 
             var lastStep = locator.Path[^1];
-            var candidates = new List<AutomationElement>();
-            foreach (var handle in windows)
+            var candidates = new List<(AutomationElement Element, nint Hwnd)>();
+            foreach (var (root, hwnd) in roots)
             {
-                var root = TryGetRoot(handle);
-                if (root is null)
-                    continue;
-
-                candidates.AddRange(FindDescendantsByTypeAndKey(root, lastStep));
+                foreach (var candidate in TryInWindow(hwnd, () => FindDescendantsByTypeAndKey(root, lastStep)) ?? [])
+                    candidates.Add((candidate, hwnd));
             }
 
             return candidates.Count == 1 ? candidates[0] : null;
         }
+    }
+
+    /// <summary>
+    /// Window affinity of a stored id. <paramref name="matchingWindows"/> are the visible top-level
+    /// windows whose process name and window class equal the locator's, in z-order.
+    /// <list type="bullet">
+    /// <item>The window the element was observed in is still one of them → resolve ONLY there.</item>
+    /// <item>That window is gone and it was transient (popup, menu, dialog) → resolve nowhere: a
+    /// remembered dialog button must not act on a later dialog of the same class.</item>
+    /// <item>That window is gone and it was a main window (e.g. the application was restarted) → any
+    /// same-class window of that process name, topmost first.</item>
+    /// </list>
+    /// </summary>
+    internal static IReadOnlyList<nint> SelectResolutionWindows(
+        nint storedHandle, bool transient, IReadOnlyList<nint> matchingWindows)
+    {
+        if (storedHandle != nint.Zero && matchingWindows.Contains(storedHandle))
+            return [storedHandle];
+
+        return transient ? [] : matchingWindows;
     }
 
     public void Dispose() => _automation.Dispose();
@@ -440,6 +465,21 @@ public sealed class ObservationService : IDisposable
     }
 
     // --- Live resolution (FindLive) ------------------------------------------------------------------
+
+    /// <summary>A window that dies or stops answering while it is searched simply has no match —
+    /// resolution then ends in "element no longer present", never in a raw UIA/COM error.</summary>
+    private T? TryInWindow<T>(nint hwnd, Func<T?> search) where T : class
+    {
+        try
+        {
+            return search();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Live resolution failed in window {Handle}", hwnd);
+            return null;
+        }
+    }
 
     private AutomationElement? WalkPath(AutomationElement current, IReadOnlyList<LocatorStep> path, int stepIndex)
     {

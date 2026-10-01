@@ -86,8 +86,9 @@ public class ObserveParityTests : IAsyncLifetime
     /// <summary>
     /// Launches Notepad and waits for a Notepad process that was NOT in the start-of-test snapshot.
     /// Returns the observation only when it contains exclusively windows of that new process and the
-    /// foreground window is one of them (ids are path hashes, so an identical id of a pre-existing
-    /// Notepad would resolve to whichever window is topmost). Returns null — and the caller must not
+    /// foreground window is one of them (ids resolve in the window they were observed in, but
+    /// Observe(scope=process) looks at the first Notepad process in z-order, so the test must be sure
+    /// that this is its own instance before it acts on anything). Returns null — and the caller must not
     /// touch anything — when no new process appears (single-instance reuse) or the new instance is
     /// not what Observe/Click would see first.
     /// </summary>

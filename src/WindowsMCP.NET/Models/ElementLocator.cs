@@ -38,12 +38,11 @@ public sealed record ElementLocator(string Process, string WindowClass, IReadOnl
         return hash.ToHashCode();
     }
 
-    /// <summary>
-    /// Short deterministic fingerprint: "e" + the first <paramref name="length"/> characters of
-    /// a base32-encoded SHA-256 hash over the canonical locator string
-    /// ("Process|WindowClass|ControlType:Key:Index/ControlType:Key:Index/…").
-    /// </summary>
-    public string Id(int length)
+    /// <summary>The canonical locator string the ids are hashed from:
+    /// "Process|WindowClass|ControlType:Key:Index/ControlType:Key:Index/…". Two elements of one
+    /// observation with the same canonical string sit at the same path in two windows of the same
+    /// process name and class.</summary>
+    public string Canonical()
     {
         var canonical = new StringBuilder()
             .Append(Process).Append('|')
@@ -57,7 +56,26 @@ public sealed record ElementLocator(string Process, string WindowClass, IReadOnl
             canonical.Append(step.ControlType).Append(':').Append(step.Key).Append(':').Append(step.Index);
         }
 
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));
+        return canonical.ToString();
+    }
+
+    /// <summary>
+    /// Short deterministic fingerprint: "e" + the first <paramref name="length"/> characters of
+    /// a base32-encoded SHA-256 hash over <see cref="Canonical"/>.
+    /// </summary>
+    public string Id(int length) => HashId(Canonical(), length);
+
+    /// <summary>
+    /// Fingerprint that also covers the window: hashed over <see cref="Canonical"/> + "|hwnd:" +
+    /// <paramref name="windowHandle"/>. Used only to tell apart elements whose locators are identical
+    /// within one observation (same path in two same-class windows); the handle is otherwise not part
+    /// of an element's identity.
+    /// </summary>
+    public string Id(int length, nint windowHandle) => HashId($"{Canonical()}|hwnd:{windowHandle}", length);
+
+    private static string HashId(string canonical, int length)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
         return "e" + Base32(hash)[..length];
     }
 

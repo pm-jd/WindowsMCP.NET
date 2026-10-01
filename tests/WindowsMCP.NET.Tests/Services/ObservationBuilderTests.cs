@@ -184,6 +184,138 @@ public class ObservationBuilderTests
         Assert.Equal(first, second);
     }
 
+    // --- window identity (F4) ---------------------------------------------------------------------
+
+    [Fact]
+    public void IdenticalLocatorsInTwoWindows_GetDistinctHwndDerivedIds()
+    {
+        // Two windows of the same process and class (two Notepad windows, two MCS main windows):
+        // the locators are identical, so the ids must be told apart by the window handle.
+        var windows = new[] { Window(0x1000, "Doc 1"), Window(0x2000, "Doc 2") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Doc 1", hitVisible: null),
+            Node(1, 0, 1, 0, "Button", "Open", hitVisible: null),
+            Node(2, null, 0, 1, "Window", "Doc 2", hitVisible: null),
+            Node(3, 2, 1, 1, "Button", "Open"),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Equal(2, observation.Elements.Count);
+        var (first, second) = (observation.Elements[0], observation.Elements[1]);
+        Assert.Equal(first.Locator, second.Locator);
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(first.Locator.Id(6, 0x1000), first.Id);
+        Assert.Equal(second.Locator.Id(6, 0x2000), second.Id);
+    }
+
+    [Fact]
+    public void UniqueLocator_KeepsShortId_NextToHwndDerivedDuplicates()
+    {
+        var windows = new[] { Window(0x1000, "Doc 1"), Window(0x2000, "Doc 2") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Doc 1", hitVisible: null),
+            Node(1, 0, 1, 0, "Button", "Open", hitVisible: null),
+            Node(2, 0, 1, 0, "Button", "OnlyHere", y: 50, hitVisible: null),
+            Node(3, null, 0, 1, "Window", "Doc 2", hitVisible: null),
+            Node(4, 3, 1, 1, "Button", "Open"),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var unique = Assert.Single(observation.Elements, e => e.Name == "OnlyHere");
+        Assert.Equal(unique.Locator.Id(4), unique.Id);
+        Assert.All(observation.Elements.Where(e => e.Name == "Open"), e => Assert.Equal(7, e.Id.Length));
+        Assert.Equal(3, observation.Elements.Select(e => e.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public void PrefixCollision_OfDifferentLocators_KeepsSixCharExtension()
+    {
+        // Find two different button names whose locators share the 4-char id (deterministic hash, so
+        // the search result — and this test — is stable).
+        ElementLocator LocatorFor(string name) => new("app.exe", "MainWin", [new LocatorStep("Button", name, 0)]);
+        var seen = new Dictionary<string, string>(StringComparer.Ordinal);
+        (string A, string B)? pair = null;
+        for (var i = 0; i < 200_000 && pair is null; i++)
+        {
+            var name = $"Btn{i}";
+            var id = LocatorFor(name).Id(4);
+            if (seen.TryGetValue(id, out var other))
+                pair = (other, name);
+            else
+                seen[id] = name;
+        }
+
+        Assert.NotNull(pair);
+        var windows = new[] { Window(0x1000, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "Main", hitVisible: null),
+            Node(1, 0, 1, 0, "Button", pair.Value.A, y: 10),
+            Node(2, 0, 1, 0, "Button", pair.Value.B, y: 20),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.Equal(2, observation.Elements.Count);
+        Assert.All(observation.Elements, e => Assert.Equal(e.Locator.Id(6), e.Id));
+        Assert.NotEqual(observation.Elements[0].Id, observation.Elements[1].Id);
+    }
+
+    [Fact]
+    public void Elements_CarryWindowHandle_AndTransientForWindowsAboveTheMainWindow()
+    {
+        var windows = new[] { Window(0x11, "FileDropDown", className: "Popup"), Window(0x22, "Main") };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "FileDropDown", hitVisible: null),
+            Node(1, 0, 1, 0, "MenuItem", "Save", hitVisible: null),
+            Node(2, null, 0, 1, "Window", "Main", hitVisible: null),
+            Node(3, 2, 1, 1, "Button", "Open"),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        var popupItem = Assert.Single(observation.Elements, e => e.Name == "Save");
+        Assert.Equal((nint)0x11, popupItem.WindowHandle);
+        Assert.True(popupItem.Transient);
+
+        var mainButton = Assert.Single(observation.Elements, e => e.Name == "Open");
+        Assert.Equal((nint)0x22, mainButton.WindowHandle);
+        Assert.False(mainButton.Transient);
+    }
+
+    [Fact]
+    public void Transient_IsJudgedPerProcess()
+    {
+        // Desktop scope: the bottom-most window of EACH process is its main window, not only the
+        // last window of the whole list.
+        var windows = new[]
+        {
+            Window(0x11, "A dialog", className: "Dlg", process: "a.exe", pid: 1),
+            Window(0x12, "A main", className: "MainA", process: "a.exe", pid: 1),
+            Window(0x21, "B main", className: "MainB", process: "b.exe", pid: 2),
+        };
+        var nodes = new[]
+        {
+            Node(0, null, 0, 0, "Window", "A dialog", hitVisible: null),
+            Node(1, 0, 1, 0, "Button", "OK", hitVisible: null),
+            Node(2, null, 0, 1, "Window", "A main", hitVisible: null),
+            Node(3, 2, 1, 1, "Button", "Open"),
+            Node(4, null, 0, 2, "Window", "B main", hitVisible: null),
+            Node(5, 4, 1, 2, "Button", "Run"),
+        };
+
+        var observation = ObservationBuilder.Build(windows, nodes, 150, Timings, budgetExceeded: false);
+
+        Assert.True(Assert.Single(observation.Elements, e => e.Name == "OK").Transient);
+        Assert.False(Assert.Single(observation.Elements, e => e.Name == "Open").Transient);
+        Assert.False(Assert.Single(observation.Elements, e => e.Name == "Run").Transient);
+    }
+
     [Fact]
     public void Truncates_AtMaxElements()
     {
