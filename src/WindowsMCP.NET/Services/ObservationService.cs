@@ -484,14 +484,16 @@ public sealed class ObservationService : IDisposable
         return results;
     }
 
-    /// <summary>Live counterpart of <see cref="IsCollectible"/> for an already-resolved element; a
-    /// property-read failure (e.g. a genuinely stale element) is treated as not collectible, the same
-    /// fail-safe <see cref="MatchesStep"/> uses.</summary>
+    /// <summary>Live counterpart of <see cref="IsCollectible"/>: reads IsOffscreen/BoundingRectangle with
+    /// the collector's <c>ValueOrDefault</c> semantics (an unsupported property counts the same way it
+    /// did during collection, so sibling indexes stay aligned). The catch is only a last-resort guard
+    /// for genuinely dead elements.</summary>
     private static bool IsLiveCollectible(AutomationElement element)
     {
         try
         {
-            return IsCollectible(element.IsOffscreen, element.BoundingRectangle);
+            var properties = element.Properties;
+            return IsCollectible(properties.IsOffscreen.ValueOrDefault, properties.BoundingRectangle.ValueOrDefault);
         }
         catch (Exception)
         {
@@ -499,24 +501,22 @@ public sealed class ObservationService : IDisposable
         }
     }
 
-    /// <summary>Matches the same (ControlType, AutomationId-else-Name) key <see cref="ObservationBuilder"/>
-    /// uses when it builds locator paths — live, uncached property reads.</summary>
+    /// <summary>Matches the same (ControlType, key) pair <see cref="ObservationBuilder"/> uses when it
+    /// builds locator paths, reading properties exactly like the collector (<c>ValueOrDefault</c>) —
+    /// plain accessors throw for unsupported properties such as a missing AutomationId.</summary>
     private static bool MatchesStep(AutomationElement element, LocatorStep step)
     {
-        string controlType;
-        string key;
         try
         {
-            controlType = element.ControlType.ToString();
-            var automationId = element.AutomationId;
-            key = !string.IsNullOrEmpty(automationId) ? automationId : element.Name ?? "";
+            var properties = element.Properties;
+            var controlType = properties.ControlType.ValueOrDefault.ToString();
+            var key = ObservationBuilder.LocatorKey(properties.AutomationId.ValueOrDefault, properties.Name.ValueOrDefault);
+            return controlType == step.ControlType && key == step.Key;
         }
         catch (Exception)
         {
             return false;
         }
-
-        return controlType == step.ControlType && key == step.Key;
     }
 
     /// <summary>The same "control view" filter the collecting <see cref="CacheRequest"/> applies

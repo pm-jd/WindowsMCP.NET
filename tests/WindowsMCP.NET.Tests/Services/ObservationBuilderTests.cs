@@ -45,6 +45,13 @@ public class ObservationBuilderTests
         Assert.DoesNotContain(observation.Elements, e => e.Name == "Hidden");
     }
 
+    [Theory]
+    [InlineData("", "Save", "Save")]
+    [InlineData("btnSave", "Save", "btnSave")]
+    [InlineData(null, null, "")]
+    public void LocatorKey_PrefersAutomationIdElseName(string? automationId, string? name, string expected) =>
+        Assert.Equal(expected, ObservationBuilder.LocatorKey(automationId, name));
+
     [Fact]
     public void DocumentControl_IsActionable()
     {

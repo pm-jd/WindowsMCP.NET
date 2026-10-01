@@ -246,7 +246,12 @@ public static class ObservationBuilder
         return steps;
     }
 
-    private static string LocatorKey(ObservedNode node) => node.AutomationId.Length > 0 ? node.AutomationId : node.Name;
+    private static string LocatorKey(ObservedNode node) => LocatorKey(node.AutomationId, node.Name);
+
+    /// <summary>The single definition of a locator step's key: AutomationId when non-empty, else Name,
+    /// else "". Shared by the builder and the live matcher so they cannot drift apart.</summary>
+    internal static string LocatorKey(string? automationId, string? name) =>
+        !string.IsNullOrEmpty(automationId) ? automationId : name ?? "";
 
     /// <summary>
     /// For Edit/ComboBox/Spinner/Slider whose Name is empty or equals Value: the Name of the nearest

@@ -29,7 +29,8 @@ internal static class ElementTargets
         string describe;
         try
         {
-            describe = $"{id} ({element.ControlType} '{element.Name}')";
+            var properties = element.Properties;
+            describe = $"{id} ({properties.ControlType.ValueOrDefault} '{properties.Name.ValueOrDefault}')";
         }
         catch (Exception)
         {
