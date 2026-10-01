@@ -35,6 +35,9 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
     /// <summary>What <see cref="HasKeyboardFocus"/> reports, unless <see cref="FocusArrivesWithClick"/> is set.</summary>
     public bool KeyboardFocus { get; set; } = true;
 
+    /// <summary>What the element says about its own selection; null = it does not report it.</summary>
+    public bool? IsSelected { get; init; }
+
     /// <summary>Keyboard focus only arrives once a mouse click has been logged (SetFocus alone is not enough).</summary>
     public bool FocusArrivesWithClick { get; init; }
 

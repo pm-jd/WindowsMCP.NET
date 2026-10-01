@@ -178,14 +178,24 @@ Two rules hold on every element path: **input is never sent to anything but the 
 | Button, SplitButton, Hyperlink, MenuItem without children | **mouse click**, when the click point is safe (Guards) | Invoke |
 | MenuItem with children, ComboBox | ExpandCollapse (Expand; Collapse when already expanded) | mouse click when the pattern is not supported |
 | CheckBox | Toggle | mouse click when the pattern is not supported |
-| RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select | mouse click when the pattern is not supported or the select changed nothing |
+| RadioButton, TabItem, ListItem, TreeItem, DataItem | SelectionItem.Select | mouse click when the pattern is not supported or the select did not take (see below) |
 | any other type | mouse click | — |
 
 Then verify (§4).
 
 **Why Invoke-type controls are clicked with the mouse first** (acceptance on MCS, 2026-10-01): an `Invoke` whose handler opens a modal dialog (WinForms `ShowDialog()`) does not return until the dialog is closed. While that call is pending, **every** UI Automation request to that application times out — for this server and for any other UIA client — so the dialog that was just opened can neither be observed nor operated by element id (`Observe` came back empty after 4 s, a `FindAll` took 66 s). Waiting longer does not help; the call only returns when the dialog is gone. A mouse click has no such after-effect, so for the control types whose click pattern is `Invoke` the mouse is used whenever it can click safely (interactive desktop, visible area, own window — see Guards), and `Invoke` only when it cannot: in a disconnected or non-rendered session, for an element without visible area, or when the click point is covered. A mouse click that changed nothing is reported as `via mouse — effect: unchanged` and is **not** followed by an `Invoke` (the button could be pressed twice). When there is no safe click point and the element does not support `Invoke` either, the call fails with the reason the mouse cannot be used. Toggle, SelectionItem and ExpandCollapse stay pattern-first.
 
-For the pattern-first types, the mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` call was made but nothing changed (the docking-tab case from the spike; if the element can no longer be clicked safely at that point, the result stays `via SelectionItem — effect: unchanged`).
+For the pattern-first types, the mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` select did not take (the docking-tab case from the spike: `Select()` returns and switches nothing).
+
+**A selection is verified by the target itself.** Whether a select took cannot be read from the signature: in the re-test a docking tab's `Select` did nothing, something else changed meanwhile, and the result was `via SelectionItem — effect: changed` with the tab never switched. So after a dispatched `Select` that has **returned**: settle, then read the target's own SelectionItem `IsSelected` (`IActionTarget.IsSelected`; `null` when the element does not report it or the read fails — the read can never turn the sent Select into an error), then decide:
+
+| `IsSelected` | What happens | Effect |
+|---|---|---|
+| `true` | no mouse click | from the signature (`changed`/`unchanged`) |
+| `false` | the select did not take: one mouse click when there is a safe click point (Guards) — idempotent for tab, radio and list items | from the signature after the click, `via mouse`; without a safe click point the select stands: `via SelectionItem — effect: unchanged`, whatever else the signature picked up |
+| `null` | the previous rule: mouse click when the signature is unchanged (and a safe click point exists) | from the signature |
+
+A select that has **not returned** (`StillRunning`) is never followed by a click and its `IsSelected` is not read (the application is busy). `method=pattern` never clicks; a target that says `false` is reported as `unchanged` there too. The click on `false` does not depend on `verify` (with `verify=false` the effect is `not_verified`).
 
 A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`.
 

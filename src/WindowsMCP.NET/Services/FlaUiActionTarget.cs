@@ -65,6 +65,14 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
         return false;
     }, false);
 
+    /// <summary>SelectionItem <c>IsSelected</c>; null when the element has no such pattern, does not
+    /// report the property, or the read fails (it is read after a Select was sent).</summary>
+    public bool? IsSelected => Guard<bool?>(
+        () => el.Patterns.SelectionItem.PatternOrDefault is { } pattern && pattern.IsSelected.TryGetValue(out var selected)
+            ? selected
+            : null,
+        null);
+
     /// <summary><see cref="WindowHit"/> names the window a click at <paramref name="p"/> would go to;
     /// <see cref="OwnsWindow"/> decides whether that is this element.</summary>
     public bool OwnsPoint(Point p)

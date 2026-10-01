@@ -1051,6 +1051,132 @@ public class ActionExecutorTests
         Assert.Equal(["Select"], log);
     }
 
+    // --- A selection is verified by the target itself (BF2) -------------------------------------------
+    // Docking tabs: Select() returns and switches nothing. The signature cannot tell: when something
+    // else changed meanwhile the result was "via SelectionItem — changed" and the tab was never clicked.
+
+    [Theory]
+    [InlineData("A", "B", ActionEffect.Changed)]
+    [InlineData("A", "A", ActionEffect.Unchanged)]   // already selected: the old rule clicked here
+    public void Click_Select_TargetSaysSelected_NoMouseClick_EffectFromTheSignature(string before, string after, ActionEffect effect)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, LoggedSignature(log, before, after), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", effect), outcome);
+        Assert.Equal(["sig", "Select", "sig"], log);
+    }
+
+    [Theory]
+    [InlineData("A", "B", ActionEffect.Changed)]     // also when something else has changed the signature meanwhile
+    [InlineData("A", "A", ActionEffect.Unchanged)]
+    public void Click_Select_TargetSaysNotSelected_SafePoint_ExactlyOneMouseClick_EffectFromTheSignature(
+        string before, string after, ActionEffect effect)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = false, CurrentRect = new Rectangle(100, 200, 40, 20) };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, LoggedSignature(log, before, after), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("mouse", effect), outcome);
+        Assert.Equal(["sig", "Select", "LeftClick:120,210", "sig"], log);
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]     // covered by the time the select has returned
+    [InlineData(false, true, true)]     // the element vanished: no read may turn the sent Select into an error
+    [InlineData(false, false, false)]   // no interactive desktop
+    public void Click_Select_TargetSaysNotSelected_NoSafePoint_NoClick_Unchanged(bool covered, bool gone, bool interactiveDesktop)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log)
+        {
+            ControlType = "TabItem", IsSelected = false, CoveredAfterPattern = covered, RectGoneAfterPattern = gone,
+        };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = interactiveDesktop });
+
+        // The signature would say "changed": the target knows better, the select did not take.
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(["Select"], log);
+    }
+
+    [Theory]
+    [InlineData("A", "B", "Select")]                    // changed: the select stands
+    [InlineData("A", "A", "Select", "LeftClick:5,5")]   // unchanged: one mouse click, as before
+    public void Click_Select_TargetDoesNotReportItsSelection_KeepsTheSignatureRule(
+        string before, string after, params string[] expectedLog)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = null };
+
+        Executor(log).Click(target, ActionMethod.Auto, SignatureSequence(before, after, "B"), settleMs: 0);
+
+        Assert.Equal(expectedLog, log);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [InlineData(null)]
+    public void Click_SelectStillRunning_IsNeverFollowedByAClick_WhateverTheTargetSays(bool? isSelected)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = isSelected, CallsDoNotReturn = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged) { CallPending = true }, outcome);
+        Assert.Equal(["Select"], log);
+    }
+
+    [Theory]
+    [InlineData(false, "A", "A")]
+    [InlineData(false, "A", "B")]   // not selected: unchanged, whatever else has changed
+    [InlineData(true, "A", "A")]
+    [InlineData(null, "A", "A")]
+    public void Click_MethodPattern_Select_NeverClicks(bool? isSelected, string before, string after)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = isSelected };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Pattern, SignatureSequence(before, after), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(["Select"], log);
+    }
+
+    [Theory]
+    [InlineData(false, "Select", "LeftClick:5,5")]   // the click does not depend on the verification
+    [InlineData(true, "Select")]
+    [InlineData(null, "Select")]
+    public void Click_Select_VerifyOff_ClicksOnlyWhenTheTargetSaysNotSelected(bool? isSelected, params string[] expectedLog)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = isSelected };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, signature: null, settleMs: 0);
+
+        Assert.Equal(ActionEffect.NotVerified, outcome.Effect);
+        Assert.Equal(expectedLog, log);
+    }
+
+    [Fact]
+    public void Click_OtherPatterns_DoNotAskForTheSelection()
+    {
+        // IsSelected = false on a check box must not trigger a click on top of the Toggle.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox", IsSelected = false };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Toggle", ActionEffect.Unchanged), outcome);
+        Assert.Equal(["Toggle"], log);
+    }
+
     // --- A pattern call that has not returned is carried in the outcome (AF1) -------------------------
     // The handler is still running (typically: it opened a modal dialog). Nothing is repeated, nothing
     // is clicked on top of it; the caller is told, because the application will not answer UIA.

@@ -97,6 +97,10 @@ public interface IActionTarget
     /// ComboBox's inner Edit counts); false when that cannot be determined.</summary>
     bool HasKeyboardFocus { get; }
 
+    /// <summary>Whether the element is selected (SelectionItem <c>IsSelected</c>); null when it does not
+    /// report that or the read fails. Read after a Select to see whether it took — never throws.</summary>
+    bool? IsSelected { get; }
+
     /// <summary>True when a click at screen point <paramref name="p"/> reaches this element: the window
     /// at the point belongs to the top-level window the element was resolved in (no window of another
     /// application, no popup, menu or dialog of the same one lies on top) and is the element's own
@@ -220,7 +224,9 @@ public sealed class ActionExecutor(IInputDriver input)
     /// no visible area, covered).</item>
     /// <item><c>Auto</c>, other control types: the pattern for the control type first; a mouse click at
     /// the element's current centre when the element does not support that pattern, or when a
-    /// SelectionItem select had no observable effect.</item>
+    /// SelectionItem select did not take — judged by the target's own <see cref="IActionTarget.IsSelected"/>
+    /// (false → click, true → no click), and by an unchanged signature only when the target does not
+    /// report its selection.</item>
     /// <item><c>Pattern</c> never uses the mouse (throws when no pattern applies); <c>Mouse</c> skips
     /// the pattern entirely.</item>
     /// </list>
@@ -257,15 +263,36 @@ public sealed class ActionExecutor(IInputDriver input)
                 var pending = call == PatternCallResult.StillRunning;
                 Settle(settleMs);
 
+                // A select that has returned is judged by the target itself: the signature cannot tell
+                // whether THIS element got selected (a docking tab's Select returns and switches nothing,
+                // while something else may have changed meanwhile). Null = the element does not say.
+                var selected = pattern == SelectionItem && !pending ? t.IsSelected : null;
+                if (selected == false)
+                {
+                    // The select did not take. The Select has been sent, so from here on nothing may turn
+                    // into an error: one click (idempotent for tab, radio and list items) when the
+                    // element can be clicked safely; otherwise the select stands — as "unchanged",
+                    // whatever else the signature may have picked up.
+                    if (method == ActionMethod.Auto && TryClickPoint(t) is { } selectPoint)
+                    {
+                        input.LeftClick(selectPoint);
+                        Settle(settleMs);
+                        return new ActionOutcome("mouse", CompareEffect(signature, before));
+                    }
+
+                    return new ActionOutcome(pattern, signature is null ? ActionEffect.NotVerified : ActionEffect.Unchanged);
+                }
+
                 if (signature is null)
                     return new ActionOutcome(pattern, ActionEffect.NotVerified) { CallPending = pending };
 
                 if (signature() != before)
                     return new ActionOutcome(pattern, ActionEffect.Changed) { CallPending = pending };
 
-                // Unchanged: only a SelectionItem select that RETURNED (idempotent) may be retried with
-                // the mouse. A second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
-                if (method == ActionMethod.Pattern || pattern != SelectionItem || pending)
+                // Unchanged: only a SelectionItem select that RETURNED (idempotent) and whose target does
+                // not report its selection may be retried with the mouse — a target that says "selected"
+                // needs no click. A second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
+                if (method == ActionMethod.Pattern || pattern != SelectionItem || pending || selected == true)
                     return new ActionOutcome(pattern, ActionEffect.Unchanged) { CallPending = pending };
 
                 // The Select has been sent, so from here on nothing may turn into an error: when the
