@@ -16,6 +16,10 @@ public class ActionExecutorTests
     private const string NoInteractiveDesktop =
         "no interactive desktop (session disconnected or not rendered) — nothing was clicked";
 
+    private const string PendingNote =
+        " — the call has not returned after 2 s: the application may be showing a modal dialog and cannot be " +
+        "observed until it is closed (Screenshot and keyboard still work)";
+
     // --- Click -----------------------------------------------------------------------------------
 
     // --- auto on Invoke-type controls: the mouse first when it can click safely (AF1) ----------------
@@ -866,6 +870,103 @@ public class ActionExecutorTests
 
         Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
         Assert.Equal(["Select"], log);
+    }
+
+    // --- A pattern call that has not returned is carried in the outcome (AF1) -------------------------
+    // The handler is still running (typically: it opened a modal dialog). Nothing is repeated, nothing
+    // is clicked on top of it; the caller is told, because the application will not answer UIA.
+
+    [Theory]
+    [InlineData("A", "B", ActionEffect.Changed)]
+    [InlineData("A", "A", ActionEffect.Unchanged)]
+    public void Click_PatternCallStillRunning_IsCarriedInTheOutcome_NothingElseIsSent(string before, string after, ActionEffect effect)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox", CallsDoNotReturn = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence(before, after), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Toggle", effect) { CallPending = true }, outcome);
+        Assert.Equal(["Toggle"], log);
+    }
+
+    [Fact]
+    public void Click_FallbackInvokeStillRunning_IsCarriedInTheOutcome_NoMouseClick()
+    {
+        // No safe click point (covered), so Invoke was used — and it opened a modal dialog.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", Covered = true, CallsDoNotReturn = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Invoke", ActionEffect.Changed) { CallPending = true }, outcome);
+        Assert.Equal(["Invoke"], log);
+    }
+
+    [Fact]
+    public void Click_SelectStillRunning_Unchanged_IsNotRetriedWithTheMouse()
+    {
+        // A Select that returned and changed nothing is retried with the mouse (idempotent). One that
+        // has NOT returned is still executing: a click now would act on top of it.
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", CallsDoNotReturn = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged) { CallPending = true }, outcome);
+        Assert.Equal(["Select"], log);
+    }
+
+    [Fact]
+    public void Click_PatternCallStillRunning_VerifyOff_IsStillCarried()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "CheckBox", CallsDoNotReturn = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Pattern, signature: null, settleMs: 0);
+
+        Assert.Equal(new ActionOutcome("Toggle", ActionEffect.NotVerified) { CallPending = true }, outcome);
+    }
+
+    [Fact]
+    public void Click_PatternCallReturned_OrMouse_IsNotPending()
+    {
+        var log = new List<string>();
+
+        var viaPattern = Executor(log).Click(new FakeActionTarget(log) { ControlType = "CheckBox" },
+            ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+        var viaMouse = Executor(log).Click(new FakeActionTarget(log) { ControlType = "Button", CallsDoNotReturn = true },
+            ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
+
+        Assert.False(viaPattern.CallPending);
+        Assert.False(viaMouse.CallPending); // the mouse click sent no pattern call at all
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Type_SetValueStillRunning_IsCarriedInTheOutcome_NoKeyboardOnTop(bool verify)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, CallsDoNotReturn = true };
+        target.ReadValues.Enqueue("");
+        target.ReadValues.Enqueue("Hi");
+
+        var outcome = Executor(log).Type(target, "Hi", clear: true, pressEnter: false, verify ? SignatureSequence("A") : null, settleMs: 0);
+
+        Assert.Equal("ValuePattern", outcome.Via);
+        Assert.Equal(verify ? ActionEffect.ValueVerified : ActionEffect.NotVerified, outcome.Effect);
+        Assert.True(outcome.CallPending);
+        Assert.Equal(["SetValue"], log);
+    }
+
+    // --- EffectText: what a tool result says about the effect ------------------------------------------
+
+    [Fact]
+    public void EffectText_IsTheWireValue_PlusTheNoteForACallThatHasNotReturned()
+    {
+        Assert.Equal("changed", new ActionOutcome("Invoke", ActionEffect.Changed).EffectText());
+        Assert.Equal("changed" + PendingNote, new ActionOutcome("Invoke", ActionEffect.Changed) { CallPending = true }.EffectText());
     }
 
     // --- MouseAction -----------------------------------------------------------------------------

@@ -170,7 +170,9 @@ Then verify (§4).
 
 For the pattern-first types, the mouse click (the centre of the element's **current** `BoundingRectangle` via the existing `InputFactory` mouse path, then verify again) is used when the element does **not support** the pattern, and — because `Select` is idempotent — when a `SelectionItem` call was made but nothing changed (the docking-tab case from the spike; if the element can no longer be clicked safely at that point, the result stays `via SelectionItem — effect: unchanged`).
 
-A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`. `method=pattern` never uses the mouse (error only when the element has no usable pattern) — the way to force `Invoke` on a button; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
+A pattern call that **throws or does not return within 2 s is treated as attempted**: the action may have run (WinForms `Invoke` on a button that opens a modal dialog blocks until the dialog is closed), so it is verified like any other call and never repeated with the mouse. After an attempted `Invoke`, `Toggle` or `ExpandCollapse` with an unchanged signature the result is `effect: unchanged` and **no** second action is performed (a mouse click could invoke a button twice or toggle a checkbox back); the caller can retry with `method=mouse`.
+
+A call that **has not returned** when the 2 s limit runs out is told apart from one that returned or threw (`PatternCall.Attempt` → `NotSupported` / `Returned` / `StillRunning`, carried in `ActionOutcome.CallPending`) and is visible in the result of `Click`, `Type`, `Perform` and `MultiEdit` (`MultiSelect` only uses the mouse): the effect is followed by ` — the call has not returned after 2 s: the application may be showing a modal dialog and cannot be observed until it is closed (Screenshot and keyboard still work)`. There is no retry and no mouse click afterwards — not even the `SelectionItem` retry, because the select is still executing. `method=pattern` never uses the mouse (error only when the element has no usable pattern) — the way to force `Invoke` on a button; `method=mouse` skips the pattern. `button`/`clicks` other than a single left click always use the mouse path.
 
 ### Type
 
@@ -180,7 +182,7 @@ A pattern call that **throws or does not return within 2 s is treated as attempt
 
 ### Result text
 
-Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x') via SelectionItem — effect: changed`.
+Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x') via SelectionItem — effect: changed`. A pattern call that has not returned adds its note after the effect (see Click): `Clicked eA3F (Button 'Open') via Invoke — effect: changed — the call has not returned after 2 s: …`.
 
 ## 4. Verification and stall detection
 
@@ -210,10 +212,10 @@ src/WindowsMCP.NET/
     ObservationService.cs      — UIA collection (CacheRequest, hit-test) → List<ObservedNode>; STA thread
     ObservationBuilder.cs      — pure: nodes → Observation (filter, visibility rules, label/panel, texts, ids, signature)
     ObservationStore.cs        — id → (locator, window handle, transient) LRU
-    ActionExecutor.cs          — pattern-first actions, mouse/keyboard path, ValuePattern read-back, effect;
+    ActionExecutor.cs          — pattern and mouse/keyboard actions, ValuePattern read-back, effect;
                                  ActionGuards (enabled check, verified click point) shared with the tools
     FlaUiActionTarget.cs       — live element behind the IActionTarget seam (guarded reads)
-    PatternCall.cs             — one UIA pattern call under the 2 s limit ("was a call dispatched?")
+    PatternCall.cs             — one UIA pattern call under the 2 s limit (not supported / returned / still running)
   Tools/
     ObserveTools.cs            — [McpServerTool] Observe
     InputTools.cs / PerformTools.cs / MultiTools — new `element`, `method`, `verify`, `settle_ms`, `stop_on_stall`

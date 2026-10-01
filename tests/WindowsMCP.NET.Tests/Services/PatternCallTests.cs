@@ -7,7 +7,8 @@ namespace WindowsMcpNet.Tests.Services;
 /// <summary>
 /// <see cref="PatternCall.Attempt"/> decides whether a UIA pattern call counts as dispatched. The only
 /// "no" is "there is no such pattern"; a call that throws or hangs may have acted and must therefore
-/// never be reported as not attempted (which would make the executor click a second time).
+/// never be reported as not attempted (which would make the executor click a second time). A call
+/// that has not returned within the limit is told apart from one that has: the caller reports it.
 /// </summary>
 public class PatternCallTests
 {
@@ -16,51 +17,51 @@ public class PatternCallTests
     private static readonly TimeSpan Generous = TimeSpan.FromSeconds(10);
 
     [Fact]
-    public void Attempt_NoPattern_ReturnsFalse_WithoutCalling()
+    public void Attempt_NoPattern_IsNotSupported_WithoutCalling()
     {
         var called = false;
 
-        var dispatched = PatternCall.Attempt<FakePattern>(() => null, _ => called = true, Generous);
+        var result = PatternCall.Attempt<FakePattern>(() => null, _ => called = true, Generous);
 
-        Assert.False(dispatched);
+        Assert.Equal(PatternCallResult.NotSupported, result);
         Assert.False(called);
     }
 
     [Fact]
-    public void Attempt_PatternLookupThrows_ReturnsFalse_WithoutCalling()
+    public void Attempt_PatternLookupThrows_IsNotSupported_WithoutCalling()
     {
         var called = false;
 
-        var dispatched = PatternCall.Attempt<FakePattern>(
+        var result = PatternCall.Attempt<FakePattern>(
             () => throw new InvalidOperationException("element not available"), _ => called = true, Generous);
 
-        Assert.False(dispatched);
+        Assert.Equal(PatternCallResult.NotSupported, result);
         Assert.False(called);
     }
 
     [Fact]
-    public void Attempt_CallCompletes_ReturnsTrue_AfterTheCallRan()
+    public void Attempt_CallCompletes_IsReturned_AfterTheCallRan()
     {
         var pattern = new FakePattern();
         FakePattern? seen = null;
 
-        var dispatched = PatternCall.Attempt(() => pattern, p => seen = p, Generous);
+        var result = PatternCall.Attempt(() => pattern, p => seen = p, Generous);
 
-        Assert.True(dispatched);
+        Assert.Equal(PatternCallResult.Returned, result);
         Assert.Same(pattern, seen);
     }
 
     [Fact]
-    public void Attempt_CallThrows_StillCountsAsDispatched_AndDoesNotThrow()
+    public void Attempt_CallThrows_CountsAsReturned_AndDoesNotThrow()
     {
-        var dispatched = PatternCall.Attempt(
+        var result = PatternCall.Attempt(
             () => new FakePattern(), _ => throw new InvalidOperationException("provider failed after acting"), Generous);
 
-        Assert.True(dispatched);
+        Assert.Equal(PatternCallResult.Returned, result);
     }
 
     [Fact]
-    public void Attempt_CallDoesNotReturn_CountsAsDispatched_AfterTheLimit()
+    public void Attempt_CallDoesNotReturn_IsStillRunning_AfterTheLimit()
     {
         // A WinForms Invoke that opened a modal dialog: the call only returns once the dialog is closed.
         var ct = TestContext.Current.CancellationToken;
@@ -69,7 +70,7 @@ public class PatternCallTests
         using var returned = new ManualResetEventSlim();
         var stopwatch = Stopwatch.StartNew();
 
-        var dispatched = PatternCall.Attempt(
+        var result = PatternCall.Attempt(
             () => new FakePattern(),
             _ =>
             {
@@ -83,7 +84,7 @@ public class PatternCallTests
         var stillRunning = !returned.IsSet;
         try
         {
-            Assert.True(dispatched);
+            Assert.Equal(PatternCallResult.StillRunning, result);
             Assert.True(stillRunning, "Attempt must return while the call is still blocked");
             Assert.True(started.Wait(TimeSpan.FromSeconds(10), ct), "the call must have been started");
             // Not before the limit (minus timer granularity), and far from the 30 s the call would block.
@@ -135,7 +136,7 @@ public class PatternCallTests
     /// <summary>Separate frame so the test method keeps no reference to the abandoned task.</summary>
     private static void RunAbandonedCall(ManualResetEventSlim release, ManualResetEventSlim finished, string marker)
     {
-        var dispatched = PatternCall.Attempt(
+        var result = PatternCall.Attempt(
             () => new FakePattern(),
             _ =>
             {
@@ -151,6 +152,6 @@ public class PatternCallTests
             },
             TimeSpan.FromMilliseconds(50));
 
-        Assert.True(dispatched);
+        Assert.Equal(PatternCallResult.StillRunning, result);
     }
 }

@@ -37,12 +37,17 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
     /// <summary>Keyboard focus only arrives once a mouse click has been logged (SetFocus alone is not enough).</summary>
     public bool FocusArrivesWithClick { get; init; }
 
+    // Whether the element supports the pattern at all (false = nothing is sent).
     public bool InvokeResult { get; init; } = true;
     public bool ExpandCollapseResult { get; init; } = true;
     public bool ToggleResult { get; init; } = true;
     public bool SelectResult { get; init; } = true;
     public bool SetValueResult { get; init; } = true;
     public bool FocusResult { get; init; } = true;
+
+    /// <summary>Every supported pattern call is dispatched but does not return within the limit — a
+    /// handler that opened a modal dialog.</summary>
+    public bool CallsDoNotReturn { get; init; }
     public bool ReadThrows { get; init; }
 
     public Queue<string?> ReadValues { get; } = new();
@@ -53,23 +58,23 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
 
     public bool OwnsPoint(Point p) => !Covered;
 
-    public bool TryInvoke() => Pattern("Invoke", InvokeResult);
-    public bool TryExpandCollapse() => Pattern("ExpandCollapse", ExpandCollapseResult);
-    public bool TryToggle() => Pattern("Toggle", ToggleResult);
-    public bool TrySelect() => Pattern("Select", SelectResult);
+    public PatternCallResult TryInvoke() => Pattern("Invoke", InvokeResult);
+    public PatternCallResult TryExpandCollapse() => Pattern("ExpandCollapse", ExpandCollapseResult);
+    public PatternCallResult TryToggle() => Pattern("Toggle", ToggleResult);
+    public PatternCallResult TrySelect() => Pattern("Select", SelectResult);
 
-    public bool TrySetValue(string value)
+    public PatternCallResult TrySetValue(string value)
     {
         log.Add("SetValue");
         LastSetValue = value;
-        return SetValueResult;
+        return Result(SetValueResult);
     }
 
     public string? ReadValue() => ReadThrows ? throw new InvalidOperationException("read failed") : ReadValues.Count > 0 ? ReadValues.Dequeue() : null;
 
     public bool TryFocus() { log.Add("Focus"); return FocusResult; }
 
-    private bool Pattern(string name, bool result)
+    private PatternCallResult Pattern(string name, bool supported)
     {
         log.Add(name);
         if (RectAfterPattern is { } r)
@@ -78,8 +83,13 @@ internal sealed class FakeActionTarget(List<string> log) : IActionTarget
             RectGone = true;
         if (CoveredAfterPattern)
             Covered = true;
-        return result;
+        return Result(supported);
     }
+
+    private PatternCallResult Result(bool supported) =>
+        !supported ? PatternCallResult.NotSupported
+        : CallsDoNotReturn ? PatternCallResult.StillRunning
+        : PatternCallResult.Returned;
 }
 
 internal sealed class FakeInputDriver(List<string> log) : IInputDriver

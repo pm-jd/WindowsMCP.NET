@@ -189,7 +189,7 @@ public static class MultiTools
             try
             {
                 var outcome = executor.Type(element.Target, text, clear: true, pressEnter: false, signatureFor(element), 300);
-                results.Add($"{element.Describe}: {outcome.Effect.ToWire()}");
+                results.Add($"{element.Describe}: {outcome.EffectText()}");
             }
             catch (Exception ex) when (results.Count > 0 && ex is not OperationCanceledException)
             {

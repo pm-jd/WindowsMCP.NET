@@ -345,6 +345,59 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         Assert.Equal("[ERROR] InvalidOperationException: read failed (already edited: e1 (Edit 'A'): not_verified)", result);
     }
 
+    // --- a pattern call that has not returned is visible in the result (AF1) ---------------------------
+
+    private const string PendingNote =
+        " — the call has not returned after 2 s: the application may be showing a modal dialog and cannot be " +
+        "observed until it is closed (Screenshot and keyboard still work)";
+
+    [Fact]
+    public void ClickResolved_PatternCallStillRunning_SaysSoInTheResult()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "Button", CallsDoNotReturn = true };
+
+        var (text, outcome) = InputTools.ClickResolved(Resolved(target, "e7q2k (Button 'Open')"), SafeExecutor(log),
+            MouseButton.Left, 1, ActionMethod.Pattern, Sig(log, "A", "B"), 0, (_, _, _, _) => log.Add("mouse"));
+
+        Assert.Equal("Clicked e7q2k (Button 'Open') via Invoke — effect: changed" + PendingNote, text);
+        Assert.True(outcome.CallPending);
+        Assert.Equal(["sig", "Invoke", "sig"], log); // no retry, no mouse click afterwards
+    }
+
+    [Fact]
+    public void TypeResolved_SetValueStillRunning_SaysSoInTheResult()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { CanSetValue = true, CallsDoNotReturn = true };
+        target.ReadValues.Enqueue("");
+        target.ReadValues.Enqueue("12.50");
+
+        var text = InputTools.TypeResolved(Resolved(target, "e9k1a (Edit 'Focus Axis')"), SafeExecutor(log),
+            "12.50", clear: true, pressEnter: false, Sig(log, "A"), 0).Text;
+
+        Assert.Equal("Typed 5 chars into e9k1a (Edit 'Focus Axis') via ValuePattern — effect: value_verified" + PendingNote, text);
+    }
+
+    [Fact]
+    public void EditElements_SetValueStillRunning_SaysSoForThatField()
+    {
+        var log = new List<string>();
+        var pending = new FakeActionTarget(log) { CanSetValue = true, CallsDoNotReturn = true };
+        pending.ReadValues.Enqueue("");
+        pending.ReadValues.Enqueue("Doe");
+        var targets = new Dictionary<string, ResolvedElement>
+        {
+            ["e1"] = Resolved(EditTarget(log, "John"), "e1 (Edit 'First')"),
+            ["e2"] = Resolved(pending, "e2 (Edit 'Last')"),
+        };
+
+        var result = MultiTools.EditElements(Json("""[["e1","John"],["e2","Doe"]]"""), id => targets[id],
+            SafeExecutor(log), _ => () => "s");
+
+        Assert.Equal("Edited 2 field(s): e1 (Edit 'First'): value_verified, e2 (Edit 'Last'): value_verified" + PendingNote, result);
+    }
+
     // --- MultiSelect (element path, driven through the seam: no real input) ----------------------------
 
     private static string RunSelect(List<string> log, bool pressCtrl, params ResolvedElement[] resolved) =>

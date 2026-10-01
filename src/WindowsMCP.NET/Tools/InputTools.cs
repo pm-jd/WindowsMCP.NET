@@ -138,7 +138,7 @@ public static class InputTools
             }, signature, settleMs);
         }
 
-        return ($"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}", outcome);
+        return ($"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.EffectText()}", outcome);
     }
 
     internal static (string Text, ActionOutcome Outcome) TypeResolved(
@@ -146,7 +146,7 @@ public static class InputTools
         Func<string>? signature, int settleMs)
     {
         var outcome = executor.Type(resolved.Target, text, clear, pressEnter, signature, settleMs);
-        return ($"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}", outcome);
+        return ($"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.EffectText()}", outcome);
     }
 
     private static void MouseClickAt(int cx, int cy, MouseButton button, int actualClicks)

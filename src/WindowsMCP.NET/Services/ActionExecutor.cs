@@ -19,7 +19,21 @@ public static class ActionEffectExtensions
 
 /// <summary>Result of a verified action: which mechanism actually performed it (a UIA pattern name,
 /// <c>"mouse"</c> or <c>"keyboard"</c>) and the observed <see cref="ActionEffect"/>.</summary>
-public sealed record ActionOutcome(string Via, ActionEffect Effect);
+public sealed record ActionOutcome(string Via, ActionEffect Effect)
+{
+    /// <summary>The UIA pattern call that performed the action was dispatched but had not returned
+    /// when its time limit ran out (<see cref="PatternCallResult.StillRunning"/>). It is neither
+    /// repeated nor followed by a mouse click; the result text says so (<see cref="EffectText"/>).</summary>
+    public bool CallPending { get; init; }
+
+    /// <summary>The effect as a tool result states it: the wire value, followed — for a pattern call
+    /// that has not returned — by what that means for the caller.</summary>
+    public string EffectText() => CallPending
+        ? $"{Effect.ToWire()} — the call has not returned after {PatternCall.DefaultLimit.TotalSeconds:0} s: " +
+          "the application may be showing a modal dialog and cannot be observed until it is closed " +
+          "(Screenshot and keyboard still work)"
+        : Effect.ToWire();
+}
 
 /// <summary>
 /// Seam over a live UI element that <see cref="ActionExecutor"/> acts on. <see cref="FlaUiActionTarget"/>
@@ -52,25 +66,25 @@ public interface IActionTarget
     /// cannot be determined.</summary>
     bool OwnsPoint(Point p);
 
-    /// <summary>Pattern calls: <see langword="false"/> ONLY when the element does not support the
-    /// pattern (nothing was sent). <see langword="true"/> means the call was dispatched — even when it
-    /// threw or did not return in time, because the action may have run; the caller verifies.</summary>
-    bool TryInvoke();
+    /// <summary>Pattern calls: <see cref="PatternCallResult.NotSupported"/> ONLY when the element does
+    /// not support the pattern (nothing was sent). Anything else means the call was dispatched — even
+    /// when it threw or did not return in time, because the action may have run; the caller verifies.</summary>
+    PatternCallResult TryInvoke();
 
     /// <inheritdoc cref="TryInvoke"/>
-    bool TryExpandCollapse();
+    PatternCallResult TryExpandCollapse();
 
     /// <inheritdoc cref="TryInvoke"/>
-    bool TryToggle();
+    PatternCallResult TryToggle();
 
     /// <inheritdoc cref="TryInvoke"/>
-    bool TrySelect();
+    PatternCallResult TrySelect();
 
     bool CanSetValue { get; }
 
-    /// <summary><see langword="false"/> only when the value cannot be written (no ValuePattern, or
-    /// read-only); otherwise the write was dispatched and the read-back decides.</summary>
-    bool TrySetValue(string value);
+    /// <summary><see cref="PatternCallResult.NotSupported"/> only when the value cannot be written (no
+    /// ValuePattern, or read-only); otherwise the write was dispatched and the read-back decides.</summary>
+    PatternCallResult TrySetValue(string value);
 
     string? ReadValue();
     bool TryFocus();
@@ -197,20 +211,23 @@ public sealed class ActionExecutor(IInputDriver input)
                 return new ActionOutcome("mouse", CompareEffect(signature, before));
             }
 
-            if (pattern is not null && CallPattern(t, pattern))
+            if (pattern is not null && CallPattern(t, pattern) is var call && call != PatternCallResult.NotSupported)
             {
+                // A call that has not returned is still running in the application: it is reported,
+                // never repeated and never followed by a click.
+                var pending = call == PatternCallResult.StillRunning;
                 Settle(settleMs);
 
                 if (signature is null)
-                    return new ActionOutcome(pattern, ActionEffect.NotVerified);
+                    return new ActionOutcome(pattern, ActionEffect.NotVerified) { CallPending = pending };
 
                 if (signature() != before)
-                    return new ActionOutcome(pattern, ActionEffect.Changed);
+                    return new ActionOutcome(pattern, ActionEffect.Changed) { CallPending = pending };
 
-                // Unchanged: only SelectionItem (idempotent Select) may be retried with the mouse. A
-                // second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
-                if (method == ActionMethod.Pattern || pattern != SelectionItem)
-                    return new ActionOutcome(pattern, ActionEffect.Unchanged);
+                // Unchanged: only a SelectionItem select that RETURNED (idempotent) may be retried with
+                // the mouse. A second Invoke/Toggle/ExpandCollapse could repeat the action or undo it.
+                if (method == ActionMethod.Pattern || pattern != SelectionItem || pending)
+                    return new ActionOutcome(pattern, ActionEffect.Unchanged) { CallPending = pending };
 
                 // The Select has been sent, so from here on nothing may turn into an error: when the
                 // element can no longer be clicked safely (gone, covered, no desktop), the Select stands.
@@ -262,9 +279,11 @@ public sealed class ActionExecutor(IInputDriver input)
         var before = needsBaseline ? signature!() : null;
 
         string via;
-        if (t.CanSetValue && t.TrySetValue(expected))
+        var pending = false;
+        if (t.CanSetValue && t.TrySetValue(expected) is var call && call != PatternCallResult.NotSupported)
         {
             via = "ValuePattern";
+            pending = call == PatternCallResult.StillRunning;
             if (pressEnter)
             {
                 // SetValue does not move the focus. The value is already set, so a click point that is
@@ -288,7 +307,7 @@ public sealed class ActionExecutor(IInputDriver input)
         Settle(settleMs);
 
         if (signature is null)
-            return new ActionOutcome(via, ActionEffect.NotVerified);
+            return new ActionOutcome(via, ActionEffect.NotVerified) { CallPending = pending };
 
         var readBack = t.ReadValue();
         if (readBack is not null)
@@ -296,12 +315,15 @@ public sealed class ActionExecutor(IInputDriver input)
             var effect = string.Equals(readBack.Trim(), expected.Trim(), StringComparison.Ordinal)
                 ? ActionEffect.ValueVerified
                 : ActionEffect.ValueMismatch;
-            return new ActionOutcome(via, effect);
+            return new ActionOutcome(via, effect) { CallPending = pending };
         }
 
         // The value was readable before and is not any more, and no baseline was taken: nothing to
         // compare against.
-        return new ActionOutcome(via, needsBaseline ? CompareEffect(signature, before) : ActionEffect.NotVerified);
+        return new ActionOutcome(via, needsBaseline ? CompareEffect(signature, before) : ActionEffect.NotVerified)
+        {
+            CallPending = pending,
+        };
     }
 
     /// <summary>
@@ -332,9 +354,8 @@ public sealed class ActionExecutor(IInputDriver input)
         _ => null,
     };
 
-    /// <summary>Calls a pattern from <see cref="ClickPattern"/>. False — and nothing was sent — when
-    /// the element does not support it.</summary>
-    private static bool CallPattern(IActionTarget t, string pattern) => pattern switch
+    /// <summary>Calls a pattern from <see cref="ClickPattern"/>.</summary>
+    private static PatternCallResult CallPattern(IActionTarget t, string pattern) => pattern switch
     {
         Invoke => t.TryInvoke(),
         "ExpandCollapse" => t.TryExpandCollapse(),

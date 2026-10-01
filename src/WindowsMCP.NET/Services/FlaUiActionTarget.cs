@@ -71,10 +71,10 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     internal static bool IsResolvedWindow(nint topLevelAtPoint, nint resolvedWindow) =>
         resolvedWindow != nint.Zero && topLevelAtPoint == resolvedWindow;
 
-    public bool TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
+    public PatternCallResult TryInvoke() => Attempt(() => el.Patterns.Invoke.PatternOrDefault, p => p.Invoke());
 
     /// <summary>Expands the element, or collapses it when it is already expanded.</summary>
-    public bool TryExpandCollapse() => Attempt(() => el.Patterns.ExpandCollapse.PatternOrDefault, p =>
+    public PatternCallResult TryExpandCollapse() => Attempt(() => el.Patterns.ExpandCollapse.PatternOrDefault, p =>
     {
         if (p.ExpandCollapseState.ValueOrDefault == ExpandCollapseState.Expanded)
             p.Collapse();
@@ -82,13 +82,13 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
             p.Expand();
     });
 
-    public bool TryToggle() => Attempt(() => el.Patterns.Toggle.PatternOrDefault, p => p.Toggle());
+    public PatternCallResult TryToggle() => Attempt(() => el.Patterns.Toggle.PatternOrDefault, p => p.Toggle());
 
-    public bool TrySelect() => Attempt(() => el.Patterns.SelectionItem.PatternOrDefault, p => p.Select());
+    public PatternCallResult TrySelect() => Attempt(() => el.Patterns.SelectionItem.PatternOrDefault, p => p.Select());
 
     public bool CanSetValue => Guard(() => WritableValuePattern() is not null, false);
 
-    public bool TrySetValue(string value) => Attempt(WritableValuePattern, p => p.SetValue(value));
+    public PatternCallResult TrySetValue(string value) => Attempt(WritableValuePattern, p => p.SetValue(value));
 
     /// <summary>The element's current value — never that of a password field: <see langword="null"/>
     /// there, so <see cref="ActionExecutor.Type"/> verifies by the signature and the secret is not read.</summary>
@@ -115,8 +115,8 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
         return pattern is not null && !pattern.IsReadOnly.ValueOrDefault ? pattern : null;
     }
 
-    /// <summary>See <see cref="PatternCall.Attempt"/>: false only when the pattern is not available.</summary>
-    private static bool Attempt<TPattern>(Func<TPattern?> getPattern, Action<TPattern> call) where TPattern : class =>
+    /// <summary>See <see cref="PatternCall.Attempt"/>.</summary>
+    private static PatternCallResult Attempt<TPattern>(Func<TPattern?> getPattern, Action<TPattern> call) where TPattern : class =>
         PatternCall.Attempt(getPattern, call, PatternCall.DefaultLimit);
 
     /// <summary>Live reads can throw once the element has vanished (e.g. after the action closed its
