@@ -79,36 +79,52 @@ public sealed class FlaUiActionTarget(AutomationElement el, string id, string co
     {
         var windowAtPoint = WindowHit.WindowAt(p);
         return OwnsWindow(windowAtPoint, WindowHit.TopLevelOf(windowAtPoint), windowHandle,
-            () => NativeWindow, window => WindowHit.Contains(window, p), User32.IsChild);
+            () => NativeWindow, window => WindowHit.Contains(window, p), () => IsOffscreen, User32.IsChild);
     }
 
+    /// <summary>UIA <c>IsOffscreen</c> as the element reports it right now; false when it does not
+    /// report it or the read fails (it may be read after an action was sent).</summary>
+    private bool IsOffscreen => Guard(() => el.Properties.IsOffscreen.TryGetValue(out var offscreen) && offscreen, false);
+
     /// <summary>
-    /// The rule behind <see cref="OwnsPoint"/>. The window at the point must
+    /// The rule behind <see cref="OwnsPoint"/>, in the order it is checked:
     /// <list type="number">
-    /// <item>belong to the top-level window the element was resolved in — not another application, and
-    /// not a popup, menu or dialog of the same one — and</item>
-    /// <item>be the element's own native window (<paramref name="nativeWindow"/>, see
-    /// <see cref="NearestWindow"/>) or a child window of it — not a sibling control lying over the
-    /// element, and not the container the element is scrolled out of. For an element whose native
-    /// window is the top-level window itself (title-bar button, menu item of a popup) this adds nothing
-    /// to (1): every window in it is a child of it.</item>
+    /// <item>The top-level window at the point must be the window the element was resolved in — not
+    /// another application, and not a popup, menu or dialog of the same one.</item>
+    /// <item>The element's native window (<paramref name="nativeWindow"/>, see
+    /// <see cref="NearestWindow"/>) is asked for — only now, it costs UIA calls. Unknown (zero): nothing
+    /// more can be checked, (1) is all.</item>
+    /// <item>The native window contains the point (<paramref name="containsPoint"/>): the window at
+    /// the point must be that window or a child window of it. This refuses a point where another
+    /// control's window lies — a sibling window over the element, or what shows there because the
+    /// native window is clipped away by a scroll container, hidden or disabled.</item>
+    /// <item>The native window does NOT contain the point: it is not where the element is drawn, so
+    /// (3) cannot be asked. Either the tree does not follow the windows (Windows 11 task bar, a XAML
+    /// island: the buttons hang under an <c>InputSite</c> window lying elsewhere, the window at their
+    /// centre is the task list) — or the element is scrolled or overflowed out of its host (list, tree
+    /// and data items, toolbar buttons, tabs). The element itself tells the two apart: owned unless
+    /// it reports <c>IsOffscreen</c> (<paramref name="isOffscreen"/>).</item>
     /// </list>
-    /// Only (1) applies when the native window is not determined: unknown (zero), or a window that does
-    /// not even contain the point (<paramref name="containsPoint"/>) — then it is not where the element
-    /// is drawn. Measured on the Windows 11 task bar (XAML island): the buttons hang under an
-    /// <c>InputSite</c> window that lies elsewhere, while the window at their centre is the task list.
-    /// The native window is asked for only when (1) holds: determining it costs UIA calls.
+    /// What this does NOT prove — a click can still land on something else when: a windowless element
+    /// is overlapped by another windowless element of the same native window; an element is overlapped
+    /// by a child window of its own native window (it counts as "a child of it"); the native window is
+    /// the top-level window itself (title-bar button, menu item of a popup: every window in it is a
+    /// child of it, so (3) adds nothing to (1)); a windowless element is clipped inside its host while
+    /// its centre stays within the host's rectangle.
     /// </summary>
     internal static bool OwnsWindow(
         nint windowAtPoint, nint topLevelAtPoint, nint resolvedWindow,
-        Func<nint> nativeWindow, Func<nint, bool> containsPoint, Func<nint, nint, bool> isChild)
+        Func<nint> nativeWindow, Func<nint, bool> containsPoint, Func<bool> isOffscreen, Func<nint, nint, bool> isChild)
     {
         if (!WindowHit.IsInWindow(topLevelAtPoint, resolvedWindow))
             return false;
 
         var native = nativeWindow();
-        if (native == nint.Zero || !containsPoint(native))
+        if (native == nint.Zero)
             return true;
+
+        if (!containsPoint(native))
+            return !isOffscreen();
 
         return windowAtPoint == native || isChild(native, windowAtPoint);
     }

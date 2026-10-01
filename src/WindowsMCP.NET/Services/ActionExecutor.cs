@@ -103,11 +103,19 @@ public interface IActionTarget
     /// report that or the read fails. Read after a Select to see whether it took — never throws.</summary>
     bool? IsSelected { get; }
 
-    /// <summary>True when a click at screen point <paramref name="p"/> reaches this element: the window
-    /// at the point belongs to the top-level window the element was resolved in (no window of another
-    /// application, no popup, menu or dialog of the same one lies on top) and is the element's own
-    /// native window or a child of it (no sibling control of the same window lies on top, and the
-    /// element is not clipped away there). False when the window at the point cannot be determined.</summary>
+    /// <summary>
+    /// Whether the window at screen point <paramref name="p"/> is this element's — checked by window,
+    /// not by pixel. True when (1) the top-level window at the point is the one the element was
+    /// resolved in (no window of another application, no popup, menu or dialog of the same one lies
+    /// there) and (2) the deepest window at the point is the element's native window — its own HWND or
+    /// that of the nearest ancestor that has one — or a child window of it; when that native window does
+    /// not contain the point at all, (2) is replaced by "the element does not report IsOffscreen", and
+    /// when it is unknown, (1) is all. So it refuses another control's window lying over the element, a
+    /// native window that is clipped away, hidden or disabled at that point, and an element scrolled
+    /// out of its host that says so. It does not notice: another windowless element of the same native
+    /// window lying on top, a child window of the element's own native window lying on top, and any
+    /// overlap inside the window for an element whose native window is the top-level window itself.
+    /// </summary>
     bool OwnsPoint(Point p);
 
     /// <summary>Pattern calls: <see cref="PatternCallResult.NotSupported"/> ONLY when the element does
@@ -183,9 +191,9 @@ internal static class ActionGuards
 
     /// <summary>
     /// The screen point a mouse click on <paramref name="t"/> goes to: the centre of its CURRENT
-    /// rectangle — verified to lie in the element's own window (<see cref="IActionTarget.OwnsPoint"/>),
-    /// so neither a window of another application, nor a popup, menu or dialog of the same one, nor
-    /// another control of the same window lying on top is ever clicked.
+    /// rectangle — verified to lie in the element's own window (<see cref="IActionTarget.OwnsPoint"/>,
+    /// which also says what that check cannot see): a window of another application, a popup, menu or
+    /// dialog of the same one, or another control's window lying there is not clicked.
     /// Throws (and nothing is clicked) when there is no desktop to click on, the element is gone
     /// (<see cref="ElementNotFoundException"/> from the target), has no area, or is covered; the
     /// message ends in <paramref name="nothingDone"/>.

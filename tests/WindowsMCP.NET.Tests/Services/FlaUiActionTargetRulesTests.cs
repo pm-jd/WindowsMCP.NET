@@ -33,9 +33,10 @@ public class FlaUiActionTargetRulesTests
         (parent == Control && window == Inner)
         || (parent == TopLevel && window is Control or Inner or Sibling);
 
-    private static bool Owns(int windowAtPoint, int topLevelAtPoint, int nativeWindow, bool nativeContainsPoint = true) =>
+    private static bool Owns(int windowAtPoint, int topLevelAtPoint, int nativeWindow,
+        bool nativeContainsPoint = true, bool offscreen = false) =>
         FlaUiActionTarget.OwnsWindow(windowAtPoint, topLevelAtPoint, TopLevel,
-            () => nativeWindow, _ => nativeContainsPoint, IsChild);
+            () => nativeWindow, _ => nativeContainsPoint, () => offscreen, IsChild);
 
     [Theory]
     // The native window is the element's own HWND (dialog button, edit field, check box) or, for a
@@ -43,8 +44,8 @@ public class FlaUiActionTargetRulesTests
     // docking tab in its tab strip).
     [InlineData(Control, TopLevel, Control, true)]    // the point is in that window itself
     [InlineData(Inner, TopLevel, Control, true)]      // ... or in a child window of it (the edit of a combo box)
-    [InlineData(Sibling, TopLevel, Control, false)]   // overlapped by a sibling control, or clipped by a scroll container
-    [InlineData(TopLevel, TopLevel, Control, false)]  // that window is hidden or disabled: the parent takes the click
+    [InlineData(Sibling, TopLevel, Control, false)]   // another control's window lies there: overlap, or the native window is clipped away at that point
+    [InlineData(TopLevel, TopLevel, Control, false)]  // the native window is hidden, disabled or clipped away: an ancestor takes the click
     // The native window is the top-level window itself (title-bar button, menu item of a popup).
     [InlineData(TopLevel, TopLevel, TopLevel, true)]  // non-client area, or content drawn on the window
     [InlineData(Sibling, TopLevel, TopLevel, true)]   // native window = top-level window: every child of it passes
@@ -65,12 +66,37 @@ public class FlaUiActionTargetRulesTests
     [Theory]
     [InlineData(Sibling)]    // Windows 11 task bar: the buttons hang under an InputSite window elsewhere,
     [InlineData(TopLevel)]   // and the window at their centre is the task list or the task bar itself
-    public void OwnsWindow_NativeWindowDoesNotContainThePoint_IsNotTheElementsWindow_OnlyTheTopLevelWindowIsChecked(int windowAtPoint)
+    public void OwnsWindow_NativeWindowDoesNotContainThePoint_NotOffscreen_OnlyTheTopLevelWindowIsChecked(int windowAtPoint)
     {
         // The window found by walking up the UI tree does not even contain the click point, so it is
-        // not where the element is drawn (XAML islands): the native window counts as undetermined.
-        Assert.True(Owns(windowAtPoint, TopLevel, Control, nativeContainsPoint: false));
+        // not where the element is drawn (XAML islands): the window check cannot be made.
+        Assert.True(Owns(windowAtPoint, TopLevel, Control, nativeContainsPoint: false, offscreen: false));
         Assert.False(Owns(Other, Other, Control, nativeContainsPoint: false)); // the top-level check still holds
+    }
+
+    [Theory]
+    [InlineData(Sibling)]
+    [InlineData(TopLevel)]
+    public void OwnsWindow_NativeWindowDoesNotContainThePoint_TargetIsOffscreen_IsRefused(int windowAtPoint)
+    {
+        // The other way to be outside one's native window: scrolled or overflowed out of it — a list,
+        // tree or data item, a toolbar button, a tab. The element says so itself (IsOffscreen), and
+        // whatever lies at that point is not the element.
+        Assert.False(Owns(windowAtPoint, TopLevel, Control, nativeContainsPoint: false, offscreen: true));
+    }
+
+    [Theory]
+    [InlineData(Control)]   // the point is in the native window: the window check decides
+    [InlineData(0)]         // native window unknown: top-level check only, as before
+    public void OwnsWindow_IsOffscreen_IsOnlyAskedWhenTheNativeWindowDoesNotContainThePoint(int nativeWindow)
+    {
+        var asked = false;
+
+        var owns = FlaUiActionTarget.OwnsWindow(Control, TopLevel, TopLevel,
+            () => nativeWindow, _ => true, () => { asked = true; return true; }, IsChild);
+
+        Assert.True(owns);
+        Assert.False(asked);
     }
 
     [Fact]
@@ -80,7 +106,8 @@ public class FlaUiActionTargetRulesTests
         var asked = false;
 
         var owns = FlaUiActionTarget.OwnsWindow(Other, Other, TopLevel,
-            () => { asked = true; return Control; }, _ => { asked = true; return true; }, IsChild);
+            () => { asked = true; return Control; }, _ => { asked = true; return true; },
+            () => { asked = true; return false; }, IsChild);
 
         Assert.False(owns);
         Assert.False(asked);
