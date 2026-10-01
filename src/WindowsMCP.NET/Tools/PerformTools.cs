@@ -17,6 +17,10 @@ public static class PerformTools
     [Description("Execute a sequence of UI actions in one call. " +
                  "steps: array of {action, ...params}. " +
                  "Supported actions: click, type, shortcut, scroll, move, wait. " +
+                 "click and type steps accept 'element' (an id from Observe, resolved against the live UI when the step runs; click also 'method': auto|pattern|mouse). " +
+                 "Element steps report their effect (changed, unchanged, value_verified, value_mismatch, not_verified); " +
+                 "after 3 consecutive element steps without visible change the chain stops (stop_on_stall). " +
+                 "if_exists skips a step whose element id or label is not found. " +
                  "Returns step-by-step results with optional screenshot.")]
     public static async Task<IList<ContentBlock>> Perform(
         UiTreeService uiTreeService,
@@ -28,6 +32,9 @@ public static class PerformTools
         [Description("Stop executing on first error")] bool stop_on_error = true,
         [Description("Capture screenshot after execution")] bool snapshot_after = true,
         [Description("Milliseconds to wait between steps")] int delay_between_ms = 100,
+        [Description("Verify element steps (effect changed/unchanged)")] bool verify = true,
+        [Description("Stop after 3 consecutive element steps without visible change")] bool stop_on_stall = true,
+        [Description("Milliseconds to wait before verifying an element step (0–2000)")] int settle_ms = 300,
         IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken ct = default)
     {
@@ -35,32 +42,12 @@ public static class PerformTools
         if (parsed.Count == 0)
             return [new TextContentBlock { Text = "[ERROR] No steps provided." }];
 
-        var results = new List<StepResult>();
-        bool stopped = false;
+        var chain = await RunChain(parsed,
+            (step, stepNum) => RunStep(step, stepNum, uiTreeService, observationService, observationStore, executor,
+                verify, settle_ms, ct),
+            stop_on_error, stop_on_stall, delay_between_ms, progress, ct);
 
-        for (int i = 0; i < parsed.Count; i++)
-        {
-            var step = parsed[i];
-            var stepNum = i + 1;
-            var stepResult = await RunStep(step, stepNum, uiTreeService, observationService, observationStore, executor, ct);
-            results.Add(stepResult);
-
-            // One notification per step (bound to the request's progressToken by the SDK; a
-            // client without a token gets a no-op sink) so long chains are visibly progressing.
-            progress?.Report(new ProgressNotificationValue
-            {
-                Progress = stepNum,
-                Total = parsed.Count,
-                Message = $"Step {stepNum}/{parsed.Count}: {(stepResult.Success ? "OK" : "FAIL")} — {stepResult.Message}",
-            });
-
-            if (!stepResult.Success && stop_on_error) { stopped = true; break; }
-
-            if (i < parsed.Count - 1 && delay_between_ms > 0)
-                await Task.Delay(delay_between_ms, ct);
-        }
-
-        var text = FormatResults(results, stopped);
+        var text = FormatResults(chain.Results, chain.Errored, chain.Stalled);
         var content = new List<ContentBlock> { new TextContentBlock { Text = text } };
 
         if (snapshot_after)
@@ -80,8 +67,52 @@ public static class PerformTools
         return content;
     }
 
+    internal sealed record ChainResult(List<StepResult> Results, bool Errored, bool Stalled);
+
+    /// <summary>The step loop: runs steps in order, reports progress, stops on error (stop_on_error) or after
+    /// three consecutive element steps without visible change (stop_on_stall). Only steps carrying an
+    /// <see cref="StepResult.Effect"/> (element steps) feed the stall tracker.</summary>
+    internal static async Task<ChainResult> RunChain(IReadOnlyList<ParsedStep> parsed,
+        Func<ParsedStep, int, Task<StepResult>> runStep, bool stopOnError, bool stopOnStall, int delayBetweenMs,
+        IProgress<ProgressNotificationValue>? progress, CancellationToken ct)
+    {
+        var results = new List<StepResult>();
+        var stall = new StallTracker();
+        bool errored = false, stalled = false;
+
+        for (int i = 0; i < parsed.Count; i++)
+        {
+            var stepNum = i + 1;
+            var stepResult = await runStep(parsed[i], stepNum);
+            results.Add(stepResult);
+
+            // One notification per step (bound to the request's progressToken by the SDK; a
+            // client without a token gets a no-op sink) so long chains are visibly progressing.
+            progress?.Report(new ProgressNotificationValue
+            {
+                Progress = stepNum,
+                Total = parsed.Count,
+                Message = $"Step {stepNum}/{parsed.Count}: {(stepResult.Success ? "OK" : "FAIL")} — {stepResult.Message}",
+            });
+
+            if (!stepResult.Success && stopOnError) { errored = true; break; }
+
+            if (stepResult.Success && stepResult.Effect is { } effect && stall.Record(effect) && stopOnStall)
+            {
+                stalled = true;
+                break;
+            }
+
+            if (i < parsed.Count - 1 && delayBetweenMs > 0)
+                await Task.Delay(delayBetweenMs, ct);
+        }
+
+        return new ChainResult(results, errored, stalled);
+    }
+
     private static async Task<StepResult> RunStep(ParsedStep step, int stepNum, UiTreeService uiTreeService,
-        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor, CancellationToken ct)
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor,
+        bool verify, int settleMs, CancellationToken ct)
     {
         if (step.IsUnknown)
             return new StepResult(stepNum, false, $"Unknown action '{step.Action}'");
@@ -92,7 +123,13 @@ public static class PerformTools
             if (step.GetBool("if_exists") && step.GetString("label") is { } label && uiTreeService.ResolveLabel(label) is null)
                 return new StepResult(stepNum, true, $"Skipped — label '{label}' not found (if_exists)");
 
-            return new StepResult(stepNum, true, await ExecuteStep(step, uiTreeService, observationService, observationStore, executor, ct));
+            var (text, effect) = await ExecuteStep(step, uiTreeService, observationService, observationStore, executor,
+                verify, settleMs, ct);
+            return new StepResult(stepNum, true, text, effect);
+        }
+        catch (ElementNotFoundException) when (step.GetBool("if_exists") && step.GetString("element") is not null)
+        {
+            return new StepResult(stepNum, true, $"Skipped — element '{step.GetString("element")}' not found (if_exists)");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -104,10 +141,31 @@ public static class PerformTools
         }
     }
 
-    private static async Task<string> ExecuteStep(ParsedStep step, UiTreeService uiTreeService,
-        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor, CancellationToken ct)
+    /// <summary>Runs one step; the effect is non-null only for element steps and arrives as the executor's
+    /// <see cref="ActionEffect"/> value (never parsed from the text).</summary>
+    private static async Task<(string Text, ActionEffect? Effect)> ExecuteStep(ParsedStep step, UiTreeService uiTreeService,
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor,
+        bool verify, int settleMs, CancellationToken ct)
     {
-        return step.Action switch
+        var element = step.GetString("element");
+
+        if (element is not null && step.Action == "click")
+        {
+            var (text, outcome) = InputTools.ClickElement(observationService, observationStore, executor, element,
+                step.GetEnum("button", MouseButton.Left), step.GetInt("clicks") ?? 1,
+                step.GetEnum("method", ActionMethod.Auto), verify, settleMs, ct);
+            return (text, outcome.Effect);
+        }
+
+        if (element is not null && step.Action == "type")
+        {
+            var (text, outcome) = InputTools.TypeElement(observationService, observationStore, executor, element,
+                step.GetString("text") ?? throw new ArgumentException("'text' required for type action"),
+                step.GetBool("clear"), step.GetBool("press_enter"), verify, settleMs, ct);
+            return (text, outcome.Effect);
+        }
+
+        var plain = step.Action switch
         {
             "click" => InputTools.Click(uiTreeService, observationService, observationStore, executor,
                 loc: step.GetIntArray("loc"),
@@ -144,6 +202,7 @@ public static class PerformTools
 
             _ => throw new ArgumentException($"Unknown action: {step.Action}")
         };
+        return (plain, null);
     }
 
     // --- Public helpers for testing ---
@@ -165,7 +224,10 @@ public static class PerformTools
         return result;
     }
 
-    public static string FormatResults(List<StepResult> results, bool stoppedEarly)
+    public static string FormatResults(List<StepResult> results, bool stoppedEarly) =>
+        FormatResults(results, stoppedEarly, stalled: false);
+
+    internal static string FormatResults(List<StepResult> results, bool stoppedEarly, bool stalled)
     {
         var sb = new StringBuilder();
         int succeeded = results.Count(r => r.Success);
@@ -178,7 +240,9 @@ public static class PerformTools
         }
 
         sb.AppendLine();
-        if (stoppedEarly)
+        if (stalled)
+            sb.AppendLine($"Stopped after step {results[^1].StepNumber}: no visible change for 3 steps (stall). {succeeded}/{total} succeeded.");
+        else if (stoppedEarly)
             sb.AppendLine($"Stopped after step {results[^1].StepNumber} (stop_on_error=true). {succeeded}/{total} succeeded.");
         else
             sb.AppendLine($"Completed. {succeeded}/{total} succeeded.");
@@ -226,5 +290,5 @@ public static class PerformTools
                 : fallback;
     }
 
-    public sealed record StepResult(int StepNumber, bool Success, string Message);
+    public sealed record StepResult(int StepNumber, bool Success, string Message, ActionEffect? Effect = null);
 }

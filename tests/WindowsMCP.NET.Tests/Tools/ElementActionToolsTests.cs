@@ -128,7 +128,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         var target = new FakeActionTarget(log) { ControlType = "Button" };
 
         var result = InputTools.ClickResolved(Resolved(target, "e7q2k (Button 'Save')"), SafeExecutor(log),
-            MouseButton.Left, 1, ActionMethod.Auto, Sig(log, "A", "B"), 0, (_, _, _, _) => log.Add("mouse"));
+            MouseButton.Left, 1, ActionMethod.Auto, Sig(log, "A", "B"), 0, (_, _, _, _) => log.Add("mouse")).Text;
 
         Assert.Equal("Clicked e7q2k (Button 'Save') via Invoke — effect: changed", result);
         Assert.Equal(["sig", "Invoke", "sig"], log);
@@ -141,7 +141,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         var target = new FakeActionTarget(log) { ControlType = "Button" };
 
         var result = InputTools.ClickResolved(Resolved(target, "e7q2k (Button 'Save')"), SafeExecutor(log),
-            MouseButton.Left, 1, ActionMethod.Auto, null, 0, (_, _, _, _) => { });
+            MouseButton.Left, 1, ActionMethod.Auto, null, 0, (_, _, _, _) => { }).Text;
 
         Assert.Equal("Clicked e7q2k (Button 'Save') via Invoke — effect: not_verified", result);
     }
@@ -156,7 +156,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
 
         var result = InputTools.ClickResolved(Resolved(target, "e1 (Button 'X')"), SafeExecutor(log),
             button, clicks, ActionMethod.Auto, Sig(log, "A", "B"), 0,
-            (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}"));
+            (x, y, b, c) => log.Add($"mouse:{x},{y},{b},{c}")).Text;
 
         Assert.Equal("Clicked e1 (Button 'X') via mouse — effect: changed", result);
         Assert.Equal(["sig", $"mouse:120,210,{button},{clicks}", "sig"], log);
@@ -185,7 +185,7 @@ public class ElementActionToolsTests(McpToolsFixture fixture)
         target.ReadValues.Enqueue("12.50");   // read-back
 
         var result = InputTools.TypeResolved(Resolved(target, "e9k1a (Edit 'Focus Axis')"), SafeExecutor(log),
-            "12.50", clear: true, pressEnter: false, Sig(log, "A"), 0);
+            "12.50", clear: true, pressEnter: false, Sig(log, "A"), 0).Text;
 
         Assert.Equal("Typed 5 chars into e9k1a (Edit 'Focus Axis') via ValuePattern — effect: value_verified", result);
     }

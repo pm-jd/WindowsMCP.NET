@@ -69,10 +69,8 @@ public static class InputTools
 
             if (element is not null)
             {
-                var resolved = ElementTargets.Resolve(element, observationStore, observationService);
-                var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
-                return ClickResolved(resolved, executor, button, actualClicks, method, signature,
-                    ElementTargets.ClampSettle(settle_ms), MouseClickAt);
+                return ClickElement(observationService, observationStore, executor, element, button, actualClicks,
+                    method, verify ?? true, settle_ms, ct).Text;
             }
 
             var (cx, cy) = ResolveTarget(uiTreeService, label, loc)
@@ -88,9 +86,31 @@ public static class InputTools
         }
     }
 
+    /// <summary>Element click without the tool's error wrapping, so Perform gets the effect as a value and
+    /// resolution failures as exceptions. Resolves the id against the live UI on every call.</summary>
+    internal static (string Text, ActionOutcome Outcome) ClickElement(
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor,
+        string element, MouseButton button, int clicks, ActionMethod method, bool verify, int settleMs, CancellationToken ct)
+    {
+        var resolved = ElementTargets.Resolve(element, observationStore, observationService);
+        var signature = verify ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
+        return ClickResolved(resolved, executor, button, Math.Max(1, clicks), method, signature,
+            ElementTargets.ClampSettle(settleMs), MouseClickAt);
+    }
+
+    /// <summary>Element type counterpart of <see cref="ClickElement"/>.</summary>
+    internal static (string Text, ActionOutcome Outcome) TypeElement(
+        ObservationService observationService, ObservationStore observationStore, ActionExecutor executor,
+        string element, string text, bool clear, bool pressEnter, bool verify, int settleMs, CancellationToken ct)
+    {
+        var resolved = ElementTargets.Resolve(element, observationStore, observationService);
+        var signature = verify ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
+        return TypeResolved(resolved, executor, text, clear, pressEnter, signature, ElementTargets.ClampSettle(settleMs));
+    }
+
     /// <summary>Post-resolve part of the element click: single left click goes through the executor
     /// (pattern-first); anything else is a mouse click at the rect centre reported via <c>mouse</c>.</summary>
-    internal static string ClickResolved(
+    internal static (string Text, ActionOutcome Outcome) ClickResolved(
         ResolvedElement resolved, ActionExecutor executor, MouseButton button, int clicks, ActionMethod method,
         Func<string>? signature, int settleMs, Action<int, int, MouseButton, int> mouseClick)
     {
@@ -110,15 +130,15 @@ public static class InputTools
             outcome = executor.MouseAction(() => mouseClick(x, y, button, clicks), signature, settleMs);
         }
 
-        return $"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+        return ($"Clicked {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}", outcome);
     }
 
-    internal static string TypeResolved(
+    internal static (string Text, ActionOutcome Outcome) TypeResolved(
         ResolvedElement resolved, ActionExecutor executor, string text, bool clear, bool pressEnter,
         Func<string>? signature, int settleMs)
     {
         var outcome = executor.Type(resolved.Target, text, clear, pressEnter, signature, settleMs);
-        return $"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}";
+        return ($"Typed {text.Length} chars into {resolved.Describe} via {outcome.Via} — effect: {outcome.Effect.ToWire()}", outcome);
     }
 
     private static void MouseClickAt(int cx, int cy, MouseButton button, int actualClicks)
@@ -171,9 +191,8 @@ public static class InputTools
         {
             if (element is not null)
             {
-                var resolved = ElementTargets.Resolve(element, observationStore, observationService);
-                var signature = (verify ?? true) ? ElementTargets.SignatureFor(resolved, observationService, ct) : null;
-                return TypeResolved(resolved, executor, text, clear, press_enter, signature, ElementTargets.ClampSettle(settle_ms));
+                return TypeElement(observationService, observationStore, executor, element, text, clear, press_enter,
+                    verify ?? true, settle_ms, ct).Text;
             }
 
             if (ResolveTarget(uiTreeService, label, loc) is { } target)
