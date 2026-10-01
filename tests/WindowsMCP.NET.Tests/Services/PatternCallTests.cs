@@ -63,21 +63,37 @@ public class PatternCallTests
     public void Attempt_CallDoesNotReturn_CountsAsDispatched_AfterTheLimit()
     {
         // A WinForms Invoke that opened a modal dialog: the call only returns once the dialog is closed.
+        var ct = TestContext.Current.CancellationToken;
         using var dialogClosed = new ManualResetEventSlim();
         using var started = new ManualResetEventSlim();
+        using var returned = new ManualResetEventSlim();
         var stopwatch = Stopwatch.StartNew();
 
         var dispatched = PatternCall.Attempt(
             () => new FakePattern(),
-            _ => { started.Set(); dialogClosed.Wait(TimeSpan.FromSeconds(30)); },
-            TimeSpan.FromMilliseconds(100));
+            _ =>
+            {
+                started.Set();
+                dialogClosed.Wait(TimeSpan.FromSeconds(30));
+                returned.Set();
+            },
+            TimeSpan.FromMilliseconds(200));
 
         var elapsed = stopwatch.Elapsed;
-        dialogClosed.Set();
-
-        Assert.True(dispatched);
-        Assert.True(started.IsSet, "the call must have been started");
-        Assert.InRange(elapsed, TimeSpan.FromMilliseconds(90), TimeSpan.FromSeconds(10));
+        var stillRunning = !returned.IsSet;
+        try
+        {
+            Assert.True(dispatched);
+            Assert.True(stillRunning, "Attempt must return while the call is still blocked");
+            Assert.True(started.Wait(TimeSpan.FromSeconds(10), ct), "the call must have been started");
+            // Not before the limit (minus timer granularity), and far from the 30 s the call would block.
+            Assert.InRange(elapsed, TimeSpan.FromMilliseconds(100), TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            dialogClosed.Set();
+            returned.Wait(TimeSpan.FromSeconds(10), ct); // let the call finish before the events are disposed
+        }
     }
 
     [Fact]
