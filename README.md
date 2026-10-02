@@ -6,10 +6,11 @@ Inspired by [Windows-MCP](https://github.com/CursorTouch/Windows-MCP) (Python), 
 
 ## Features
 
-- **18 MCP Tools** for full Windows desktop control
+- **21 MCP Tools** for full Windows desktop control
 - **Remote-first** — Streamable HTTP with API key auth and HTTPS
 - **Portable** — Single `.exe`, no .NET runtime needed
 - **UI Automation** — FlaUI (UIA3) for reliable element interaction
+- **Verified actions** — `Observe` returns element ids; actions on them report whether the UI changed
 - **Easy Setup** — Interactive wizard, 3-step deployment
 
 ## Quick Start
@@ -52,12 +53,31 @@ Add the displayed JSON to your Claude Code settings:
 | Category | Tools |
 |----------|-------|
 | **Input** | Click, Type, Scroll, Move, Shortcut, Wait |
-| **Screen** | Snapshot (screenshot + UI tree), Screenshot |
-| **Apps** | App (launch, switch, resize) |
+| **Screen** | Context (system state), Observe (elements with stable ids), Snapshot (screenshot + UI tree), Screenshot |
+| **Apps** | App (launch, ensure, status, switch, resize) |
 | **System** | PowerShell, Process, Registry |
 | **Data** | Clipboard, FileSystem |
-| **UI** | MultiSelect, MultiEdit |
+| **UI** | Perform (batched action chains), MultiSelect, MultiEdit |
 | **Other** | Notification, Scrape |
+
+## Observe, then act by element id
+
+`Observe` lists the actionable elements of the foreground application with an id each. Pass an id as
+`element` to `Click`, `Type`, `Perform`, `MultiSelect` or `MultiEdit`:
+
+```text
+Observe                              → Button 'Open' = e1a2b, Edit 'User Name' = e3sqx, …
+Click(element="e1a2b")               → via mouse — effect: changed
+Type(element="e3sqx", text="jan", clear=true)
+                                     → effect: value_verified
+```
+
+Every element action reports an `effect`: `changed`, `unchanged`, `value_verified`, `value_mismatch` or
+`not_verified` (password fields). An action is refused with an `[ERROR]` instead of guessing when the
+target cannot be reached safely — for example when a modal dialog covers it or the session has no
+interactive desktop. Ids stay valid while the application runs; observe again after a restart.
+
+See [CLAUDE.md](CLAUDE.md) for the full rules.
 
 ## CLI
 
