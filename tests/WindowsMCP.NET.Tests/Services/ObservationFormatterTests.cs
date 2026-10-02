@@ -100,7 +100,8 @@ public class ObservationFormatterTests
     [Fact]
     public void Markdown_Footer_ElementsCutByMaxElements_SaysHowManyMore_AndTheLimit()
     {
-        // A real MCS program screen: 282 actionable elements, default max_elements=150.
+        // A real MCS program screen: 282 actionable elements, observed with max_elements=150 (the
+        // default at the time of the acceptance; it is 300 now).
         var markdown = ObservationFormatter.ToMarkdown(Truncated(listed: 150, omitted: 132));
 
         Assert.EndsWith(

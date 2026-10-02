@@ -32,7 +32,7 @@ public static class ObserveTools
         [Description("Process name, required when scope=process (e.g. 'notepad')")] string? process = null,
         [Description("Output format")] OutputFormat format = OutputFormat.Markdown,
         [Description("Also attach a downscaled JPEG screenshot of the observed windows")] bool screenshot = false,
-        [Description("Maximum elements to return (clamped 10-500)")] int max_elements = 150,
+        [Description("Maximum elements to return (clamped 10-500)")] int max_elements = 300,
         CancellationToken ct = default)
     {
         try

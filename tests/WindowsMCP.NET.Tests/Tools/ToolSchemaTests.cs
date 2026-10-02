@@ -93,6 +93,17 @@ public class ToolSchemaTests(McpToolsFixture fixture)
         Assert.DoesNotContain(names, n => n.EndsWith("Service", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Observe_MaxElements_DefaultsTo300_InTheMethodAndInTheSchema()
+    {
+        // A real MCS program screen has 282 actionable elements; the former default of 150 cut it.
+        var parameter = typeof(ObserveTools).GetMethod(nameof(ObserveTools.Observe))!.GetParameters()
+            .Single(p => p.Name == "max_elements");
+
+        Assert.Equal(300, parameter.DefaultValue);
+        Assert.Equal(300, Prop("Observe", "max_elements").GetProperty("default").GetInt32());
+    }
+
     // --- wire format: what the schema advertises must be what the argument binder accepts ---
 
     [Theory]

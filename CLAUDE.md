@@ -8,7 +8,7 @@ Windows desktop automation MCP server for Claude Code. Provides 21 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (611 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
+# Unit tests (612 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
 # filter with --filter-trait / --filter-not-trait "Category=..." instead of the old --filter syntax.
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
@@ -47,7 +47,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 | Tool | Purpose |
 |------|---------|
 | **Context** | Get system state (active window, screenshot, UI tree, clipboard, processes) |
-| **Observe** | Compact state of the foreground app (windows, focus, actionable elements with stable ids, optional JPEG) for precise interaction. Values ≤ 200 chars, names/texts ≤ 120 (`…(+n chars)`), ≤ 80 texts; password values are never collected; a failed screenshot is reported in a text block, not as an error. Never silently empty: a window that does not answer UI Automation is listed as `unreadable` (Win32 title/rect, no elements) with a one-line explanation, and the screenshot is still returned. When `max_elements` (default 150) cuts the list, the footer says `truncated: N more elements (max_elements=150)`; JSON `"omitted": N` |
+| **Observe** | Compact state of the foreground app (windows, focus, actionable elements with stable ids, optional JPEG) for precise interaction. Values ≤ 200 chars, names/texts ≤ 120 (`…(+n chars)`), ≤ 80 texts; password values are never collected; a failed screenshot is reported in a text block, not as an error. Never silently empty: a window that does not answer UI Automation is listed as `unreadable` (Win32 title/rect, no elements) with a one-line explanation, and the screenshot is still returned. When `max_elements` (default 300, clamped 10–500) cuts the list, the footer says `truncated: N more elements (max_elements=300)`; JSON `"omitted": N` |
 | **Perform** | Execute batched UI action chains (click, type, shortcut, scroll, move, wait); click/type steps accept `element` ids (rejected on other steps), report `effect`, stop after 3 element steps without visible change |
 | **Snapshot** | Capture screenshot + build UI element tree with numbered labels |
 | **Screenshot** | Fast screenshot without rebuilding UI tree |

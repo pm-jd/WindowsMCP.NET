@@ -53,7 +53,7 @@ Observe(
   process: string? = null,            // required for scope=process (process name, e.g. "MCS")
   format: OutputFormat = markdown,    // markdown | json
   screenshot: bool = false,
-  max_elements: int = 150)
+  max_elements: int = 300)
 ```
 
 `ReadOnly = true`, `Idempotent = true`. `ObserveScope` lives in `ToolEnums.cs` with `[JsonConverter(typeof(SnakeCaseEnumConverter<ObserveScope>))]`.
@@ -81,7 +81,7 @@ Observe(
 - **texts**: visible named `Text` elements (and `Group`/`Header` captions), deduplicated, not actionable — context only; at most 80 entries
 - **signature**: hash over (window handles + titles + the unreadable flag, and for every emitted element: id, name, value, toggle, selected, expanded, enabled) — always over the **full** value, independent of the display limits below. Unreadable windows are part of it: readable → unreadable is a change, and an observation whose windows do not answer never has the signature of an empty one
 - **truncated**: `true` when `max_elements`, the 80-texts cap or the time budget cut the result
-- **omitted**: the number of actionable elements that were found but not listed because of `max_elements` (0 when the cut had another reason). The markdown footer then reads `… · truncated: 132 more elements (max_elements=150)` instead of the bare `… · truncated`, so the caller knows how much is missing and which parameter to raise (a real MCS program screen has 282 actionable elements)
+- **omitted**: the number of actionable elements that were found but not listed because of `max_elements` (0 when the cut had another reason). The markdown footer then reads `… · truncated: 132 more elements (max_elements=150)` (here for a call with `max_elements=150`) instead of the bare `… · truncated`, so the caller knows how much is missing and which parameter to raise. The default is **300** (user decision after the acceptance; it was 150): a real MCS program screen has 282 actionable elements and was cut at 150
 - **timings**: `walk_ms`, `hit_ms`, `total_ms`
 
 **Display limits** (both formats): `value` at most 200 characters; `name`, `label`, `panel` and each text at most 120. A longer string keeps its first N characters followed by `…(+n chars)` (n = characters left out). In **markdown**, carriage return, line feed and tab inside names, labels, panels, values, texts and window titles are rendered as the two-character escapes `\r`, `\n`, `\t` (any other control or line-separator character as `\uXXXX`) — one line per element is an invariant of the format. **JSON** keeps the real characters (JSON escaping handles them) and applies the same truncation.
@@ -247,7 +247,7 @@ Existing result strings are kept and extended: `Clicked e7Q2 (RadioButton '20x')
 
 - All tools keep the `[ERROR] Type: message` convention; `ErrorFlagFilter` sets `IsError`.
 - New error cases: `ElementNotFound` (stale/removed id), `ProcessNotFound` (scope=process), `ObservationTimeout` is not an error — it yields `truncated=true`.
-- `max_elements` clamp 10…500; `settle_ms` clamp 0…2000.
+- `max_elements` default 300, clamp 10…500; `settle_ms` clamp 0…2000.
 - `Observe` is read-only, but it exposes more than `Snapshot` does: **control values** (the text of edit fields and documents, selected items) in addition to names and rectangles. That is a new read surface for whoever holds the API key. Password fields (UIA `IsPassword`) are excluded: the collector drops their value, so it reaches neither the observation nor the signature, and `Type` on such a field does not read the value back (it reports `not_verified`, see §4). Values of ordinary fields are shown truncated (§1) but are otherwise not filtered — an application that shows a secret in a plain text field shows it to `Observe` as well.
 
 ## 6. Code structure
