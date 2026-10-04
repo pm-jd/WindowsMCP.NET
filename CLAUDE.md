@@ -8,7 +8,7 @@ Windows desktop automation MCP server for Claude Code. Provides 21 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (612 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
+# Unit tests (617 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
 # filter with --filter-trait / --filter-not-trait "Category=..." instead of the old --filter syntax.
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
