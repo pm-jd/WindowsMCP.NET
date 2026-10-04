@@ -980,7 +980,12 @@ public class ActionExecutorTests
 
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
-        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(
+            new ActionOutcome("SelectionItem", ActionEffect.Unchanged)
+            {
+                NotClicked = "no interactive desktop (session disconnected or not rendered)",
+            },
+            outcome);
         Assert.Equal(["Select", "IsSelected"], log);
     }
 
@@ -1123,7 +1128,7 @@ public class ActionExecutorTests
 
         var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
 
-        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome with { NotClicked = null });
         Assert.Equal(["Select", "IsSelected"], log);
     }
 
@@ -1188,8 +1193,51 @@ public class ActionExecutorTests
         // The signature would say "changed": the target knows better, the select did not take.
         var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "B"), settleMs: 0);
 
-        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome);
+        Assert.Equal(new ActionOutcome("SelectionItem", ActionEffect.Unchanged), outcome with { NotClicked = null });
         Assert.Equal(["Select", "IsSelected"], log);
+    }
+
+    // --- A select that is not followed by the mouse click says why (docking tab under an open fly-out) ---
+
+    [Theory]
+    [InlineData(false)]   // the target says "not selected"
+    [InlineData(null)]    // the target does not say; the signature is unchanged
+    public void Click_SelectNotFollowedByAClick_Covered_TheResultSaysWhy(bool? isSelected)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = isSelected, CoveredAfterPattern = true };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("the element is covered by another window", outcome.NotClicked);
+        Assert.Equal("unchanged — the element could not be clicked instead: the element is covered by another window",
+            outcome.EffectText());
+    }
+
+    [Fact]
+    public void Click_SelectNotFollowedByAClick_NoInteractiveDesktop_TheResultSaysWhy()
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = false };
+        var executor = new ActionExecutor(new FakeInputDriver(log) { HasInteractiveDesktop = false });
+
+        var outcome = executor.Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Equal("no interactive desktop (session disconnected or not rendered)", outcome.NotClicked);
+    }
+
+    [Theory]
+    [InlineData(true)]    // the target says "selected": no click was due
+    [InlineData(false)]   // clicked
+    public void Click_Select_NoRefusedClick_NoReason(bool isSelected)
+    {
+        var log = new List<string>();
+        var target = new FakeActionTarget(log) { ControlType = "TabItem", IsSelected = isSelected, CurrentRect = new Rectangle(0, 0, 10, 10) };
+
+        var outcome = Executor(log).Click(target, ActionMethod.Auto, SignatureSequence("A", "A"), settleMs: 0);
+
+        Assert.Null(outcome.NotClicked);
+        Assert.Equal("unchanged", outcome.EffectText());
     }
 
     [Theory]

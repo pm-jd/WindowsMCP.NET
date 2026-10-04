@@ -26,6 +26,12 @@ public sealed record ActionOutcome(string Via, ActionEffect Effect)
     /// repeated nor followed by a mouse click; the result text says so (<see cref="EffectText"/>).</summary>
     public bool CallPending { get; init; }
 
+    /// <summary>Click only: a SelectionItem select changed nothing and the mouse click that would
+    /// have followed was not possible — why (the refusal of <see cref="ActionGuards.ClickPoint"/>
+    /// without its "nothing was clicked"), e.g. a docking tab under an open auto-hide fly-out. Null
+    /// when no click was due or the click was made.</summary>
+    public string? NotClicked { get; init; }
+
     /// <summary>Type only: the text was added to a field that already had a value (<c>clear=false</c>),
     /// so the field does not show just the text. The result says "Appended" instead of "Typed".</summary>
     public bool Appended { get; init; }
@@ -55,6 +61,9 @@ public sealed record ActionOutcome(string Via, ActionEffect Effect)
 
         if (Effect == ActionEffect.ValueMismatch && Shown is not null && Expected is not null)
             text += $" (field shows '{Display(Shown)}', expected '{Display(Expected)}')";
+
+        if (NotClicked is not null)
+            text += $" — the element could not be clicked instead: {NotClicked}";
 
         if (CallPending)
         {
@@ -305,14 +314,18 @@ public sealed class ActionExecutor(IInputDriver input)
                     // into an error: one click (idempotent for tab, radio and list items) when the
                     // element can be clicked safely; otherwise the select stands — as "unchanged",
                     // whatever else the signature may have picked up.
-                    if (method == ActionMethod.Auto && TryClickPoint(t) is { } selectPoint)
+                    string? notClicked = null;
+                    if (method == ActionMethod.Auto && TryClickPoint(t, out notClicked) is { } selectPoint)
                     {
                         input.LeftClick(selectPoint);
                         Settle(settleMs);
                         return new ActionOutcome("mouse", CompareEffect(signature, before));
                     }
 
-                    return new ActionOutcome(pattern, signature is null ? ActionEffect.NotVerified : ActionEffect.Unchanged);
+                    return new ActionOutcome(pattern, signature is null ? ActionEffect.NotVerified : ActionEffect.Unchanged)
+                    {
+                        NotClicked = notClicked,
+                    };
                 }
 
                 if (signature is null)
@@ -329,8 +342,8 @@ public sealed class ActionExecutor(IInputDriver input)
 
                 // The Select has been sent, so from here on nothing may turn into an error: when the
                 // element can no longer be clicked safely (gone, covered, no desktop), the Select stands.
-                if (TryClickPoint(t) is not { } retryPoint)
-                    return new ActionOutcome(pattern, ActionEffect.Unchanged);
+                if (TryClickPoint(t, out var whyNot) is not { } retryPoint)
+                    return new ActionOutcome(pattern, ActionEffect.Unchanged) { NotClicked = whyNot };
 
                 input.LeftClick(retryPoint);
                 Settle(settleMs);
@@ -528,14 +541,22 @@ public sealed class ActionExecutor(IInputDriver input)
     /// <summary><see cref="ActionGuards.ClickPoint"/> where "no" is an answer, not an error: for the
     /// choice between mouse and pattern, and for the moments AFTER an action was sent. Null when there
     /// is no safe click point (no interactive desktop, element gone, no area, covered).</summary>
-    private Point? TryClickPoint(IActionTarget t)
+    private Point? TryClickPoint(IActionTarget t) => TryClickPoint(t, out _);
+
+    /// <inheritdoc cref="TryClickPoint(IActionTarget)"/>
+    /// <param name="refusal">Why there is no safe click point (the refusal without its
+    /// "nothing was clicked"); null when there is one.</param>
+    private Point? TryClickPoint(IActionTarget t, out string? refusal)
     {
         try
         {
+            refusal = null;
             return ClickPoint(t);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ElementNotFoundException)
         {
+            const string suffix = " — " + ActionGuards.NothingClicked;
+            refusal = ex.Message.EndsWith(suffix, StringComparison.Ordinal) ? ex.Message[..^suffix.Length] : ex.Message;
             return null;
         }
     }
