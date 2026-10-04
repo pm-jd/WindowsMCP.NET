@@ -101,7 +101,7 @@ A condition is evaluated against one `Observation` taken with `max_elements = 50
 |---|---|---|---|
 | window `open` | a window matches (and `modal` agrees) | no window matches; or `modal` disagrees | — |
 | window `closed` | no window matches | a window matches | — |
-| element `exists` | exactly one element matches | none matches and the list is complete | none matches and the list is cut; several match |
+| element `exists` | at least one element matches | none matches and the list is complete | none matches and the list is cut |
 | element `absent` | none matches and the list is complete | at least one matches | none matches and the list is cut |
 | `enabled` / `disabled` | the one match has that state | it has the opposite | not found (list cut); several match |
 | `selected` / `not_selected` | see below | see below | the element is a `TabItem` reporting `selected = false`; not found (list cut); several match |
@@ -114,7 +114,7 @@ Rules behind the table:
 
 - **Not found, list complete** → `fail` for every state except `absent` (the expectation was about an element that is not there).
 - **"List is cut"** means `Observation.Omitted > 0` or `Observation.Truncated`.
-- **Several matches** → `unknown` with the ids of the first five; the caller narrows the selector (`panel`, `in_window`) or uses an id. Exception: `absent` fails as soon as one matches.
+- **Several matches** → `unknown` with the ids of the first five; the caller narrows the selector (`panel`, `in_window`) or uses an id. Exceptions: `exists` passes and `absent` fails as soon as one matches.
 - **Selection:** `Selected == true` proves `selected`. `Selected == false` proves `not_selected` for every type except `TabItem`: docking tabs report `false` whatever is shown (measured on MCS), so both `selected` and `not_selected` are `unknown` for a `TabItem` reporting `false`.
 - **An unreadable window** (`ObservedWindow.Unreadable`) still counts as a window for window conditions. An element or text condition is `unknown` when it found nothing and any window in scope is unreadable — the element may be inside it.
 - **Element by id:** the element with that id in the fresh observation. Ids are stable while the application runs, so no live resolution is needed. A selector condition restricted by `in_window` matches `ObservedElement.Window`; elements of the main window (`Window == null`) match the title of the bottom-most window.
