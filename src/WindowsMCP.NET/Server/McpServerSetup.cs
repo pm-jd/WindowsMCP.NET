@@ -40,6 +40,7 @@ public static class McpServerSetup
         - Start with Context (default: active window + screenshot). Include "ui_tree" to get numbered element labels, then target labels in Click/Type/Perform instead of raw coordinates.
         - Batch UI steps with Perform (click, type, shortcut, scroll, move, wait in one call). It returns per-step results plus a screenshot.
         - For precise UI work call Observe (compact state of the foreground app with stable element ids) and pass ids as "element" to Click/Type/Perform; results report effect=changed/unchanged.
+        - To check or wait for a UI state call Expect (window open/closed, element exists/enabled/selected/value, text) instead of Observe-and-read or Wait loops: fixed rules answer pass/fail/unknown; timeout_ms waits for the state.
         - Focus or start an application with App(mode="ensure", name="<process name>"); App(mode="status") only checks. No screenshot round-trip needed.
         - List tools (FileSystem list/search, Process list, Registry list) paginate with offset/limit and report has_more/next_offset. Pass format="json" for machine-readable output.
         - Prefer the FileSystem/Registry/Process tools over PowerShell for simple operations. PowerShell output is capped at 1,000,000 characters.

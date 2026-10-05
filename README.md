@@ -6,7 +6,7 @@ Inspired by [Windows-MCP](https://github.com/CursorTouch/Windows-MCP) (Python), 
 
 ## Features
 
-- **21 MCP Tools** for full Windows desktop control
+- **22 MCP Tools** for full Windows desktop control
 - **Remote-first** — Streamable HTTP with API key auth and HTTPS
 - **Portable** — Single `.exe`, no .NET runtime needed
 - **UI Automation** — FlaUI (UIA3) for reliable element interaction
@@ -53,7 +53,7 @@ Add the displayed JSON to your Claude Code settings:
 | Category | Tools |
 |----------|-------|
 | **Input** | Click, Type, Scroll, Move, Shortcut, Wait |
-| **Screen** | Context (system state), Observe (elements with stable ids), Snapshot (screenshot + UI tree), Screenshot |
+| **Screen** | Context (system state), Observe (elements with stable ids), Expect (check or wait for a UI state: pass/fail/unknown), Snapshot (screenshot + UI tree), Screenshot |
 | **Apps** | App (launch, ensure, status, switch, resize) |
 | **System** | PowerShell, Process, Registry |
 | **Data** | Clipboard, FileSystem |
@@ -78,6 +78,17 @@ target cannot be reached safely — for example when a modal dialog covers it or
 interactive desktop. Ids stay valid while the application runs; observe again after a restart.
 
 See [CLAUDE.md](CLAUDE.md) for the full rules.
+
+## Expect: check or wait for a state
+
+`Expect` answers conditions about the UI with fixed rules — no model, no screenshot. Each condition is `pass`, `fail` or `unknown`; `unknown` means the observation proves neither (list cut, window not answering, several elements fit, state not reported).
+
+```
+Expect(conditions=[{"window":"Login","state":"open"},
+                   {"type":"Button","name":"OK","state":"enabled"},
+                   {"type":"Edit","name":"User","value":"admin"}],
+       timeout_ms=5000)             → waits up to 5 s until all three hold
+```
 
 ## CLI
 

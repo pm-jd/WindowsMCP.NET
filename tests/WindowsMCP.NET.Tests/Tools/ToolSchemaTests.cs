@@ -136,4 +136,16 @@ public class ToolSchemaTests(McpToolsFixture fixture)
         Assert.NotEmpty(toolEnums);
         Assert.All(toolEnums, t => Assert.NotNull(t.GetCustomAttributes(typeof(System.Text.Json.Serialization.JsonConverterAttribute), false).SingleOrDefault()));
     }
+
+    [Fact]
+    public void Expect_IsReadOnly_AndTakesAConditionsArray()
+    {
+        var tool = fixture.Tools["Expect"].ProtocolTool;
+
+        Assert.True(tool.Annotations?.ReadOnlyHint);
+        Assert.Contains("conditions", Schema("Expect").GetProperty("required").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(0, Prop("Expect", "timeout_ms").GetProperty("default").GetInt32());
+        Assert.Equal(["desktop", "foreground", "process"], EnumValues(Prop("Expect", "scope")).OrderBy(v => v));
+        Assert.Equal(["json", "markdown"], EnumValues(Prop("Expect", "format")).OrderBy(v => v));
+    }
 }
