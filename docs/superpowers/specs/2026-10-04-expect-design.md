@@ -66,7 +66,7 @@ Each condition is an object of exactly one kind, decided by its key:
 - `modal` (optional, only with `open`): the matched window must (not) be modal
 - matched against `ObservedWindow.Title`
 
-**Element** — key `element` (an id from `Observe`) or a selector with `type` and/or `name`
+**Element** — key `element` (an id from `Observe`) or a selector with `type`, `name` and/or `panel`
 
 ```json
 {"element": "ejsbw", "state": "enabled"}
@@ -76,7 +76,7 @@ Each condition is an object of exactly one kind, decided by its key:
 {"type": "Button", "name": "Logout", "state": "absent"}
 ```
 
-- selector fields: `type` (control type, exact), `name` (matches the element's `name` or its `label`), `panel`, `in_window` (window title); at least one of `type`/`name` is required
+- selector fields: `type` (control type, exact), `name` (matches the element's `name` or its `label`), `panel`, `in_window` (window title); at least one of `type`/`name`/`panel` is required. `{"panel": "Errors"}` alone asks whether anything of that panel is there — the way to check which docking panel is shown (acceptance 2026-10-05: 22 of the 113 measured questions are of this kind)
 - `state`: `exists` (default) | `absent` | `enabled` | `disabled` | `selected` | `not_selected` | `checked` | `unchecked` | `expanded` | `collapsed`
 - `value` (equals) or `value_contains` (optional, not with `absent`): compared with the element's full value, ordinal, case-sensitive
 - `state` and a value check in one condition must both hold

@@ -24,7 +24,7 @@ public static class ExpectTools
                  "conditions: 1–20 objects, all must hold; each is ONE of: " +
                  "window — {\"window\":\"Login\",\"state\":\"open\"} (state: open (default) | closed; optional \"modal\":true|false with open); " +
                  "element — by id {\"element\":\"<id from Observe>\",\"state\":\"enabled\"} or by selector {\"type\":\"Button\",\"name\":\"OK\",\"state\":\"enabled\"} " +
-                 "(selector: type and/or name — name also matches the element's label —, optional panel, in_window; " +
+                 "(selector: type and/or name and/or panel — name also matches the element's label; panel alone asks for anything in that panel —, optional in_window; " +
                  "state: exists (default) | absent | enabled | disabled | selected | not_selected | checked | unchecked | expanded | collapsed; " +
                  "optional \"value\":\"...\" (equals, case-sensitive) or \"value_contains\":\"...\", combinable with a state); " +
                  "text — {\"text\":\"finished\"} (a visible static text contains it). " +

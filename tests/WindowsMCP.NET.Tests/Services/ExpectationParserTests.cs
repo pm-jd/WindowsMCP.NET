@@ -87,6 +87,18 @@ public class ExpectationParserTests
     }
 
     [Fact]
+    public void Element_PanelOnly()
+    {
+        // "Is the Errors panel shown" = something in that panel is there (a docking tab cannot tell).
+        var parsed = Assert.IsType<ElementExpectation>(Assert.Single(Parse("""[{"panel":"Errors"}]""")));
+
+        Assert.Equal("Errors", parsed.Panel);
+        Assert.Null(parsed.Type);
+        Assert.Null(parsed.Name);
+        Assert.Equal(ExpectState.Exists, parsed.State);
+    }
+
+    [Fact]
     public void Element_Value()
     {
         var parsed = Assert.IsType<ElementExpectation>(Assert.Single(Parse("""[{"name":"Focus","value":"90,000"}]""")));
@@ -142,7 +154,7 @@ public class ExpectationParserTests
     [InlineData("""[]""", "conditions: at least one")]
     [InlineData("""{}""", "conditions: must be an array")]
     [InlineData("""[5]""", "condition 1: must be an object")]
-    [InlineData("""[{"state":"open"}]""", "condition 1: needs one of window, element, type, name, text")]
+    [InlineData("""[{"state":"open"}]""", "condition 1: needs one of window, element, type, name, panel, text")]
     [InlineData("""[{"window":"A","text":"b"}]""", "condition 1: only one of")]
     [InlineData("""[{"window":"A","name":"b"}]""", "condition 1: only one of")]
     [InlineData("""[{"text":"A","type":"Button"}]""", "condition 1: only one of")]
@@ -160,7 +172,8 @@ public class ExpectationParserTests
     [InlineData("""[{"name":"A","value":"x","value_contains":"y"}]""", "condition 1: value and value_contains")]
     [InlineData("""[{"element":"abc","name":"A"}]""", "condition 1: element cannot be combined with name")]
     [InlineData("""[{"element":"abc","match":"contains"}]""", "condition 1: element cannot be combined with match")]
-    [InlineData("""[{"panel":"A"}]""", "condition 1: needs one of window, element, type, name, text")]
+    [InlineData("""[{"in_window":"A"}]""", "condition 1: needs one of window, element, type, name, panel, text")]
+    [InlineData("""[{"window":"A","panel":"b"}]""", "condition 1: only one of")]
     [InlineData("""[{"window":5}]""", "condition 1: window must be a string")]
     [InlineData("""[{"name":"A","state":5}]""", "condition 1: state must be a string")]
     [InlineData("""[{"name":"A","value":5}]""", "condition 1: value must be a string")]

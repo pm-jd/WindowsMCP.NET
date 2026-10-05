@@ -443,6 +443,16 @@ public class ExpectationEvaluatorTests
     }
 
     [Fact]
+    public void Element_Selector_PanelOnly()
+    {
+        var observation = Obs([Element("a1", "Button", "Clear", panel: "Errors"), Element("a2", "Button", "OK")]);
+
+        Assert.Equal(["a1"], Eval(observation, Sel(panel: "errors")).ElementIds);
+        Assert.Equal(ExpectResult.Fail, Eval(observation, Sel(panel: "Z Stack")).Result);
+        Assert.Equal(ExpectResult.Pass, Eval(observation, Sel(panel: "Z Stack", state: ExpectState.Absent)).Result);
+    }
+
+    [Fact]
     public void Element_Selector_NameOnly_AnyType() =>
         Assert.Equal(ExpectResult.Pass, Eval(Obs([Element("a1", "MenuItem", "File")]), Sel(name: "File")).Result);
 
@@ -525,6 +535,7 @@ public class ExpectationEvaluatorTests
             ExpectationEvaluator.Describe(Sel("Edit", "User", ExpectState.Enabled, valueContains: "adm")));
         Assert.Equal("Edit containing 'Focus' @Microscope in 'MCS' value '1'",
             ExpectationEvaluator.Describe(Sel("Edit", "Focus", panel: "Microscope", inWindow: "MCS", value: "1", match: ExpectMatch.Contains)));
+        Assert.Equal("element @Errors exists", ExpectationEvaluator.Describe(Sel(panel: "Errors")));
         Assert.Equal("element ejsbw value 'x'", ExpectationEvaluator.Describe(ById("ejsbw", value: "x")));
         Assert.Equal("element ejsbw enabled", ExpectationEvaluator.Describe(ById("ejsbw", ExpectState.Enabled)));
     }

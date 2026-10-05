@@ -57,13 +57,14 @@ public static class ExpectationParser
 
         var isWindow = c.TryGetProperty("window", out _);
         var isText = c.TryGetProperty("text", out _);
-        var isElement = c.TryGetProperty("element", out _) || c.TryGetProperty("type", out _) || c.TryGetProperty("name", out _);
+        var isElement = c.TryGetProperty("element", out _) || c.TryGetProperty("type", out _) || c.TryGetProperty("name", out _)
+            || c.TryGetProperty("panel", out _);
 
         var kinds = (isWindow ? 1 : 0) + (isText ? 1 : 0) + (isElement ? 1 : 0);
         if (kinds == 0)
-            throw new FormatException("needs one of window, element, type, name, text");
+            throw new FormatException("needs one of window, element, type, name, panel, text");
         if (kinds > 1)
-            throw new FormatException("only one of window, element (or type/name), text per condition");
+            throw new FormatException("only one of window, element (or type/name/panel), text per condition");
 
         if (isWindow)
             return ParseWindow(c, index);
