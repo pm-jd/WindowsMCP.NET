@@ -19,6 +19,7 @@ public static class ExpectationFormatter
         var sb = new StringBuilder();
         sb.Append(CultureInfo.InvariantCulture,
             $"Expect: {o.Result.ToString().ToUpperInvariant()} ({Passed(o)} of {o.Conditions.Count} passed) — ");
+        sb.Append(o.Observed.Count == 0 ? "nothing observed" : string.Join(", ", o.Observed)).Append(" — ");
         sb.Append(CultureInfo.InvariantCulture,
             $"{o.Observations} observation{(o.Observations == 1 ? "" : "s")}, {o.ElapsedMs} ms");
         if (o.TimedOut)
@@ -36,8 +37,8 @@ public static class ExpectationFormatter
     }
 
     /// <summary>
-    /// <c>{result, passed, total, observations, elapsed_ms, timed_out, conditions:[{index, result,
-    /// condition, actual, elements?}]}</c> — <c>elements</c> is left out when no element matched. Built
+    /// <c>{result, passed, total, observed:[{process, pid}], observations, elapsed_ms, timed_out,
+    /// conditions:[{index, result, condition, actual, elements?}]}</c> — <c>elements</c> is left out when no element matched. Built
     /// with dictionaries because <c>ToolHelpers.JsonOptions</c> doesn't set <c>DefaultIgnoreCondition</c>.
     /// </summary>
     public static object ToJsonEnvelope(ExpectOutcome o)
@@ -49,6 +50,8 @@ public static class ExpectationFormatter
             ["result"] = Name(o.Result),
             ["passed"] = Passed(o),
             ["total"] = o.Conditions.Count,
+            ["observed"] = o.Observed
+                .Select(p => new Dictionary<string, object?> { ["process"] = p.Process, ["pid"] = p.Pid }).ToList(),
             ["observations"] = o.Observations,
             ["elapsed_ms"] = o.ElapsedMs,
             ["timed_out"] = o.TimedOut,

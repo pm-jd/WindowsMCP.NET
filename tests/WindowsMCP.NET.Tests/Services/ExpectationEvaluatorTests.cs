@@ -16,22 +16,32 @@ public class ExpectationEvaluatorTests
     private static readonly ObservationTimings Timings = new(WalkMs: 10, HitMs: 5, TotalMs: 15);
     private static readonly ElementLocator Locator = new("app.exe", "MainWin", []);
 
-    private static ObservedWindow Window(string title, bool modal = false, bool unreadable = false) =>
-        new(1, title, "MainWin", "app.exe", 100, false, modal, new Rectangle(0, 0, 800, 600)) { Unreadable = unreadable };
+    private static ObservedWindow Window(string title, bool modal = false, bool unreadable = false, string process = "app.exe", nint handle = 1) =>
+        new(handle, title, "MainWin", process, 100, false, modal, new Rectangle(0, 0, 800, 600)) { Unreadable = unreadable };
 
     private static ObservedElement Element(
         string id, string type, string name, string? label = null, string? panel = null, string? window = null,
         string? value = null, string? toggle = null, bool selected = false, string? expand = null, bool enabled = true,
-        bool password = false) =>
-        new(id, type, name, label, panel, window, value, toggle, selected, expand, enabled, new Rectangle(0, 0, 10, 10), Locator)
+        bool password = false, bool valueReported = true, bool selectionReported = true, ElementLocator? locator = null,
+        nint windowHandle = 1) =>
+        new(id, type, name, label, panel, window, value, toggle, selected, expand, enabled, new Rectangle(0, 0, 10, 10), locator ?? Locator)
         {
             Password = password,
+            ValueReported = valueReported,
+            SelectionReported = selectionReported,
+            WindowHandle = windowHandle,
         };
 
     private static Observation Obs(
         IReadOnlyList<ObservedElement>? elements = null, IReadOnlyList<ObservedWindow>? windows = null,
-        IReadOnlyList<string>? texts = null, bool truncated = false, int omitted = 0) =>
-        new(windows ?? [Window("Main")], null, elements ?? [], texts ?? [], "sig", truncated, Timings) { Omitted = omitted };
+        IReadOnlyList<string>? texts = null, bool truncated = false, int omitted = 0, bool budgetExceeded = false,
+        string? unobserved = null) =>
+        new(windows ?? [Window("Main")], null, elements ?? [], texts ?? [], "sig", truncated || budgetExceeded, Timings)
+        {
+            Omitted = omitted,
+            BudgetExceeded = budgetExceeded,
+            Unobserved = unobserved,
+        };
 
     private static WindowExpectation Win(
         string title, ExpectWindowState state = ExpectWindowState.Open, bool? modal = null, ExpectMatch match = ExpectMatch.Exact) =>
@@ -437,9 +447,9 @@ public class ExpectationEvaluatorTests
     [Fact]
     public void Element_Selector_TypeOnly()
     {
-        var observation = Obs([Element("a1", "ProgressBar", ""), Element("a2", "Button", "OK")]);
+        var observation = Obs([Element("a1", "Slider", ""), Element("a2", "Button", "OK")]);
 
-        Assert.Equal(["a1"], Eval(observation, Sel("progressbar")).ElementIds);
+        Assert.Equal(["a1"], Eval(observation, Sel("slider")).ElementIds);
     }
 
     [Fact]
@@ -488,6 +498,195 @@ public class ExpectationEvaluatorTests
         Assert.Equal(ExpectResult.Unknown,
             Eval(Obs(windows: [Window("Dialog", unreadable: true)], texts: ["Ready"]), new TextExpectation(1, "finished")).Result);
 
+    // ── the observation proves less than it lists ──────────────────────────────────────────────────
+
+    [Fact]
+    public void BudgetExceeded_ElementFound_Unknown_BecauseItMayBeHidden()
+    {
+        // Nodes left without a hit-test are listed although their docking panel may be hidden.
+        var observation = Obs([Element("a1", "Button", "Clear", panel: "Errors")], budgetExceeded: true);
+
+        var outcome = Eval(observation, Sel(panel: "Errors"));
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("ran out of time", outcome.Actual);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, Sel(panel: "Errors", state: ExpectState.Absent)).Result);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, Sel("Button", "Clear", ExpectState.Enabled)).Result);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, ById("a1")).Result);
+    }
+
+    [Fact]
+    public void BudgetExceeded_Text_Unknown() =>
+        Assert.Equal(ExpectResult.Unknown, Eval(Obs(texts: ["hidden text"], budgetExceeded: true), new TextExpectation(1, "hidden")).Result);
+
+    [Theory]
+    [InlineData("Login", ExpectWindowState.Open, ExpectResult.Pass)]    // listed: it is there
+    [InlineData("Login", ExpectWindowState.Closed, ExpectResult.Fail)]
+    [InlineData("Other", ExpectWindowState.Open, ExpectResult.Unknown)] // windows reached after the budget are missing
+    [InlineData("Other", ExpectWindowState.Closed, ExpectResult.Unknown)]
+    public void BudgetExceeded_Window(string title, ExpectWindowState state, ExpectResult expected) =>
+        Assert.Equal(expected, Eval(Obs(windows: [Window("Login"), Window("Main")], budgetExceeded: true), Win(title, state)).Result);
+
+    [Fact]
+    public void Unobserved_EverythingIsUnknown_WithTheReason()
+    {
+        var observation = Obs([Element("a1", "Button", "OK")], texts: ["Ready"], unobserved: "the foreground application changed during the wait");
+
+        Expectation[] conditions =
+        [
+            Win("Main"), Win("Main", ExpectWindowState.Closed), Win("Gone", ExpectWindowState.Closed),
+            Sel("Button", "OK"), Sel("Button", "Nope", ExpectState.Absent), ById("a1"), new TextExpectation(1, "Ready"),
+        ];
+
+        foreach (var condition in conditions)
+        {
+            var outcome = Eval(observation, condition);
+            Assert.Equal(ExpectResult.Unknown, outcome.Result);
+            Assert.Equal("the foreground application changed during the wait", outcome.Actual);
+        }
+    }
+
+    [Theory]
+    [InlineData(ExpectState.Selected)]
+    [InlineData(ExpectState.NotSelected)]
+    public void Element_Selection_NotReported_Unknown(ExpectState state)
+    {
+        // A checked CheckBox has no SelectionItem pattern: "Selected = false" says nothing about it.
+        var outcome = Eval(Obs([Element("a1", "CheckBox", "Autofocus", toggle: "On", selectionReported: false)]), Sel("CheckBox", "Autofocus", state));
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("reports no selection state", outcome.Actual);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("5")]
+    public void Element_Value_NotReported_Unknown(string expected)
+    {
+        // A slider exposing only RangeValue, a document exposing only its text pattern: no value is not "empty".
+        var outcome = Eval(Obs([Element("a1", "Slider", "Zoom", valueReported: false)]), Sel("Slider", "Zoom", value: expected));
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("reports no value", outcome.Actual);
+    }
+
+    [Fact]
+    public void Element_ValueContains_NotReported_Unknown() =>
+        Assert.Equal(ExpectResult.Unknown,
+            Eval(Obs([Element("a1", "Document", "Text", valueReported: false)]), Sel("Document", "Text", valueContains: "x")).Result);
+
+    [Theory]
+    [InlineData(3, false, false)]
+    [InlineData(0, true, false)]
+    [InlineData(0, false, true)]
+    public void Element_OneMatch_ButTheListIsNotComplete_SelectorIsNotProvenUnique(int omitted, bool truncated, bool unreadable)
+    {
+        var observation = Obs(
+            [Element("a1", "Button", "Start")],
+            [Window("Dialog", unreadable: unreadable), Window("Main")], truncated: truncated || omitted > 0, omitted: omitted);
+
+        var outcome = Eval(observation, Sel("Button", "Start", ExpectState.Enabled));
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("second match cannot be ruled out", outcome.Actual);
+        Assert.Equal(["a1"], outcome.ElementIds);
+        // What one match does prove, and what an id pins down, stays answered.
+        Assert.Equal(ExpectResult.Pass, Eval(observation, Sel("Button", "Start")).Result);
+        Assert.Equal(ExpectResult.Fail, Eval(observation, Sel("Button", "Start", ExpectState.Absent)).Result);
+        Assert.Equal(ExpectResult.Pass, Eval(observation, ById("a1", ExpectState.Enabled)).Result);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Window_Modal_SeveralWindowsDisagree_Unknown(bool expectedModal)
+    {
+        var observation = Obs(windows: [Window("Login", modal: true), Window("Login"), Window("Main")]);
+
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, Win("Login", modal: expectedModal)).Result);
+        Assert.Equal(ExpectResult.Pass, Eval(observation, Win("Login")).Result);
+    }
+
+    // ── element ids are resolved through the store, not compared as strings ────────────────────────
+
+    private static readonly ElementLocator StartLocator = new("app.exe", "MainWin", [new LocatorStep("Button", "start", 0)]);
+
+    private static ConditionOutcome EvalResolved(Observation observation, Expectation expectation, StoredElement? stored) =>
+        Assert.Single(ExpectationEvaluator.Evaluate(observation, [expectation], _ => stored));
+
+    [Fact]
+    public void ById_Resolved_MatchesByLocatorAndWindow_WhateverTheIdStringIsNow()
+    {
+        // Ids of identical locators (two same-class windows) carry the window handle and change when
+        // one of the windows closes; the locator and the window do not.
+        var observation = Obs([Element("newid1", "Button", "Start", locator: StartLocator, windowHandle: 7)], [Window("Main", handle: 7)]);
+
+        var outcome = EvalResolved(observation, ById("oldid", ExpectState.Enabled), new StoredElement(StartLocator, 7, Transient: false));
+
+        Assert.Equal(ExpectResult.Pass, outcome.Result);
+        Assert.Equal(["newid1"], outcome.ElementIds);
+    }
+
+    [Fact]
+    public void ById_Resolved_TwoWindowsWithTheSameLocator_TheObservedWindowWins()
+    {
+        var observation = Obs(
+            [Element("a", "Button", "Start", locator: StartLocator, windowHandle: 7, enabled: false),
+             Element("b", "Button", "Start", locator: StartLocator, windowHandle: 8)],
+            [Window("Main", handle: 7), Window("Main", handle: 8)]);
+
+        Assert.Equal(["b"], EvalResolved(observation, ById("x", ExpectState.Enabled), new StoredElement(StartLocator, 8, false)).ElementIds);
+    }
+
+    [Fact]
+    public void ById_Resolved_MainWindowElement_FollowsToAnotherWindowOfTheSameClass()
+    {
+        var observation = Obs([Element("a", "Button", "Start", locator: StartLocator, windowHandle: 9)], [Window("Main", handle: 9)]);
+
+        Assert.Equal(ExpectResult.Pass, EvalResolved(observation, ById("x"), new StoredElement(StartLocator, 7, Transient: false)).Result);
+        // A dialog's element does not: its id died with its window.
+        Assert.Equal(ExpectResult.Fail, EvalResolved(observation, ById("x"), new StoredElement(StartLocator, 7, Transient: true)).Result);
+    }
+
+    [Fact]
+    public void ById_UnknownToTheStore_Unknown()
+    {
+        var outcome = EvalResolved(Obs([Element("a1", "Button", "OK")]), ById("a1"), stored: null);
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("unknown element id 'a1'", outcome.Actual);
+    }
+
+    [Theory]
+    [InlineData(ExpectState.Exists)]
+    [InlineData(ExpectState.Absent)]
+    [InlineData(ExpectState.Enabled)]
+    public void ById_ApplicationNotInTheObservedScope_Unknown(ExpectState state)
+    {
+        // An id from Observe(scope=process, "mcs") checked against the foreground application.
+        var observation = Obs([Element("a1", "Button", "OK")], [Window("Editor", process: "notepad.exe")]);
+
+        var outcome = EvalResolved(observation, ById("x", state), new StoredElement(StartLocator, 7, false));
+
+        Assert.Equal(ExpectResult.Unknown, outcome.Result);
+        Assert.Contains("not in the observed scope", outcome.Actual);
+    }
+
+    [Fact]
+    public void ById_Resolved_Gone_WhileItsApplicationIsObserved_FailOrAbsent()
+    {
+        var observation = Obs([Element("a1", "Button", "OK")]);
+        var stored = new StoredElement(StartLocator, 7, Transient: true);
+
+        Assert.Equal(ExpectResult.Fail, EvalResolved(observation, ById("x", ExpectState.Enabled), stored).Result);
+        Assert.Equal(ExpectResult.Pass, EvalResolved(observation, ById("x", ExpectState.Absent), stored).Result);
+    }
+
+    [Fact]
+    public void Describe_EscapesLineBreaksOfCallerStrings() =>
+        Assert.Equal(@"Button 'OK' @Tool\nbar in 'Main\tWindow' exists",
+            ExpectationEvaluator.Describe(Sel("Button", "OK", panel: "Tool\nbar", inWindow: "Main\tWindow")));
+
     // ── several conditions, overall, description ─────────────────────────────────────────────────
 
     [Fact]
@@ -527,7 +726,7 @@ public class ExpectationEvaluatorTests
     {
         Assert.Equal("Button 'OK' enabled", ExpectationEvaluator.Describe(Sel("Button", "OK", ExpectState.Enabled)));
         Assert.Equal("Button 'OK' exists", ExpectationEvaluator.Describe(Sel("Button", "OK")));
-        Assert.Equal("ProgressBar exists", ExpectationEvaluator.Describe(Sel("ProgressBar")));
+        Assert.Equal("Slider exists", ExpectationEvaluator.Describe(Sel("Slider")));
         Assert.Equal("element 'File' absent", ExpectationEvaluator.Describe(Sel(name: "File", state: ExpectState.Absent)));
         Assert.Equal("TabItem 'Camera' not selected", ExpectationEvaluator.Describe(Sel("TabItem", "Camera", ExpectState.NotSelected)));
         Assert.Equal("Edit 'User' value 'admin'", ExpectationEvaluator.Describe(Sel("Edit", "User", value: "admin")));

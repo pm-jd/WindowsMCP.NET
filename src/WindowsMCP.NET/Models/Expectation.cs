@@ -27,5 +27,16 @@ public sealed record TextExpectation(int Index, string Text) : Expectation(Index
 /// <param name="ElementIds">Ids of the matched elements, at most five.</param>
 public sealed record ConditionOutcome(int Index, ExpectResult Result, string Condition, string Actual, IReadOnlyList<string> ElementIds);
 
+/// <summary>A process whose windows an Expect call looked at.</summary>
+public sealed record ObservedProcess(string Process, int Pid)
+{
+    public override string ToString() => $"{Process} (pid {Pid})";
+}
+
 /// <summary>Result of an Expect call: the last evaluation and how long it took to get there.</summary>
-public sealed record ExpectOutcome(ExpectResult Result, IReadOnlyList<ConditionOutcome> Conditions, int Observations, long ElapsedMs, bool TimedOut);
+public sealed record ExpectOutcome(ExpectResult Result, IReadOnlyList<ConditionOutcome> Conditions, int Observations, long ElapsedMs, bool TimedOut)
+{
+    /// <summary>The processes of the windows in the last observation — what the answers are about.
+    /// Empty when nothing was observed.</summary>
+    public IReadOnlyList<ObservedProcess> Observed { get; init; } = [];
+}

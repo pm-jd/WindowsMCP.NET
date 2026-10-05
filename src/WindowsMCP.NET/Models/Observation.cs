@@ -28,6 +28,14 @@ public sealed record ObservedNode(int Index, int? Parent, int Depth, int Window,
     /// owned dialog — and listed in that window's own block. Such a node is never visible here; the
     /// tab-item exemption for UIA hit-tests that miss does not apply to it.</summary>
     public bool InOtherWindow { get; init; }
+
+    /// <summary>The control answered the Value property (even with an empty string). False for a
+    /// control without a readable value — then a missing <see cref="Value"/> does not mean "empty".</summary>
+    public bool ValueReported { get; init; }
+
+    /// <summary>The control answered SelectionItem.IsSelected. False for a control without that
+    /// pattern — then <see cref="Selected"/> = false does not mean "not selected".</summary>
+    public bool SelectionReported { get; init; }
 }
 
 /// <summary>An actionable element surfaced to the caller, with the locator needed to act on it later.</summary>
@@ -46,6 +54,12 @@ public sealed record ObservedElement(string Id, string Type, string Name, string
     /// <see cref="Value"/> says nothing about its content (Expect answers a value condition on it with
     /// unknown). Not emitted by Observe and not part of the signature.</summary>
     public bool Password { get; init; }
+
+    /// <summary>See <see cref="ObservedNode.ValueReported"/>. Not emitted by Observe, not in the signature.</summary>
+    public bool ValueReported { get; init; }
+
+    /// <summary>See <see cref="ObservedNode.SelectionReported"/>. Not emitted by Observe, not in the signature.</summary>
+    public bool SelectionReported { get; init; }
 }
 
 /// <summary>Timing breakdown for one Observe call, in milliseconds.</summary>
@@ -58,4 +72,15 @@ public sealed record Observation(IReadOnlyList<ObservedWindow> Windows, string? 
     /// <c>max_elements</c> (0 when nothing was cut there; <see cref="Truncated"/> may still be set by
     /// the time budget or the texts cap).</summary>
     public int Omitted { get; init; }
+
+    /// <summary>The collection ran out of its time budget: windows reached after that are missing
+    /// from <see cref="Windows"/> and nodes left without a hit-test are listed although they may be
+    /// hidden. <see cref="Truncated"/> is set too; this flag tells the cause apart, because then even
+    /// what IS listed proves nothing about what is visible.</summary>
+    public bool BudgetExceeded { get; init; }
+
+    /// <summary>Set by Expect when this is not an observation of what the caller asked about (nothing
+    /// in scope, the foreground application changed during a wait): the reason. Every condition is
+    /// then answered unknown.</summary>
+    public string? Unobserved { get; init; }
 }

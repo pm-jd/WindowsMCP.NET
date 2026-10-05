@@ -80,9 +80,9 @@ public class ExpectationParserTests
     [Fact]
     public void Element_TypeOnly()
     {
-        var parsed = Assert.IsType<ElementExpectation>(Assert.Single(Parse("""[{"type":"ProgressBar"}]""")));
+        var parsed = Assert.IsType<ElementExpectation>(Assert.Single(Parse("""[{"type":"Slider"}]""")));
 
-        Assert.Equal("ProgressBar", parsed.Type);
+        Assert.Equal("Slider", parsed.Type);
         Assert.Null(parsed.Name);
     }
 
@@ -96,6 +96,39 @@ public class ExpectationParserTests
         Assert.Null(parsed.Type);
         Assert.Null(parsed.Name);
         Assert.Equal(ExpectState.Exists, parsed.State);
+    }
+
+    [Theory]
+    [InlineData("button", "Button")]
+    [InlineData("RADIOBUTTON", "RadioButton")]
+    [InlineData("TabItem", "TabItem")]
+    public void Element_Type_IsCanonicalised(string given, string expected)
+    {
+        var parsed = Assert.IsType<ElementExpectation>(Assert.Single(Parse($$"""[{"type":"{{given}}","name":"A"}]""")));
+
+        Assert.Equal(expected, parsed.Type);
+    }
+
+    [Theory]
+    [InlineData("TextBox")]
+    [InlineData("Pane")]
+    [InlineData("ProgressBar")]
+    public void Element_UnknownType_IsRejected_BecauseItCouldNeverMatch(string type)
+    {
+        // An observation only lists actionable types: "absent" would always pass, "exists" always fail.
+        var ex = Assert.Throws<ArgumentException>(() => Parse($$"""[{"type":"{{type}}","name":"A","state":"absent"}]"""));
+
+        Assert.Contains($"condition 1: unknown type '{type}' (allowed: Button, ", ex.Message);
+        Assert.Contains("TreeItem", ex.Message);
+    }
+
+    [Fact]
+    public void Element_TypeText_PointsToTheTextCondition()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => Parse("""[{"type":"Text","name":"Error occurred"}]"""));
+
+        Assert.Contains("unknown type 'Text'", ex.Message);
+        Assert.Contains("""{"text":""", ex.Message);
     }
 
     [Fact]
@@ -184,6 +217,11 @@ public class ExpectationParserTests
     [InlineData("""[{"element":""}]""", "condition 1: element must not be empty")]
     [InlineData("""[{"name":"A","value_contains":""}]""", "condition 1: value_contains must not be empty")]
     [InlineData("""[{"window":"A"},{"text":""}]""", "condition 2: text must not be empty")]
+    [InlineData("""[{"window":" "}]""", "condition 1: window must not be empty")]
+    [InlineData("""[{"name":"  ","match":"contains"}]""", "condition 1: name must not be empty")]
+    [InlineData("""[{"text":"\t"}]""", "condition 1: text must not be empty")]
+    [InlineData("""[{"name":"A","name":"B"}]""", "condition 1: duplicate key 'name'")]
+    [InlineData("""[{"window":"A","state":"open","state":"closed"}]""", "condition 1: duplicate key 'state'")]
     public void Invalid(string json, string expectedFragment)
     {
         var ex = Assert.Throws<ArgumentException>(() => Parse(json));

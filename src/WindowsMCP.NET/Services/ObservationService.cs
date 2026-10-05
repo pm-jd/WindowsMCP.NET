@@ -232,6 +232,50 @@ public sealed class ObservationService : IDisposable
 
     // --- Target resolution (plain Win32 only — no UIA walk) ---------------------------------------
 
+    /// <summary>Whether <see cref="Observe"/> would find anything to look at.</summary>
+    public enum ScopeAvailability
+    {
+        Available,
+
+        /// <summary>scope=foreground, and the foreground window is missing or is the shell's or this server's.</summary>
+        NoForeground,
+
+        /// <summary>scope=process, and no process of that name has a visible window.</summary>
+        ProcessHasNoWindow,
+    }
+
+    /// <summary>
+    /// The scope check <see cref="Observe"/> starts with, without the exception: Expect asks first,
+    /// because "the application is not there (yet / any more)" is a state it is asked about, not a
+    /// failure. Win32 only. Throws <see cref="ArgumentException"/> for scope=process without a name.
+    /// </summary>
+    public static ScopeAvailability CheckScope(ObserveScope scope, string? process)
+    {
+        switch (scope)
+        {
+            case ObserveScope.Foreground:
+                try
+                {
+                    EnsureForegroundIsApplicationWindow(User32.GetForegroundWindow());
+                    return ScopeAvailability.Available;
+                }
+                catch (InvalidOperationException)
+                {
+                    return ScopeAvailability.NoForeground;
+                }
+
+            case ObserveScope.Process:
+                if (string.IsNullOrEmpty(process))
+                    throw new ArgumentException("process is required for scope=process", nameof(process));
+                return FindFirstProcessPidWithVisibleWindow(process) is null
+                    ? ScopeAvailability.ProcessHasNoWindow
+                    : ScopeAvailability.Available;
+
+            default:
+                return ScopeAvailability.Available;
+        }
+    }
+
     private static List<nint> ResolveWindowHandles(ObserveScope scope, string? process)
     {
         switch (scope)
@@ -438,13 +482,13 @@ public sealed class ObservationService : IDisposable
         var lib = _automation.PropertyLibrary;
 
         var isPassword = properties.IsPassword.ValueOrDefault;
-        var value = CollectedValue(
-            isPassword,
-            frameworkElement.TryGetPropertyValue<string>(lib.Value.Value, out var rawValue) ? rawValue : null);
+        var valueReported = frameworkElement.TryGetPropertyValue<string>(lib.Value.Value, out var rawValue);
+        var value = CollectedValue(isPassword, valueReported ? rawValue : null);
         var toggle = frameworkElement.TryGetPropertyValue<ToggleState>(lib.Toggle.ToggleState, out var toggleState)
             ? toggleState.ToString()
             : null;
-        var selected = frameworkElement.TryGetPropertyValue<bool>(lib.SelectionItem.IsSelected, out var isSelected) && isSelected;
+        var selectionReported = frameworkElement.TryGetPropertyValue<bool>(lib.SelectionItem.IsSelected, out var isSelected);
+        var selected = selectionReported && isSelected;
         var expand = frameworkElement.TryGetPropertyValue<ExpandCollapseState>(lib.ExpandCollapse.ExpandCollapseState, out var expandState)
             ? expandState.ToString()
             : null;
@@ -461,6 +505,8 @@ public sealed class ObservationService : IDisposable
             HitVisible: null)
         {
             Password = isPassword,
+            ValueReported = valueReported,
+            SelectionReported = selectionReported,
         });
 
         var runtimeId = properties.RuntimeId.ValueOrDefault;

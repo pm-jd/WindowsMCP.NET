@@ -16,7 +16,10 @@ public class ExpectationFormatterTests
             new ConditionOutcome(2, ExpectResult.Pass, "Button 'OK' enabled", "enabled", ["k3f9a"]),
             new ConditionOutcome(3, ExpectResult.Fail, "Edit 'User' value 'admin'", "value is ''", ["p01zq"]),
         ],
-        Observations: 1, ElapsedMs: 1240, TimedOut: false);
+        Observations: 1, ElapsedMs: 1240, TimedOut: false)
+    {
+        Observed = [new ObservedProcess("MCS", 2116)],
+    };
 
     private static JsonElement JsonOf(ExpectOutcome outcome) =>
         JsonSerializer.SerializeToElement(ExpectationFormatter.ToJsonEnvelope(outcome), ToolHelpers.JsonOptions);
@@ -25,7 +28,7 @@ public class ExpectationFormatterTests
     public void Markdown_Fail_MatchesSpecExample()
     {
         const string expected =
-            "Expect: FAIL (2 of 3 passed) — 1 observation, 1240 ms\n" +
+            "Expect: FAIL (2 of 3 passed) — MCS (pid 2116) — 1 observation, 1240 ms\n" +
             "pass     1 window 'Login' open — open, modal\n" +
             "pass     2 Button 'OK' enabled — enabled (id k3f9a)\n" +
             "fail     3 Edit 'User' value 'admin' — value is '' (id p01zq)";
@@ -43,11 +46,14 @@ public class ExpectationFormatterTests
                 new ConditionOutcome(2, ExpectResult.Unknown, "TabItem 'Camera' selected",
                     "a TabItem does not report its selection reliably", ["ejsbw"]),
             ],
-            Observations: 4, ElapsedMs: 3050, TimedOut: true);
+            Observations: 4, ElapsedMs: 3050, TimedOut: true)
+        {
+            Observed = [new ObservedProcess("MCS", 2116), new ObservedProcess("notepad", 77)],
+        };
 
         var lines = ExpectationFormatter.ToMarkdown(outcome).Split('\n');
 
-        Assert.Equal("Expect: UNKNOWN (1 of 2 passed) — 4 observations, 3050 ms (timeout)", lines[0]);
+        Assert.Equal("Expect: UNKNOWN (1 of 2 passed) — MCS (pid 2116), notepad (pid 77) — 4 observations, 3050 ms (timeout)", lines[0]);
         Assert.Equal("unknown  2 TabItem 'Camera' selected — a TabItem does not report its selection reliably (id ejsbw)", lines[2]);
     }
 
@@ -57,7 +63,7 @@ public class ExpectationFormatterTests
         var outcome = new ExpectOutcome(
             ExpectResult.Pass, [new ConditionOutcome(1, ExpectResult.Pass, "text 'x'", "found 'x'", [])], 2, 480, false);
 
-        Assert.StartsWith("Expect: PASS (1 of 1 passed) — 2 observations, 480 ms\n", ExpectationFormatter.ToMarkdown(outcome));
+        Assert.StartsWith("Expect: PASS (1 of 1 passed) — nothing observed — 2 observations, 480 ms\n", ExpectationFormatter.ToMarkdown(outcome));
     }
 
     [Fact]
@@ -93,6 +99,9 @@ public class ExpectationFormatterTests
         Assert.Equal(1, json.GetProperty("observations").GetInt32());
         Assert.Equal(1240, json.GetProperty("elapsed_ms").GetInt64());
         Assert.False(json.GetProperty("timed_out").GetBoolean());
+        var observed = Assert.Single(json.GetProperty("observed").EnumerateArray());
+        Assert.Equal("MCS", observed.GetProperty("process").GetString());
+        Assert.Equal(2116, observed.GetProperty("pid").GetInt32());
 
         var third = json.GetProperty("conditions")[2];
         Assert.Equal(3, third.GetProperty("index").GetInt32());
@@ -115,5 +124,6 @@ public class ExpectationFormatterTests
         Assert.Equal("unknown", json.GetProperty("result").GetString());
         Assert.True(json.GetProperty("timed_out").GetBoolean());
         Assert.Equal(0, json.GetProperty("passed").GetInt32());
+        Assert.Equal(0, json.GetProperty("observed").GetArrayLength());
     }
 }

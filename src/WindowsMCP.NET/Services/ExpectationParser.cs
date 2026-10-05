@@ -115,17 +115,42 @@ public static class ExpectationParser
             throw new FormatException($"{(value is not null ? "value" : "value_contains")} cannot be combined with state=absent");
 
         return new ElementExpectation(
-            index, id, OptionalText(c, "type"), OptionalText(c, "name"), OptionalText(c, "panel"), OptionalText(c, "in_window"),
+            index, id, ElementType(c), OptionalText(c, "name"), OptionalText(c, "panel"), OptionalText(c, "in_window"),
             state, value, valueContains, EnumOr(c, "match", ExpectMatch.Exact));
     }
 
     private static void RejectUnknownKeys(JsonElement c, string[] allowed)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in c.EnumerateObject())
         {
             if (!allowed.Contains(property.Name, StringComparer.Ordinal))
                 throw new FormatException($"unknown key '{property.Name}' (allowed: {string.Join(", ", allowed)})");
+            // JSON allows a key twice and the reader would silently take the last one.
+            if (!seen.Add(property.Name))
+                throw new FormatException($"duplicate key '{property.Name}'");
         }
+    }
+
+    /// <summary>An observation only lists the actionable control types: a condition on any other type
+    /// could never match, so "absent" would always pass and "exists" always fail. Returns the
+    /// canonical spelling.</summary>
+    private static string? ElementType(JsonElement c)
+    {
+        if (OptionalText(c, "type") is not { } given)
+            return null;
+
+        foreach (var known in ObservationBuilder.ActionableTypes)
+        {
+            if (string.Equals(known, given, StringComparison.OrdinalIgnoreCase))
+                return known;
+        }
+
+        var hint = string.Equals(given, "Text", StringComparison.OrdinalIgnoreCase)
+            ? """ — for static text use {"text":"..."}"""
+            : "";
+        throw new FormatException(
+            $"unknown type '{given}' (allowed: {string.Join(", ", ObservationBuilder.ActionableTypes.Order(StringComparer.Ordinal))}){hint}");
     }
 
     private static string RequiredText(JsonElement c, string key) =>
@@ -139,7 +164,8 @@ public static class ExpectationParser
             throw new FormatException($"{key} must be a string");
 
         var text = v.GetString()!;
-        if (text.Length == 0 && !allowEmpty)
+        // Blank counts as empty: a blank contains-match would fit nearly everything.
+        if (!allowEmpty && string.IsNullOrWhiteSpace(text))
             throw new FormatException($"{key} must not be empty");
         return text;
     }
