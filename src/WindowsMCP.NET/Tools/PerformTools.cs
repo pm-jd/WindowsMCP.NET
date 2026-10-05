@@ -56,12 +56,14 @@ public static class PerformTools
         {
             try
             {
-                var pngBytes = captureService.CaptureScreen(null);
+                var capture = captureService.CaptureScreenWithNote(null);
                 var points = uiTreeService.GetAnnotationPoints()
                     .Select(p => (p.X, p.Y, p.Label))
                     .ToList<(int X, int Y, string Label)>();
-                pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
+                var pngBytes = captureService.AnnotateScreenshot(capture.Png, points);
                 content.Insert(0, ImageContentBlock.FromBytes(pngBytes, "image/png"));
+                if (capture.Note is not null)
+                    content.Add(new TextContentBlock { Text = capture.Note });
             }
             catch { /* screenshot is best-effort */ }
         }

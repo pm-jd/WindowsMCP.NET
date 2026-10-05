@@ -36,7 +36,14 @@ public static class ContextTools
                         AppendWindowInfo(sb, desktopService);
                         break;
                     case ContextModule.Screen:
-                        screenshotPng = captureService.CaptureScreen(null);
+                        var capture = captureService.CaptureScreenWithNote(null);
+                        screenshotPng = capture.Png;
+                        if (capture.Note is not null)
+                        {
+                            sb.AppendLine("-- Screen --");
+                            sb.AppendLine(capture.Note);
+                            sb.AppendLine();
+                        }
                         break;
                     case ContextModule.UiTree:
                         AppendUiTree(sb, uiTreeService, captureService, ref screenshotPng);

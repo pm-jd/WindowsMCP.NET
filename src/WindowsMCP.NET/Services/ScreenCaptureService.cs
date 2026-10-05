@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -5,8 +6,24 @@ using WindowsMcpNet.Native;
 
 namespace WindowsMcpNet.Services;
 
+/// <summary>A PNG screenshot. <see cref="Note"/> is set when the session had no display and the image was composed
+/// from its windows — the caller should pass that on, because such a picture can lack windows or show stale parts.</summary>
+public sealed record ScreenCapture(byte[] Png, string? Note);
+
 public sealed class ScreenCaptureService
 {
+    private readonly Func<Rectangle, Bitmap> _grabScreen;
+    private readonly Func<Rectangle, CompositeCapture> _composeWindows;
+
+    public ScreenCaptureService() : this(GrabScreen, WindowCompositor.Capture) { }
+
+    /// <summary>Test seam: the GDI screen copy and the window compositor are the two native dependencies.</summary>
+    internal ScreenCaptureService(Func<Rectangle, Bitmap> grabScreen, Func<Rectangle, CompositeCapture> composeWindows)
+    {
+        _grabScreen = grabScreen;
+        _composeWindows = composeWindows;
+    }
+
     /// <summary>Scales <paramref name="source"/> so its longest edge is at most <paramref name="maxEdge"/>,
     /// preserving aspect ratio. Never upscales (a region already within the cap is returned unchanged)
     /// and never rounds a non-zero edge down to 0.</summary>
@@ -27,9 +44,7 @@ public sealed class ScreenCaptureService
     /// <paramref name="quality"/> (0-100). Used by the Observe tool's optional screenshot.</summary>
     public byte[] CaptureRegionJpeg(Rectangle region, int maxEdge = 1568, long quality = 80)
     {
-        using var captured = new Bitmap(region.Width, region.Height, PixelFormat.Format32bppArgb);
-        using (var graphics = Graphics.FromImage(captured))
-            graphics.CopyFromScreen(region.Location, Point.Empty, region.Size);
+        using var captured = CaptureBitmap(region, out _);
 
         var targetSize = ScaleToFit(region.Size, maxEdge);
         using var resized = targetSize == region.Size ? null : Resize(captured, targetSize);
@@ -65,8 +80,70 @@ public sealed class ScreenCaptureService
         return ms.ToArray();
     }
 
-    /// <summary>Captures one monitor (or the primary) as PNG via GDI+.</summary>
-    public byte[] CaptureScreen(int? displayIndex = null)
+    /// <summary>Captures one monitor (or the primary) as PNG. See <see cref="CaptureScreenWithNote"/>.</summary>
+    public byte[] CaptureScreen(int? displayIndex = null) => CaptureScreenWithNote(displayIndex).Png;
+
+    /// <summary>Captures one monitor (or the primary) as PNG; in a session without a display the image is composed
+    /// from the windows and <see cref="ScreenCapture.Note"/> says so.</summary>
+    public ScreenCapture CaptureScreenWithNote(int? displayIndex = null)
+    {
+        using var bitmap = CaptureBitmap(ResolveBounds(displayIndex), out var note);
+        using var ms = new MemoryStream();
+        bitmap.Save(ms, ImageFormat.Png);
+        return new ScreenCapture(ms.ToArray(), note);
+    }
+
+    /// <summary>Copies <paramref name="bounds"/> from the screen. Only the "no display" failure of the GDI copy
+    /// (<see cref="Win32Exception"/>, "The handle is invalid": RDP disconnected or its client minimized) switches to
+    /// composing the windows; anything else still fails, so real errors are not papered over with a partial picture.
+    /// <paramref name="note"/> is null for a normal screen copy. The caller owns the returned bitmap.</summary>
+    internal Bitmap CaptureBitmap(Rectangle bounds, out string? note)
+    {
+        try
+        {
+            var screen = _grabScreen(bounds);
+            note = null;
+            return screen;
+        }
+        catch (Win32Exception noDisplay)
+        {
+            var composite = _composeWindows(bounds);
+            if (composite.WindowCount == 0)
+            {
+                composite.Dispose();
+                throw new InvalidOperationException(
+                    "The session has no display (RDP disconnected or its window minimized) and no window could be " +
+                    $"rendered instead: {noDisplay.Message}", noDisplay);
+            }
+
+            note = CompositedNote(composite.WindowCount, bounds.Size);
+            return composite.Image;
+        }
+    }
+
+    internal static string CompositedNote(int windowCount, Size size) =>
+        "Composited screenshot: this session has no display (RDP disconnected or the RDP window minimized), so " +
+        $"the image was assembled from {windowCount} windows rendered one by one. Minimized windows are missing, and " +
+        "parts that do not repaint without a display (e.g. the taskbar clock) can show an older state; the layout " +
+        $"is that of the session's current {size.Width}x{size.Height} screen.";
+
+    private static Bitmap GrabScreen(Rectangle bounds)
+    {
+        var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
+        try
+        {
+            using var graphics = Graphics.FromImage(bitmap);
+            graphics.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+            return bitmap;
+        }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
+    }
+
+    private static Rectangle ResolveBounds(int? displayIndex)
     {
         var monitors = EnumerateMonitors();
 
@@ -92,13 +169,7 @@ public sealed class ScreenCaptureService
             }
         }
 
-        using var bitmap = new Bitmap(bounds.Width, bounds.Height, PixelFormat.Format32bppArgb);
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.CopyFromScreen(new Point(bounds.X, bounds.Y), Point.Empty, new Size(bounds.Width, bounds.Height));
-
-        using var ms = new MemoryStream();
-        bitmap.Save(ms, ImageFormat.Png);
-        return ms.ToArray();
+        return bounds;
     }
 
     private static List<Rectangle> EnumerateMonitors()

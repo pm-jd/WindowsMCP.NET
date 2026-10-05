@@ -122,7 +122,26 @@ internal static partial class User32
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsChild(nint hWndParent, nint hWnd);
 
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PrintWindow(nint hWnd, nint hdcBlt, uint nFlags);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsHungAppWindow(nint hWnd);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    internal static partial nint GetWindowLongPtr(nint hWnd, int nIndex);
+
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
+
+    /// <summary>PrintWindow flag (Windows 8.1+): render through DWM, which also captures DirectX/OpenGL content
+    /// and keeps working in a session that has no display.</summary>
+    internal const uint PW_RENDERFULLCONTENT = 0x00000002;
+
+    internal const int GWL_EXSTYLE = -20;
+    internal const long WS_EX_TRANSPARENT = 0x00000020;
+    internal const long WS_EX_LAYERED = 0x00080000;
 
     internal const uint GW_OWNER = 4;
     internal const uint GA_ROOT = 2;

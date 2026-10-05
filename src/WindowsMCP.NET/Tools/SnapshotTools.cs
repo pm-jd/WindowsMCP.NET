@@ -31,7 +31,8 @@ public static class SnapshotTools
 
             if (use_vision)
             {
-                var pngBytes = captureService.CaptureScreen(display);
+                var capture = captureService.CaptureScreenWithNote(display);
+                var pngBytes = capture.Png;
 
                 if (use_annotation)
                 {
@@ -41,7 +42,7 @@ public static class SnapshotTools
                     pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
                 }
 
-                result.Insert(0, ImageContentBlock.FromBytes(pngBytes, "image/png"));
+                result.InsertRange(0, ImageBlocks(pngBytes, capture.Note));
             }
 
             return result;
@@ -65,7 +66,8 @@ public static class SnapshotTools
     {
         try
         {
-            var pngBytes = captureService.CaptureScreen(display);
+            var capture = captureService.CaptureScreenWithNote(display);
+            var pngBytes = capture.Png;
 
             if (use_annotation)
             {
@@ -75,10 +77,7 @@ public static class SnapshotTools
                 pngBytes = captureService.AnnotateScreenshot(pngBytes, points);
             }
 
-            return new List<ContentBlock>
-            {
-                ImageContentBlock.FromBytes(pngBytes, "image/png"),
-            };
+            return ImageBlocks(pngBytes, capture.Note);
         }
         catch (Exception ex)
         {
@@ -87,5 +86,15 @@ public static class SnapshotTools
                 new TextContentBlock { Text = $"[ERROR] {ex.GetType().Name}: {ex.Message}" }
             };
         }
+    }
+
+    /// <summary>The screenshot, followed by the composited-capture note when there is one: a picture assembled
+    /// from the windows lacks the wallpaper and minimized windows, and the caller has to know that.</summary>
+    internal static List<ContentBlock> ImageBlocks(byte[] png, string? note)
+    {
+        var blocks = new List<ContentBlock> { ImageContentBlock.FromBytes(png, "image/png") };
+        if (note is not null)
+            blocks.Add(new TextContentBlock { Text = note });
+        return blocks;
     }
 }
