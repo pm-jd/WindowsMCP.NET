@@ -107,7 +107,7 @@ A condition is evaluated against one `Observation` taken with `max_elements = 50
 | `selected` / `not_selected` | see below | see below | the element is a `TabItem` reporting `selected = false`; not found (list cut); several match |
 | `checked` / `unchecked` | toggle is `on` / `off` | the opposite | the element reports no toggle state or `indeterminate`; not found (list cut); several match |
 | `expanded` / `collapsed` | expand state agrees | the opposite | the element reports no expand state; not found (list cut); several match |
-| `value` / `value_contains` | value agrees | value differs | password field (value never collected); element reports no value; not found (list cut); several match |
+| `value` / `value_contains` | value agrees | value differs | password field (value never collected); not found (list cut); several match |
 | text | a text contains the string | none does and the observation is not truncated | none does and the observation is truncated |
 
 Rules behind the table:
@@ -116,6 +116,7 @@ Rules behind the table:
 - **"List is cut"** means `Observation.Omitted > 0` or `Observation.Truncated`.
 - **Several matches** → `unknown` with the ids of the first five; the caller narrows the selector (`panel`, `in_window`) or uses an id. Exceptions: `exists` passes and `absent` fails as soon as one matches.
 - **Selection:** `Selected == true` proves `selected`. `Selected == false` proves `not_selected` for every type except `TabItem`: docking tabs report `false` whatever is shown (measured on MCS), so both `selected` and `not_selected` are `unknown` for a `TabItem` reporting `false`.
+- **Values:** `Observe` collects no value for an empty field and for an element without a value; both count as the empty string (`value: ""` passes). A password field is `unknown`: `ObservedElement` gets a `Password` flag for this (set by `ObservationBuilder` from `ObservedNode.Password`; not emitted by `Observe`, not part of the signature).
 - **An unreadable window** (`ObservedWindow.Unreadable`) still counts as a window for window conditions. An element or text condition is `unknown` when it found nothing and any window in scope is unreadable — the element may be inside it.
 - **Element by id:** the element with that id in the fresh observation. Ids are stable while the application runs, so no live resolution is needed. A selector condition restricted by `in_window` matches `ObservedElement.Window`; elements of the main window (`Window == null`) match the title of the bottom-most window.
 
@@ -170,7 +171,7 @@ JSON (`format=json`, via `ToolHelpers.JsonResult`):
 | `Tools/ExpectTools.cs` | tool | parameter clamping, the wait loop (§1.3), `store.Remember`, error wrapping |
 
 - The wait loop is a static method taking `Func<Observation> observe`, `TimeProvider` and a delay function, so it is unit-tested without UIA and without real time.
-- `ObservationService`, `ObservationBuilder`, `ObservationStore` and the action path are not changed.
+- `ObservationService`, `ObservationStore` and the action path are not changed; `ObservationBuilder` only copies the password flag onto the element.
 - The tool count becomes 22: `CLAUDE.md`, `README.md`, the server instructions (`McpServerSetup`) and the parity schema test are updated.
 
 ## 3. Error handling
