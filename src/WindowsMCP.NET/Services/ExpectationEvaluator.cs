@@ -103,6 +103,16 @@ public static class ExpectationEvaluator
 
         if (matches.Count == 0)
         {
+            // A minimised window is not in the window list, but it is open.
+            if (o.MinimizedWindows.Any(title => Matches(title, w.Title, w.Match)))
+            {
+                if (w.State == ExpectWindowState.Closed)
+                    return (ExpectResult.Fail, "open, minimised", []);
+                return w.Modal is null
+                    ? (ExpectResult.Pass, "open, minimised", [])
+                    : (ExpectResult.Unknown, "open, but minimised — whether it is modal is not observed", []);
+            }
+
             // Windows reached after the time budget are missing from the list: "not listed" is no proof.
             if (o.BudgetExceeded)
                 return (ExpectResult.Unknown, OutOfTime, []);
@@ -273,10 +283,8 @@ public static class ExpectationEvaluator
         if (found is not null)
             return (ExpectResult.Pass, $"found '{Show(found)}'", []);
 
-        if (o.Truncated)
-            return (ExpectResult.Unknown, "the observation is truncated — absence cannot be proven", []);
-        if (o.Windows.Any(w => w.Unreadable))
-            return (ExpectResult.Unknown, "a window in scope is unreadable — the text may be inside it", []);
+        if (WhyAbsenceIsUnproven(o) is { } reason)
+            return (ExpectResult.Unknown, $"{reason} — absence cannot be proven", []);
         return (ExpectResult.Fail, "no such text", []);
     }
 
@@ -289,6 +297,8 @@ public static class ExpectationEvaluator
             return "the observation is truncated";
         if (o.Windows.Any(w => w.Unreadable))
             return "a window in scope is unreadable";
+        if (o.MinimizedWindows.Count > 0)
+            return $"a window in scope is minimised ('{Show(o.MinimizedWindows[0])}') and its content is not observed";
         return null;
     }
 

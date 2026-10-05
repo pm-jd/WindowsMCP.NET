@@ -79,6 +79,12 @@ public sealed record Observation(IReadOnlyList<ObservedWindow> Windows, string? 
     /// what IS listed proves nothing about what is visible.</summary>
     public bool BudgetExceeded { get; init; }
 
+    /// <summary>Titles of the minimised windows in scope. A minimised window has no rectangle, so it is
+    /// not in <see cref="Windows"/> and its elements and texts are not observed — but it is open.
+    /// Not emitted by Observe, not part of the signature; Expect needs it to answer "window open /
+    /// closed" and to know that "not listed" does not prove "absent".</summary>
+    public IReadOnlyList<string> MinimizedWindows { get; init; } = [];
+
     /// <summary>Set by Expect when this is not an observation of what the caller asked about (nothing
     /// in scope, the foreground application changed during a wait): the reason. Every condition is
     /// then answered unknown.</summary>

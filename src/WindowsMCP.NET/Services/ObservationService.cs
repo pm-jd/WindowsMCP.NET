@@ -120,7 +120,10 @@ public sealed class ObservationService : IDisposable
             var handles = ResolveWindowHandles(scope, process);
             var result = Collect(handles, hitTest: true, ct);
             var timings = new ObservationTimings(result.WalkMs, result.HitMs, result.WalkMs + result.HitMs);
-            return ObservationBuilder.Build(result.Windows, result.Nodes, maxElements, timings, result.BudgetExceeded);
+            return ObservationBuilder.Build(result.Windows, result.Nodes, maxElements, timings, result.BudgetExceeded) with
+            {
+                MinimizedWindows = result.Minimized,
+            };
         }
     }
 
@@ -363,12 +366,13 @@ public sealed class ObservationService : IDisposable
     // --- Collection (UIA) --------------------------------------------------------------------------
 
     private readonly record struct CollectResult(
-        List<ObservedWindow> Windows, List<ObservedNode> Nodes, bool BudgetExceeded, long WalkMs, long HitMs);
+        List<ObservedWindow> Windows, List<ObservedNode> Nodes, bool BudgetExceeded, long WalkMs, long HitMs, List<string> Minimized);
 
     private CollectResult Collect(IReadOnlyList<nint> handles, bool hitTest, CancellationToken ct)
     {
         var stopwatch = Stopwatch.StartNew();
         var windows = new List<ObservedWindow>();
+        var minimized = new List<string>();
         var nodes = new List<ObservedNode>();
         var byRuntimeId = new Dictionary<string, int>(StringComparer.Ordinal);
         var budgetExceeded = false;
@@ -404,7 +408,12 @@ public sealed class ObservationService : IDisposable
                 // calls do not depend on the application's UI thread.
                 var rect = root is null ? GetWindowRectangle(handle) : root.Properties.BoundingRectangle.ValueOrDefault;
                 if (rect.Width <= 0 || rect.Height <= 0)
+                {
+                    // A minimised window has no rectangle; it is not observed, but it is remembered as open.
+                    if (User32.IsIconic(handle))
+                        minimized.Add(root?.Properties.Name.ValueOrDefault ?? GetWindowTitle(handle));
                     continue;
+                }
 
                 var windowIndex = windows.Count;
                 windows.Add(new ObservedWindow(
@@ -435,7 +444,7 @@ public sealed class ObservationService : IDisposable
             hitMs = stopwatch.ElapsedMilliseconds - walkMs;
         }
 
-        return new CollectResult(windows, nodes, budgetExceeded, walkMs, hitMs);
+        return new CollectResult(windows, nodes, budgetExceeded, walkMs, hitMs, minimized);
     }
 
     private CacheRequest BuildCacheRequest()

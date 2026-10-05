@@ -35,12 +35,13 @@ public class ExpectationEvaluatorTests
     private static Observation Obs(
         IReadOnlyList<ObservedElement>? elements = null, IReadOnlyList<ObservedWindow>? windows = null,
         IReadOnlyList<string>? texts = null, bool truncated = false, int omitted = 0, bool budgetExceeded = false,
-        string? unobserved = null) =>
+        string? unobserved = null, IReadOnlyList<string>? minimized = null) =>
         new(windows ?? [Window("Main")], null, elements ?? [], texts ?? [], "sig", truncated || budgetExceeded, Timings)
         {
             Omitted = omitted,
             BudgetExceeded = budgetExceeded,
             Unobserved = unobserved,
+            MinimizedWindows = minimized ?? [],
         };
 
     private static WindowExpectation Win(
@@ -605,6 +606,49 @@ public class ExpectationEvaluatorTests
 
         Assert.Equal(ExpectResult.Unknown, Eval(observation, Win("Login", modal: expectedModal)).Result);
         Assert.Equal(ExpectResult.Pass, Eval(observation, Win("Login")).Result);
+    }
+
+    // ── minimised windows: open, but their content is not observed ─────────────────────────────────
+
+    [Fact]
+    public void Window_Minimized_IsOpen_NotClosed()
+    {
+        // Measured on Windows 11: a minimised window has no rectangle and is left out of the window list.
+        var observation = Obs(minimized: ["Unbenannt – Editor"]);
+
+        var open = Eval(observation, Win("editor", match: ExpectMatch.Contains));
+        Assert.Equal(ExpectResult.Pass, open.Result);
+        Assert.Equal("open, minimised", open.Actual);
+
+        var closed = Eval(observation, Win("editor", ExpectWindowState.Closed, match: ExpectMatch.Contains));
+        Assert.Equal(ExpectResult.Fail, closed.Result);
+        Assert.Equal("open, minimised", closed.Actual);
+
+        Assert.Equal(ExpectResult.Pass, Eval(observation, Win("Other", ExpectWindowState.Closed)).Result);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Window_Minimized_ModalIsNotKnown(bool modal) =>
+        Assert.Equal(ExpectResult.Unknown, Eval(Obs(minimized: ["Login"]), Win("Login", modal: modal)).Result);
+
+    [Fact]
+    public void MinimizedWindowInScope_AbsenceIsNotProven()
+    {
+        // The elements and texts of a minimised window are not observed: "not listed" proves nothing.
+        var observation = Obs([Element("a1", "Button", "Start")], texts: ["Ready"], minimized: ["Settings"]);
+
+        var absent = Eval(observation, Sel("Button", "Apply", ExpectState.Absent));
+        Assert.Equal(ExpectResult.Unknown, absent.Result);
+        Assert.Contains("minimised ('Settings')", absent.Actual);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, Sel("Button", "Apply")).Result);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, new TextExpectation(1, "finished")).Result);
+        Assert.Equal(ExpectResult.Unknown, Eval(observation, Sel("Button", "Start", ExpectState.Enabled)).Result); // not proven unique
+        // What is listed is there.
+        Assert.Equal(ExpectResult.Pass, Eval(observation, Sel("Button", "Start")).Result);
+        Assert.Equal(ExpectResult.Pass, Eval(observation, new TextExpectation(1, "Ready")).Result);
+        Assert.Equal(ExpectResult.Pass, Eval(observation, ById("a1", ExpectState.Enabled)).Result);
     }
 
     // ── element ids are resolved through the store, not compared as strings ────────────────────────

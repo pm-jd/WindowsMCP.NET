@@ -316,6 +316,15 @@ public class ExpectToolsTests
     }
 
     [Fact]
+    public void Guard_OnlyMinimizedWindows_IsAnObservation()
+    {
+        // The application is there, merely minimised: "window open" must be answerable.
+        var minimised = new Observation([], null, [], [], "sig", false, Timings) { MinimizedWindows = ["MCS"] };
+
+        Assert.Null(new ScopeGuard(ObserveScope.Process).Check(minimised).Unobserved);
+    }
+
+    [Fact]
     public void Guard_Unavailable_NoForeground_IsUnobserved()
     {
         var observation = ScopeGuard.Unavailable(ObservationService.ScopeAvailability.NoForeground, null);

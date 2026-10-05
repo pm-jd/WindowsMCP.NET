@@ -114,7 +114,8 @@ Rules behind the table:
 
 - **Nothing was observed** (`Observation.Unobserved`, set by the tool — §1.3): every condition is `unknown` with that reason.
 - **The observation ran out of time** (`Observation.BudgetExceeded`): windows reached after the budget are missing and nodes left without a hit-test are listed although they may be hidden. Every element and text condition is `unknown`; a window condition is answered only when a window matches.
-- **A selector's single match is only "the" element when the list is complete:** with a cut list or an unreadable window, a state or value check by selector is `unknown` (a second match cannot be ruled out); `exists`/`absent` and checks by id are not affected.
+- **Minimised windows** (`Observation.MinimizedWindows`, measured on Windows 11: a minimised window has no rectangle and is not in the window list): a window condition matches them — `open` passes ("open, minimised"; with `modal` it is `unknown`), `closed` fails. Their elements and texts are not observed, so a minimised window in scope makes "not found" unproven, like an unreadable one.
+- **A selector's single match is only "the" element when the list is complete:** with a cut list or an unreadable or minimised window, a state or value check by selector is `unknown` (a second match cannot be ruled out); `exists`/`absent` and checks by id are not affected.
 
 - **Not found, list complete** → `fail` for every state except `absent` (the expectation was about an element that is not there).
 - **"List is cut"** means `Observation.Omitted > 0` or `Observation.Truncated`.

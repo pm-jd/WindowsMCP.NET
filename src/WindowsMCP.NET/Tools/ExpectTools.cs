@@ -34,8 +34,9 @@ public static class ExpectTools
                  "optional \"value\":\"...\" (equals, case-sensitive) or \"value_contains\":\"...\" (case-sensitive), combinable with every state except absent); " +
                  "text — {\"text\":\"finished\"} (a static text — label, group or header caption, not a button caption or field value — contains it, ignoring case). " +
                  "Names, panels and window titles compare case-insensitively; \"match\":\"exact\" (default) | \"contains\" per condition. " +
+                 "A minimised window counts as open, but its content is not observed. " +
                  "Each condition is answered pass, fail or unknown. unknown means the observation proves neither: it ran out of time, the element list is cut, " +
-                 "a window is unreadable, several elements fit the selector or a second match cannot be ruled out (narrow it with panel/in_window or use an id), " +
+                 "a window is unreadable or minimised, several elements fit the selector or a second match cannot be ruled out (narrow it with panel/in_window or use an id), " +
                  "the control does not report the state (docking TabItems never report 'selected' — check an element inside the panel instead), " +
                  "it is a password field, the id is unknown or belongs to an application outside the scope, or another application took the foreground during the wait. " +
                  "Overall: pass when all pass, fail when one fails, otherwise unknown. fail and unknown are results, not errors. " +
@@ -148,9 +149,15 @@ internal sealed class ScopeGuard(ObserveScope scope)
 
     public Observation Check(Observation observation)
     {
-        // Every window gone or zero-sized between the scope check and the walk.
         if (observation.Windows.Count == 0)
-            return observation with { Unobserved = "no window was observed" };
+        {
+            // Only minimised windows: the application is there, its content just is not observed.
+            // Otherwise every window went away or is zero-sized between the scope check and the walk.
+            return observation.MinimizedWindows.Count > 0
+                ? observation
+                : observation with { Unobserved = "no window was observed" };
+        }
+
         if (scope != ObserveScope.Foreground)
             return observation;
 
