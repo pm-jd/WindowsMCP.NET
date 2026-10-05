@@ -61,10 +61,24 @@ public class ObserveToolsTests
     {
         var result = ToolHelpers.TextResult("## Main  (app, pid 1)");
 
-        ObserveTools.AppendScreenshot(result, () => [0xFF, 0xD8, 0xFF, 0xD9]);
+        ObserveTools.AppendScreenshot(result, () => ([0xFF, 0xD8, 0xFF, 0xD9], null));
 
         Assert.Equal(2, result.Content.Count);
         Assert.Equal("image/jpeg", Assert.IsType<ImageContentBlock>(result.Content[1]).MimeType);
+    }
+
+    [Fact]
+    public void AppendScreenshot_CompositedCapture_AddsTheNoteAfterTheJpeg()
+    {
+        // Session without a display: the picture is assembled from the windows and the caller has to know that.
+        var result = ToolHelpers.TextResult("## Main  (app, pid 1)");
+
+        ObserveTools.AppendScreenshot(result, () => ([0xFF, 0xD8, 0xFF, 0xD9], "Composited screenshot: 2 windows"));
+
+        Assert.Equal(3, result.Content.Count);
+        Assert.IsType<ImageContentBlock>(result.Content[1]);
+        Assert.Equal("Composited screenshot: 2 windows", Assert.IsType<TextContentBlock>(result.Content[2]).Text);
+        Assert.NotEqual(true, result.IsError);
     }
 
     [Fact]

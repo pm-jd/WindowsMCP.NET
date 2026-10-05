@@ -12,6 +12,9 @@ public sealed record ScreenCapture(byte[] Png, string? Note);
 
 public sealed class ScreenCaptureService
 {
+    /// <summary>ERROR_INVALID_HANDLE: what the GDI screen copy fails with when the session has no display.</summary>
+    internal const int ErrorInvalidHandle = 6;
+
     private readonly Func<Rectangle, Bitmap> _grabScreen;
     private readonly Func<Rectangle, CompositeCapture> _composeWindows;
 
@@ -41,10 +44,11 @@ public sealed class ScreenCaptureService
 
     /// <summary>Captures <paramref name="region"/> of the screen via GDI, downscales it (HighQualityBicubic)
     /// to fit within <paramref name="maxEdge"/> on its longest side, and encodes it as JPEG at
-    /// <paramref name="quality"/> (0-100). Used by the Observe tool's optional screenshot.</summary>
-    public byte[] CaptureRegionJpeg(Rectangle region, int maxEdge = 1568, long quality = 80)
+    /// <paramref name="quality"/> (0-100). Used by the Observe tool's optional screenshot.
+    /// <paramref name="note"/> is set when the image was composed from the windows, see <see cref="CaptureBitmap"/>.</summary>
+    public byte[] CaptureRegionJpeg(Rectangle region, out string? note, int maxEdge = 1568, long quality = 80)
     {
-        using var captured = CaptureBitmap(region, out _);
+        using var captured = CaptureBitmap(region, out note);
 
         var targetSize = ScaleToFit(region.Size, maxEdge);
         using var resized = targetSize == region.Size ? null : Resize(captured, targetSize);
@@ -94,8 +98,9 @@ public sealed class ScreenCaptureService
     }
 
     /// <summary>Copies <paramref name="bounds"/> from the screen. Only the "no display" failure of the GDI copy
-    /// (<see cref="Win32Exception"/>, "The handle is invalid": RDP disconnected or its client minimized) switches to
-    /// composing the windows; anything else still fails, so real errors are not papered over with a partial picture.
+    /// (<see cref="Win32Exception"/> with ERROR_INVALID_HANDLE, "The handle is invalid": RDP disconnected or its
+    /// client minimized) switches to composing the windows; anything else — other Win32 errors included — still
+    /// fails, so real errors are not papered over with a partial picture.
     /// <paramref name="note"/> is null for a normal screen copy. The caller owns the returned bitmap.</summary>
     internal Bitmap CaptureBitmap(Rectangle bounds, out string? note)
     {
@@ -105,7 +110,7 @@ public sealed class ScreenCaptureService
             note = null;
             return screen;
         }
-        catch (Win32Exception noDisplay)
+        catch (Win32Exception noDisplay) when (noDisplay.NativeErrorCode == ErrorInvalidHandle)
         {
             var composite = _composeWindows(bounds);
             if (composite.WindowCount == 0)
@@ -124,8 +129,8 @@ public sealed class ScreenCaptureService
     internal static string CompositedNote(int windowCount, Size size) =>
         "Composited screenshot: this session has no display (RDP disconnected or the RDP window minimized), so " +
         $"the image was assembled from {windowCount} windows rendered one by one. Minimized windows are missing, and " +
-        "parts that do not repaint without a display (e.g. the taskbar clock) can show an older state; the layout " +
-        $"is that of the session's current {size.Width}x{size.Height} screen.";
+        "parts that do not repaint without a display (e.g. the taskbar clock) can show an older state; the window " +
+        $"positions are those of the session's current screen, of which this image covers {size.Width}x{size.Height}.";
 
     private static Bitmap GrabScreen(Rectangle bounds)
     {

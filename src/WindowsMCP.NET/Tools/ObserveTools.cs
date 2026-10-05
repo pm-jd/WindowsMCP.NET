@@ -49,7 +49,7 @@ public static class ObserveTools
             {
                 var region = ScreenshotRegion(result.Windows);
                 if (!region.IsEmpty)
-                    AppendScreenshot(toolResult, () => capture.CaptureRegionJpeg(region));
+                    AppendScreenshot(toolResult, () => (capture.CaptureRegionJpeg(region, out var note), note));
             }
 
             return toolResult;
@@ -61,13 +61,17 @@ public static class ObserveTools
     }
 
     /// <summary>Adds the screenshot to an observation that is already complete. The capture can fail
-    /// without anything being wrong with the UI state (a minimized or disconnected RDP session has no
-    /// desktop to copy from), so a failure is reported in a text block instead of failing Observe.</summary>
-    internal static void AppendScreenshot(CallToolResult toolResult, Func<byte[]> captureJpeg)
+    /// without anything being wrong with the UI state, so a failure is reported in a text block instead
+    /// of failing Observe. A picture composed from the windows (session without a display) is followed
+    /// by the note saying so.</summary>
+    internal static void AppendScreenshot(CallToolResult toolResult, Func<(byte[] Jpeg, string? Note)> captureJpeg)
     {
         try
         {
-            toolResult.Content.Add(ImageContentBlock.FromBytes(captureJpeg(), "image/jpeg"));
+            var (jpeg, note) = captureJpeg();
+            toolResult.Content.Add(ImageContentBlock.FromBytes(jpeg, "image/jpeg"));
+            if (note is not null)
+                toolResult.Content.Add(new TextContentBlock { Text = note });
         }
         catch (Exception ex)
         {

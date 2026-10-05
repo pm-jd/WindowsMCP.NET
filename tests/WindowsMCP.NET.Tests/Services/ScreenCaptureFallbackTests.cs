@@ -12,7 +12,8 @@ namespace WindowsMcpNet.Tests.Services;
 /// </summary>
 public class ScreenCaptureFallbackTests
 {
-    private const int ErrorInvalidHandle = 6;
+    private const int ErrorInvalidHandle = ScreenCaptureService.ErrorInvalidHandle;
+    private const int ErrorAccessDenied = 5;
 
     [Fact]
     public void CaptureBitmap_UsesTheScreenWhenTheSessionHasADisplay()
@@ -56,6 +57,21 @@ public class ScreenCaptureFallbackTests
         var ex = Assert.Throws<InvalidOperationException>(() => service.CaptureBitmap(new Rectangle(0, 0, 8, 8), out _));
 
         Assert.Contains("no display", ex.Message);
+    }
+
+    [Fact]
+    public void CaptureBitmap_OtherWin32FailuresAreNotHiddenByTheFallback()
+    {
+        // Only "The handle is invalid" means "no display"; a composite labelled "RDP disconnected" would be wrong here.
+        var composed = false;
+        var service = new ScreenCaptureService(
+            _ => throw new Win32Exception(ErrorAccessDenied),
+            r => { composed = true; return new CompositeCapture(new Bitmap(r.Width, r.Height), 1); });
+
+        var ex = Assert.Throws<Win32Exception>(() => service.CaptureBitmap(new Rectangle(0, 0, 8, 8), out _));
+
+        Assert.Equal(ErrorAccessDenied, ex.NativeErrorCode);
+        Assert.False(composed);
     }
 
     [Fact]
