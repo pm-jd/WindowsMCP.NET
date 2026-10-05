@@ -41,6 +41,11 @@ public sealed record ObservedElement(string Id, string Type, string Name, string
     /// <summary>True when the element is NOT in the bottom-most (main) window of its process in that
     /// observation — a popup, menu or dialog. Ids of transient elements die with their window.</summary>
     public bool Transient { get; init; }
+
+    /// <summary>The element is a password field: its value is never collected, so a missing
+    /// <see cref="Value"/> says nothing about its content (Expect answers a value condition on it with
+    /// unknown). Not emitted by Observe and not part of the signature.</summary>
+    public bool Password { get; init; }
 }
 
 /// <summary>Timing breakdown for one Observe call, in milliseconds.</summary>

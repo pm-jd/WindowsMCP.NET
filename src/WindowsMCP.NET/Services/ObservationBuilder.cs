@@ -122,6 +122,7 @@ public static class ObservationBuilder
             {
                 WindowHandle = window.Handle,
                 Transient = mainWindowByPid[window.Pid] != node.Window,
+                Password = node.Password,
             };
             elements.Add(element);
 
