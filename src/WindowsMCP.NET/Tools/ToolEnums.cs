@@ -67,3 +67,18 @@ public enum ObserveScope { Foreground, Process, Desktop }
 
 [JsonConverter(typeof(SnakeCaseEnumConverter<ActionMethod>))]
 public enum ActionMethod { Auto, Pattern, Mouse }
+
+/// <summary>What an Expect element condition asserts; every state has its explicit opposite.</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<ExpectState>))]
+public enum ExpectState { Exists, Absent, Enabled, Disabled, Selected, NotSelected, Checked, Unchecked, Expanded, Collapsed }
+
+[JsonConverter(typeof(SnakeCaseEnumConverter<ExpectWindowState>))]
+public enum ExpectWindowState { Open, Closed }
+
+/// <summary>How an Expect condition compares names, panels and window titles (always case-insensitive).</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<ExpectMatch>))]
+public enum ExpectMatch { Exact, Contains }
+
+/// <summary>Outcome of an Expect condition: <c>Unknown</c> when the observation proves neither.</summary>
+[JsonConverter(typeof(SnakeCaseEnumConverter<ExpectResult>))]
+public enum ExpectResult { Pass, Fail, Unknown }
