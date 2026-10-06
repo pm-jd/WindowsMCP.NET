@@ -20,6 +20,7 @@ public class McpServerSetupTests(McpToolsFixture fixture)
     {
         Assert.Contains("Context", McpServerSetup.Instructions);
         Assert.Contains("Perform", McpServerSetup.Instructions);
+        Assert.Contains("Expect", McpServerSetup.Instructions);
         Assert.Contains("ensure", McpServerSetup.Instructions);
         Assert.Contains("[ERROR]", McpServerSetup.Instructions);
     }
@@ -29,10 +30,11 @@ public class McpServerSetupTests(McpToolsFixture fixture)
     {
         var tools = fixture.Tools.Keys.OrderBy(n => n).ToList();
 
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(22, tools.Count);
         Assert.Contains("Context", tools);
         Assert.Contains("Perform", tools);
         Assert.Contains("PowerShell", tools);
         Assert.Contains("Observe", tools);
+        Assert.Contains("Expect", tools);
     }
 }

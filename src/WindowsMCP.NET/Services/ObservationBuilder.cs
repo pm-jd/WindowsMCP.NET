@@ -19,7 +19,9 @@ public static class ObservationBuilder
     // keyed as -1 (node.Index is always >= 0, so -1 can't collide with a real parent index).
     private const int NoParent = -1;
 
-    private static readonly HashSet<string> ActionableTypes = new(StringComparer.Ordinal)
+    /// <summary>The control types an observation lists as elements. Internal for Expect: a condition on
+    /// any other type could never match, so its parser rejects it instead of answering "absent".</summary>
+    internal static readonly HashSet<string> ActionableTypes = new(StringComparer.Ordinal)
     {
         "Button", "SplitButton", "CheckBox", "RadioButton", "ComboBox", "Edit", "Document", "Spinner",
         "Slider", "Hyperlink", "MenuItem", "TabItem", "ListItem", "TreeItem", "DataItem", "HeaderItem"
@@ -122,6 +124,9 @@ public static class ObservationBuilder
             {
                 WindowHandle = window.Handle,
                 Transient = mainWindowByPid[window.Pid] != node.Window,
+                Password = node.Password,
+                ValueReported = node.ValueReported,
+                SelectionReported = node.SelectionReported,
             };
             elements.Add(element);
 
@@ -155,6 +160,7 @@ public static class ObservationBuilder
         return new Observation(windows, focusId, elements, texts, signature, truncated, timings)
         {
             Omitted = ordered.Count - trimmed.Count,
+            BudgetExceeded = budgetExceeded,
         };
     }
 

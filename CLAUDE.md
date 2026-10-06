@@ -1,6 +1,6 @@
 # WindowsMCP.NET
 
-Windows desktop automation MCP server for Claude Code. Provides 21 tools for UI automation, file system operations, and system management on remote Windows machines.
+Windows desktop automation MCP server for Claude Code. Provides 22 tools for UI automation, file system operations, and system management on remote Windows machines.
 
 ## Build & Test
 
@@ -8,7 +8,7 @@ Windows desktop automation MCP server for Claude Code. Provides 21 tools for UI 
 # Build (use Release — Debug exe may be locked by running instance)
 dotnet build src/WindowsMCP.NET -c Release
 
-# Unit tests (617 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
+# Unit tests (841 tests). Test projects run on Microsoft.Testing.Platform (xunit v3, see global.json);
 # filter with --filter-trait / --filter-not-trait "Category=..." instead of the old --filter syntax.
 dotnet test tests/WindowsMCP.NET.Tests -c Release -v q
 
@@ -42,12 +42,13 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
   - reads before the action fail as `ElementNotFoundException` with nothing done; no read after an action (read-back, rect, focus, hit-test, signature) may turn the executed action into an error
 - **Cancellation & progress**: async tools take a `CancellationToken` (bound to the client's request; PowerShell/Notification kill their child process on cancel); `Perform` reports one progress notification per step via `IProgress<ProgressNotificationValue>`
 
-## Tools (21)
+## Tools (22)
 
 | Tool | Purpose |
 |------|---------|
 | **Context** | Get system state (active window, screenshot, UI tree, clipboard, processes) |
 | **Observe** | Compact state of the foreground app (windows, focus, actionable elements with stable ids, optional JPEG) for precise interaction. Values ≤ 200 chars, names/texts ≤ 120 (`…(+n chars)`), ≤ 80 texts; password values are never collected; a failed screenshot is reported in a text block, not as an error. Never silently empty: a window that does not answer UI Automation is listed as `unreadable` (Win32 title/rect, no elements) with a one-line explanation, and the screenshot is still returned. When `max_elements` (default 300, clamped 10–500) cuts the list, the footer says `truncated: N more elements (max_elements=300)`; JSON `"omitted": N` |
+| **Expect** | Check conditions on the observed state with fixed rules, no model: window open/closed (modal), element exists/absent/enabled/disabled/selected/not_selected/checked/unchecked/expanded/collapsed and `value`/`value_contains`, static text. Answers `pass`/`fail`/`unknown` per condition; `timeout_ms` (≤ 30 s) waits until all pass. `fail`/`unknown` are results, not errors |
 | **Perform** | Execute batched UI action chains (click, type, shortcut, scroll, move, wait); click/type steps accept `element` ids (rejected on other steps), report `effect`, stop after 3 element steps without visible change |
 | **Snapshot** | Capture screenshot + build UI element tree with numbered labels |
 | **Screenshot** | Fast screenshot without rebuilding UI tree |
@@ -71,6 +72,7 @@ dotnet publish src/WindowsMCP.NET -c Release -r win-x64 -p:GitHubPat=<token> -o 
 ## Key Patterns
 
 - **Observe → act by element id**: `Observe` returns stable ids; pass them as `element` to Click/Type/Perform (click and type steps)/MultiSelect/MultiEdit. Actions use a UIA pattern or the mouse/keyboard (buttons, links and plain menu items are clicked with the mouse when that is safe — see "Verified element actions") and report `effect` (changed/unchanged/value_verified/value_mismatch/not_verified). `Perform` stops after 3 element steps without visible change (`stop_on_stall`).
+- **Expect answers only what the observation proves** (`ExpectationParser` → `ExpectationEvaluator` → `ExpectationFormatter`, all pure; `ExpectTools.RunAsync` is the wait loop with injected clock and pause): a condition is `pass` or `fail` only when one observation (taken with `max_elements=500`) proves it, otherwise `unknown` with the reason — the collection ran out of its time budget (`Observation.BudgetExceeded`: listed nodes may be hidden, windows may be missing — all element/text conditions unknown, windows only answered when one matches); nothing found while the element list is cut (`Omitted`/`Truncated`) or a window is `unreadable` or minimised (`Observation.MinimizedWindows` — a minimised window has no rectangle and is not in the window list; a window condition still finds it: open → pass, closed → fail), and then also a selector's single match (a second one cannot be ruled out; ids are not affected); several elements fit the selector (except `exists` → pass, `absent` → fail); `selected=false` from a `TabItem` (docking tabs never report their selection) or from a control that did not answer `IsSelected` (`ObservedElement.SelectionReported`); no toggle/expand state reported; a value check on a password field (`Password`) or on a control that did not answer the Value property (`ValueReported` — an empty field that did answer counts as `""`); an element id the store does not know or whose application is outside the scope. Element ids are resolved through `ObservationStore.Find` and matched by locator + window, never as strings. The `type` of a selector must be one of the types an observation lists (`ObservationBuilder.ActionableTypes`) — any other could never match and is rejected. `ScopeGuard` keeps a call on what it was asked about: `scope=foreground` pins the first application observed (another one in front → `Observation.Unobserved`, everything unknown, the wait goes on); `ObservationService.CheckScope` is asked before every observation, so nothing in scope is a state and not an error — no foreground window → unknown, `scope=process` without a visible window → a complete empty observation (`closed`/`absent` pass: wait for an application to start or exit). Only the last observation of a call is remembered in the store. Names, panels and window titles compare case-insensitively (`match`: exact|contains), values case-sensitively. Overall: all pass → pass, any fail → fail, else unknown. Waiting ends only on overall pass, the time limit or cancellation — a fail may still become a pass; invalid conditions are an `[ERROR]` naming the 1-based condition index
 - **Element ids have window affinity**: an id resolves only in the window it was observed in while that window exists; ids of transient windows (popup, menu, dialog) die with their window, main-window ids fall back to same-class windows of the process name. **Ids are stable while the application runs**; whether they survive a restart depends on the application: the locator keys on AutomationId (else Name), and WinForms reports a control's window handle as its AutomationId, which changes with every start (measured on MCS: 94 of 97 main-window ids differ after a restart; its dialogs expose real AutomationIds/names and keep theirs). Kept on purpose — the handle identifies the control instance exactly, positional indexes would shift whenever a sibling pane appears. Identical locators in one observation (two same-class windows) get ids derived from locator + window handle. `ObservationStore` keeps `StoredElement(Locator, WindowHandle, Transient)`; `ObservationService.FindLive` returns the element with the hwnd it was found in
 - **Observation content rules** (`ObservationBuilder`/`ObservationFormatter`, pure and unit-tested): input types (Edit, ComboBox, Spinner, Slider, Document) are emitted even when unnamed and empty; markdown is strictly one line per element (`\r`/`\n`/`\t` escaped); display truncation never affects the signature (full value); a window without elements keeps its markdown heading unless it is untitled, not foreground and readable (menu helper windows)
 - **One copy per element**: WinForms lists the items of an open drop-down (and the controls of an owned dialog) under the main window too. A main-window node whose centre lies in another top-level window is not hit-visible (`ObservationService.ClassifyHit`: Win32 pre-check via `Native/WindowHit` — `GetAncestor(WindowFromPoint, GA_ROOT)` — before UIA's `FromPoint`), so only the copy in the popup's/dialog's own window block is listed. The node carries the reason (`ObservedNode.InOtherWindow`): the builder's exemption that keeps a `TabItem` under a visible `Tab` although UIA's hit-test missed it (docking tabs) does not apply to a tab item drawn in another window. `WindowHit` is the single definition of "the window at a point", shared with `FlaUiActionTarget.OwnsPoint`
@@ -92,9 +94,10 @@ src/WindowsMCP.NET/
   Tools/           # MCP tool implementations (static classes)
   Services/        # Singletons: DesktopService, ScreenCaptureService, UiTreeService, UiAutomationService,
                    # ObservationService (UIA collection, live resolution), ObservationBuilder (pure filter/ids/signature), ObservationStore (id lookup),
+                   # ExpectationParser/Evaluator/Formatter (Expect: pure rules over an Observation),
                    # ActionExecutor + ActionGuards (verified pattern/mouse actions, input guards), FlaUiActionTarget/PatternCall (live element, time-limited pattern calls)
   Native/          # P/Invoke: User32, Kernel32; InputFactory (shared SendInput builders, text→keystrokes); WindowHit (the window at a screen point)
-  Models/          # WindowInfo, UiElementNode, AnnotatedTree, Observation, ObservedNode, ElementLocator
+  Models/          # WindowInfo, UiElementNode, AnnotatedTree, Observation, ObservedNode, ElementLocator, Expectation
   Config/          # AppConfig, CliParser, ConfigManager
   Setup/           # TrayIcon, UpdateChecker, CertificateGenerator, SetupWizard
   Security/        # ApiKeyMiddleware, IpAllowlist (CIDR/IPv6), IpAllowlistMiddleware

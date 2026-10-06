@@ -51,6 +51,13 @@ public sealed class ObservationStore
         }
     }
 
+    /// <summary>The stored element for an id, or null when no retained observation contains it.</summary>
+    public StoredElement? Find(string id)
+    {
+        lock (_lock)
+            return _lookup.GetValueOrDefault(id);
+    }
+
     public StoredElement Get(string id)
     {
         lock (_lock)

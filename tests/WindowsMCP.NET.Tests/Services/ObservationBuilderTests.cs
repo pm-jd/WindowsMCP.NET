@@ -576,6 +576,7 @@ public class ObservationBuilderTests
 
         var element = Assert.Single(withSecret.Elements);
         Assert.Null(element.Value);
+        Assert.True(element.Password); // a missing value says nothing about this field (Expect: unknown)
         Assert.Equal(Build("another secret").Signature, withSecret.Signature);
         Assert.Equal(Build(null).Signature, withSecret.Signature);
     }
