@@ -138,6 +138,64 @@ public class WindowCompositorTests
         AssertRgb(Color.Green, result.GetPixel(5, 5));
     }
 
+    [Fact]
+    public void TryRenderWithin_ReturnsTheImageOfAWindowThatAnswers()
+    {
+        using var expected = new Bitmap(2, 2);
+
+        var returned = WindowCompositor.TryRenderWithin(() => expected, TimeSpan.FromSeconds(30), out var image);
+
+        Assert.True(returned);
+        Assert.Same(expected, image);
+    }
+
+    [Fact]
+    public void TryRenderWithin_AWindowThatRefuses_ReturnedWithoutAnImage()
+    {
+        // PrintWindow returned false: that is an answer, not a window that is still busy.
+        var returned = WindowCompositor.TryRenderWithin(() => null, TimeSpan.FromSeconds(30), out var image);
+
+        Assert.True(returned);
+        Assert.Null(image);
+    }
+
+    [Fact]
+    public void TryRenderWithin_AWindowThatDoesNotAnswer_IsGivenUp_AndItsLateImageIsDisposed()
+    {
+        // PrintWindow waits for a window that does not process messages; the call cannot be cancelled.
+        using var release = new ManualResetEventSlim();
+        var late = new Bitmap(2, 2);
+
+        var returned = WindowCompositor.TryRenderWithin(
+            () => { release.Wait(); return late; }, TimeSpan.FromMilliseconds(50), out var image);
+
+        Assert.False(returned);
+        Assert.Null(image);
+
+        release.Set();
+        Assert.True(SpinWait.SpinUntil(() => IsDisposed(late), TimeSpan.FromSeconds(30)));
+    }
+
+    [Fact]
+    public void TryRenderWithin_AFailureInTime_IsNotSwallowed()
+    {
+        Assert.Throws<InvalidOperationException>(() => WindowCompositor.TryRenderWithin(
+            () => throw new InvalidOperationException("render failed"), TimeSpan.FromSeconds(30), out _));
+    }
+
+    private static bool IsDisposed(Bitmap bitmap)
+    {
+        try
+        {
+            _ = bitmap.Width;
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
+
     private static Bitmap Filled(int width, int height, Color color, PixelFormat format)
     {
         var bitmap = new Bitmap(width, height, format);

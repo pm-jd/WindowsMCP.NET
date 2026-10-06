@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using WindowsMcpNet.Native;
 
@@ -22,11 +23,13 @@ internal readonly record struct WindowCandidate(
 /// channel paints opaque; a premultiplied-alpha image is blended over what lies below.</summary>
 internal sealed record WindowLayer(Rectangle Bounds, Bitmap Image);
 
-/// <summary>A composited screenshot and the number of windows that went into it. Owns <see cref="Image"/>.</summary>
-internal sealed class CompositeCapture(Bitmap image, int windowCount) : IDisposable
+/// <summary>A composited screenshot, the number of windows that went into it and the number left out because
+/// they did not answer within <see cref="WindowCompositor.RenderLimit"/>. Owns <see cref="Image"/>.</summary>
+internal sealed class CompositeCapture(Bitmap image, int windowCount, int unansweredCount = 0) : IDisposable
 {
     public Bitmap Image { get; } = image;
     public int WindowCount { get; } = windowCount;
+    public int UnansweredCount { get; } = unansweredCount;
     public void Dispose() => Image.Dispose();
 }
 
@@ -40,6 +43,55 @@ internal sealed class CompositeCapture(Bitmap image, int windowCount) : IDisposa
 /// </summary>
 internal static class WindowCompositor
 {
+    /// <summary>Limit for rendering one window. PrintWindow waits for a window that does not process messages,
+    /// and <see cref="User32.IsHungAppWindow"/> reports it only after about 5 s — measured on GuiTestServer
+    /// (2026-10-05): a window blocking for 3 s at a time made the screenshot take 3 s. A window that answers
+    /// took about 0.25 s there.</summary>
+    internal static readonly TimeSpan RenderLimit = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Runs <paramref name="render"/> on a pool thread and waits at most <paramref name="limit"/> for it (the
+    /// way <see cref="PatternCall"/> limits a UIA call). True with the image (null when the window refused)
+    /// when it returned in time; an exception it threw in time is rethrown. False when it has not returned:
+    /// the call cannot be cancelled, so it is left running and its image is disposed when it arrives.
+    /// </summary>
+    internal static bool TryRenderWithin(Func<Bitmap?> render, TimeSpan limit, out Bitmap? image)
+    {
+        var task = Task.Run(render);
+
+        bool returned;
+        try
+        {
+            returned = task.Wait(limit);
+        }
+        catch (AggregateException ex) when (ex.InnerException is not null)
+        {
+            ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+            throw;
+        }
+
+        if (returned)
+        {
+            image = task.Result;
+            return true;
+        }
+
+        _ = task.ContinueWith(
+            static t =>
+            {
+                if (t.IsCompletedSuccessfully)
+                    t.Result?.Dispose();
+                else
+                    _ = t.Exception;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        image = null;
+        return false;
+    }
+
     /// <summary>The windows to paint, bottom to top (EnumWindows lists the topmost first).</summary>
     internal static List<WindowCandidate> SelectLayers(IEnumerable<WindowCandidate> topToBottom, Rectangle canvas)
     {
@@ -86,15 +138,17 @@ internal static class WindowCompositor
     internal static CompositeCapture Capture(Rectangle canvas)
     {
         var rendered = new List<WindowLayer>();
+        var unanswered = 0;
         try
         {
             foreach (var window in SelectLayers(EnumerateTopLevelWindows(), canvas))
             {
-                var image = Render(window);
-                if (image is not null)
+                if (!TryRenderWithin(() => Render(window), RenderLimit, out var image))
+                    unanswered++;
+                else if (image is not null)
                     rendered.Add(new WindowLayer(window.VisibleBounds, image));
             }
-            return new CompositeCapture(Compose(canvas, rendered), rendered.Count);
+            return new CompositeCapture(Compose(canvas, rendered), rendered.Count, unanswered);
         }
         finally
         {

@@ -121,16 +121,20 @@ public sealed class ScreenCaptureService
                     $"rendered instead: {noDisplay.Message}", noDisplay);
             }
 
-            note = CompositedNote(composite.WindowCount, bounds.Size);
+            note = CompositedNote(composite.WindowCount, bounds.Size, composite.UnansweredCount);
             return composite.Image;
         }
     }
 
-    internal static string CompositedNote(int windowCount, Size size) =>
+    internal static string CompositedNote(int windowCount, Size size, int unansweredCount = 0) =>
         "Composited screenshot: this session has no display (RDP disconnected or the RDP window minimized), so " +
         $"the image was assembled from {windowCount} windows rendered one by one. Minimized windows are missing, and " +
         "parts that do not repaint without a display (e.g. the taskbar clock) can show an older state; the window " +
-        $"positions are those of the session's current screen, of which this image covers {size.Width}x{size.Height}.";
+        $"positions are those of the session's current screen, of which this image covers {size.Width}x{size.Height}." +
+        (unansweredCount == 0
+            ? ""
+            : $" {unansweredCount} more window(s) did not answer within " +
+              $"{WindowCompositor.RenderLimit.TotalSeconds:0} s (busy application) and are missing too.");
 
     private static Bitmap GrabScreen(Rectangle bounds)
     {

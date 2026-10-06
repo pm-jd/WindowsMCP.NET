@@ -48,6 +48,23 @@ public class ScreenCaptureFallbackTests
     }
 
     [Fact]
+    public void CaptureBitmap_WindowsThatDidNotAnswerInTime_AreNamedInTheNote()
+    {
+        var service = new ScreenCaptureService(
+            _ => throw new Win32Exception(ErrorInvalidHandle),
+            r => new CompositeCapture(new Bitmap(r.Width, r.Height), 3, unansweredCount: 2));
+
+        using var bitmap = service.CaptureBitmap(new Rectangle(0, 0, 8, 8), out var note);
+
+        Assert.Contains("3 windows", note);
+        Assert.Contains("2 more window(s) did not answer within 1 s", note);
+    }
+
+    [Fact]
+    public void CompositedNote_WhenEveryWindowAnswered_SaysNothingAboutBusyWindows() =>
+        Assert.DoesNotContain("did not answer", ScreenCaptureService.CompositedNote(3, new Size(8, 8)));
+
+    [Fact]
     public void CaptureBitmap_WithoutAnyRenderableWindow_ReportsTheMissingDisplay()
     {
         var service = new ScreenCaptureService(
