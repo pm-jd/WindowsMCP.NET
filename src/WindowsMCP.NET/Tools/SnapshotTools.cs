@@ -89,7 +89,7 @@ public static class SnapshotTools
     }
 
     /// <summary>The screenshot, followed by the composited-capture note when there is one: a picture assembled
-    /// from the windows lacks the wallpaper and minimized windows, and the caller has to know that.</summary>
+    /// from the windows lacks minimized windows and can show stale parts, and the caller has to know that.</summary>
     internal static List<ContentBlock> ImageBlocks(byte[] png, string? note)
     {
         var blocks = new List<ContentBlock> { ImageContentBlock.FromBytes(png, "image/png") };
